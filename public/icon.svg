@@ -1,0 +1,28 @@
+<svg width="192" height="192" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="metreps-logo-bg-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1e2555" />
+      <stop offset="40%" stop-color="#14183d" />
+      <stop offset="100%" stop-color="#080a18" />
+    </linearGradient>
+
+    <linearGradient id="metreps-logo-border-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.15" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.02" />
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="96" height="96" rx="28" fill="url(#metreps-logo-bg-grad)" stroke="url(#metreps-logo-border-grad)" stroke-width="1.5" />
+
+  <g>
+    <rect x="9.7" y="46" width="76.6" height="4" rx="2" fill="#cbd5e1" />
+    <rect x="14" y="31" width="4" height="34" rx="2" fill="#818cf8" />
+    <rect x="20" y="23" width="6" height="50" rx="3" fill="#4f46e5" />
+    <rect x="78" y="31" width="4" height="34" rx="2" fill="#818cf8" />
+    <rect x="70" y="23" width="6" height="50" rx="3" fill="#4f46e5" />
+    <path d="M 31 62 L 31 34 C 31 31.8 32.8 30 35 30 L 35 30 C 37.2 30 39 31.8 39 34 L 39 62" stroke="#ffffff" stroke-width="4" stroke-linecap="round" />
+    <path d="M 57 62 L 57 34 C 57 31.8 58.8 30 61 30 L 61 30 C 63.2 30 65 31.8 65 34 L 65 62" stroke="#ffffff" stroke-width="4" stroke-linecap="round" />
+    <path d="M 39 36 L 48 48 L 57 36" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+    <circle cx="48" cy="60" r="4.5" fill="#818cf8" />
+  </g>
+</svg>

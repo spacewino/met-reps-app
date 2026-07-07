@@ -1,0 +1,88 @@
+{
+  "short_name": "MetReps",
+  "name": "MetReps - Gym Nerd Tracker",
+  "description": "High-precision MET reps counter and custom workout tracking companion.",
+  "id": "com.metreps.app",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "orientation": "portrait",
+  "categories": [
+    "sports",
+    "utilities",
+    "health"
+  ],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot-mobile-1.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "MetReps Workout Tracking Dashboard"
+    },
+    {
+      "src": "/screenshot-mobile-2.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "MetReps Custom Workout Tracker"
+    },
+    {
+      "src": "/screenshot-mobile-3.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "MetReps Active Workout Session"
+    },
+    {
+      "src": "/screenshot-mobile-4.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "MetReps Workout Statistics and History"
+    },
+    {
+      "src": "/screenshot-desktop-1.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "MetReps Main Desktop Dashboard"
+    },
+    {
+      "src": "/screenshot-desktop-2.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "MetReps Custom Workouts on Desktop"
+    },
+    {
+      "src": "/screenshot-desktop-3.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "MetReps Comprehensive Training Logs"
+    },
+    {
+      "src": "/screenshot-desktop-4.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "MetReps Settings and Configuration"
+    }
+  ]
+}
