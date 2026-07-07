@@ -33,20 +33,69 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Only intercept HTTP/HTTPS schemes to prevent chrome-extension or other protocols from failing
-  if (event.request.url.startsWith('http')) {
+  // Only intercept HTTP/HTTPS GET schemes to prevent failures on non-http protocols (like chrome-extension or data URLs)
+  if (event.request.method !== 'GET' || !event.request.url.startsWith('http')) {
+    return;
+  }
+
+  const isNavigation = event.request.mode === 'navigate';
+  const url = new URL(event.request.url);
+  const isCoreConfig = url.pathname === '/manifest.json' || url.pathname === '/sw.js';
+
+  if (isNavigation || isCoreConfig) {
+    // Network-First with Cache Fallback for navigation and core configs
     event.respondWith(
-      caches.match(event.request).then((cachedResponse) => {
-        if (cachedResponse) {
-          return cachedResponse;
-        }
-        return fetch(event.request).catch(() => {
-          // Fallback if network is completely offline and not in cache
-          if (event.request.mode === 'navigate') {
-            return caches.match('/');
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseClone);
+            });
           }
-        });
-      })
+          return response;
+        })
+        .catch(() => {
+          // If network fails (offline), fall back to cached page
+          return caches.match(isNavigation ? '/' : event.request)
+            .then((cachedResponse) => {
+              if (cachedResponse) {
+                return cachedResponse;
+              }
+              // If no cache match, let the fetch fail naturally rather than throwing a SW crash error
+              return fetch(event.request);
+            });
+        })
+    );
+  } else {
+    // Cache-First with Network Fallback for static assets
+    event.respondWith(
+      caches.match(event.request)
+        .then((cachedResponse) => {
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+          // Fetch from network if not in cache
+          return fetch(event.request)
+            .then((response) => {
+              if (response && response.status === 200) {
+                const responseClone = response.clone();
+                caches.open(CACHE_NAME).then((cache) => {
+                  cache.put(event.request, responseClone);
+                });
+              }
+              return response;
+            })
+            .catch((err) => {
+              console.warn('Service Worker static fetch failed for:', event.request.url, err);
+              // Fallback: let the browser handle it or try to fetch again without interception
+              return fetch(event.request);
+            });
+        })
+        .catch((err) => {
+          console.error('Service Worker cache match error:', err);
+          return fetch(event.request);
+        })
     );
   }
 });
