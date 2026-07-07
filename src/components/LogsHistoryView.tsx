@@ -8,6 +8,7 @@ import { Calendar, Trash2, Dumbbell, Clock, ChevronDown, ChevronUp, MessageSquar
 import { WorkoutLog } from '../types';
 import { storage } from '../lib/storage';
 import { ConfirmationModal } from './ConfirmationModal';
+import { classifyWorkout } from '../lib/workoutClassifier';
 
 // Helper to calculate the report-card Grade of a workout log based on its intensity relative to personal records.
 function calculateWorkoutGrade(log: WorkoutLog, allLogs: WorkoutLog[], userBodyweight: number | null) {
@@ -240,6 +241,9 @@ export function LogsHistoryView({ workoutLogs, onRefresh }: LogsHistoryViewProps
         <div className="space-y-3">
           {sortedLogs.map(log => {
             const isExpanded = expandedLogId === log.id;
+            const classification = classifyWorkout(log, workoutLogs, userBodyweight);
+            const { category, categoryDesc, color, flags, fatigueScore, stats } = classification;
+
             return (
               <div
                 key={log.id}
@@ -269,30 +273,28 @@ export function LogsHistoryView({ workoutLogs, onRefresh }: LogsHistoryViewProps
                           {log.durationMinutes} mins
                         </span>
                       )}
-                      <span className="flex items-center gap-1.5 ml-1">
-                        <span className="flex items-center gap-1 font-bold text-slate-400">
-                          <Award className="w-4 h-4 text-indigo-400" />
-                          Grade:
-                        </span>
-                        {(() => {
-                          const { grade, color } = calculateWorkoutGrade(log, workoutLogs, userBodyweight);
-                          return (
-                            <span className={`inline-flex items-center justify-center w-6.5 h-6.5 rounded-full border text-[11px] font-black text-center ${color} flex-shrink-0 shadow-sm leading-none`}>
-                              {grade}
-                            </span>
-                          );
-                        })()}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowGradeInfo(true);
-                          }}
-                          className="p-1 hover:bg-slate-800 text-slate-500 hover:text-indigo-400 rounded-full transition flex items-center justify-center"
-                          title="How is this grade calculated?"
-                        >
-                          <Info className="w-3.5 h-3.5" />
-                        </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowGradeInfo(true);
+                        }}
+                        className="p-1 hover:bg-slate-800 text-slate-500 hover:text-indigo-400 rounded-full transition flex items-center justify-center ml-auto"
+                        title="How are categories and flags calculated?"
+                      >
+                        <Info className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Third line showing computed Category and Flags */}
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2 font-sans">
+                      <span className={`inline-flex items-center px-2 py-0.5 border text-[9px] font-black uppercase tracking-wider ${color}`}>
+                        {category}
                       </span>
+                      {flags.map((flag, idx) => (
+                        <span key={idx} className="text-[8px] font-mono font-black text-indigo-400 bg-indigo-950/40 border border-indigo-500/15 px-1.5 py-0.2 uppercase tracking-wide">
+                          {flag}
+                        </span>
+                      ))}
                     </div>
                   </div>
 
@@ -313,28 +315,46 @@ export function LogsHistoryView({ workoutLogs, onRefresh }: LogsHistoryViewProps
                 {/* Log Row Body Expanded */}
                 {isExpanded && (
                   <div className="px-4 pb-4 pt-2 border-t border-slate-850/60 bg-slate-950/40 space-y-4">
-                    {/* Session Grade Analysis */}
-                    {(() => {
-                      const { grade, label, desc, score, color } = calculateWorkoutGrade(log, workoutLogs, userBodyweight);
-                      return (
-                        <div className={`p-3 border rounded-none flex items-start gap-3 mt-1.5 ${color}`}>
-                          <Award className="w-5 h-5 shrink-0 mt-0.5" />
-                          <div className="space-y-0.5 min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-black uppercase tracking-wider font-sans">
-                                Session Rating: Grade {grade} ({score}%)
-                              </span>
-                              <span className="text-[9px] font-bold font-mono uppercase tracking-widest opacity-80">
-                                {label}
-                              </span>
-                            </div>
-                            <p className="text-[11px] leading-relaxed opacity-90 font-sans">
-                              {desc}
-                            </p>
-                          </div>
+                    {/* Session Training Category Analysis */}
+                    <div className={`p-4 border rounded-none flex items-start gap-3 mt-1.5 ${color}`}>
+                      <Award className="w-5 h-5 shrink-0 mt-0.5" />
+                      <div className="space-y-1.5 min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="text-xs font-black uppercase tracking-wider font-sans">
+                            Session Classification: {category}
+                          </span>
+                          <span className="text-[10px] font-bold font-mono uppercase bg-slate-950/60 px-1.5 py-0.5 border border-slate-850 opacity-90">
+                            Performance Index: {classification.performanceIndex}%
+                          </span>
                         </div>
-                      );
-                    })()}
+                        <p className="text-[11px] leading-relaxed text-slate-300 font-sans">
+                          {categoryDesc}
+                        </p>
+                        {flags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 pt-1 border-t border-slate-800/30">
+                            {flags.map((flag, idx) => {
+                              let flagColor = 'text-indigo-400 border-indigo-500/15 bg-indigo-950/40';
+                              if (flag === 'Deload Recommended') flagColor = 'text-rose-400 border-rose-500/20 bg-rose-950/30';
+                              if (flag === 'Deload Watch') flagColor = 'text-amber-400 border-amber-500/20 bg-amber-950/30';
+                              if (flag === 'PR / Progressive Overload') flagColor = 'text-emerald-400 border-emerald-500/20 bg-emerald-950/30';
+                              
+                              return (
+                                <span key={idx} className={`text-[9px] font-mono font-black border px-1.5 py-0.2 uppercase tracking-wide ${flagColor}`}>
+                                  {flag}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] font-mono text-slate-400 pt-1 border-t border-slate-850/20">
+                          <div>Total Volume: <strong className="text-slate-200">{stats.totalVolume} {log.unit.toUpperCase()}</strong></div>
+                          <div>Average RPE: <strong className="text-slate-200">{stats.avgRpe}</strong></div>
+                          <div>Hard Sets: <strong className="text-slate-200">{stats.hardSets}</strong></div>
+                          <div>Form Breakdown: <strong className="text-slate-200">{stats.looseRate}% loose</strong></div>
+                          <div className="col-span-2">Computed Fatigue Score: <strong className="text-slate-200">{fatigueScore}/10</strong></div>
+                        </div>
+                      </div>
+                    </div>
 
                     {/* Wellness indices */}
                     {log.recovery && (
@@ -459,10 +479,10 @@ export function LogsHistoryView({ workoutLogs, onRefresh }: LogsHistoryViewProps
                 <Award className="w-6 h-6 text-indigo-400 shrink-0" />
                 <div>
                   <h3 className="text-sm sm:text-lg font-black text-white uppercase tracking-wider leading-snug">
-                    How Workout Grades Work
+                    Training Classification System
                   </h3>
                   <p className="text-[10px] sm:text-xs text-indigo-400 font-mono uppercase tracking-widest leading-none mt-1">
-                    Intensity & Form Calculation Math
+                    Rule-Based Athlete Physiology Engine
                   </p>
                 </div>
               </div>
@@ -475,84 +495,80 @@ export function LogsHistoryView({ workoutLogs, onRefresh }: LogsHistoryViewProps
             </div>
 
             {/* Scrollable Content */}
-            <div className="p-6 overflow-y-auto space-y-6 text-[15px] sm:text-[17px] text-slate-300 leading-relaxed scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
+            <div className="p-6 overflow-y-auto space-y-6 text-[14px] sm:text-[15px] text-slate-300 leading-relaxed scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
               <p>
-                Your workout grade is a personalized report card rating designed for progress-oriented training. It is calculated dynamically based on three core pillars:
+                Your workout grading is replaced with an advanced training classification engine. The app evaluates set-level and session-level metrics to assign a training Category and optional advisory Flags.
               </p>
 
-              {/* Pillar 1 */}
-              <div className="space-y-2 bg-slate-950/50 p-4 border border-slate-850">
-                <h4 className="font-bold text-slate-100 flex items-center gap-2 uppercase text-xs sm:text-sm tracking-wide">
-                  <span className="w-2 h-2 rounded-full bg-cyan-400 shrink-0" />
-                  1. Peak Intensity Ratio (Epley 1RM)
-                </h4>
-                <p className="text-slate-400 text-[14px] sm:text-[16px]">
-                  The app scans your complete history to find your all-time heaviest single-rep equivalent (estimated 1RM using the Epley formula: <code className="text-indigo-300 font-mono text-xs sm:text-sm bg-slate-900 px-1 py-0.5">Weight × (1 + Reps/30)</code>).
-                  The top set of each exercise in this session is compared against that historical peak. Your base score is the average of these intensity ratios across all exercises performed.
-                </p>
-              </div>
-
-              {/* Pillar 2 */}
-              <div className="space-y-2 bg-slate-950/50 p-4 border border-slate-850">
-                <h4 className="font-bold text-slate-100 flex items-center gap-2 uppercase text-xs sm:text-sm tracking-wide">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-                  2. Execution Form Multiplier
-                </h4>
-                <p className="text-slate-400 text-[14px] sm:text-[16px]">
-                  How disciplined you are with training form directly influences your session score:
-                </p>
-                <ul className="list-disc pl-5 space-y-1 text-slate-400 text-[14px] sm:text-[16px] mt-1">
-                  <li><strong className="text-emerald-400">Strict Form</strong> sets apply a bonus of <strong className="text-emerald-400">+3%</strong> per set.</li>
-                  <li><strong className="text-rose-400">Loose Form</strong> sets deduct a penalty of <strong className="text-rose-400">-6%</strong> per set.</li>
-                </ul>
-              </div>
-
-              {/* Pillar 3 */}
-              <div className="space-y-2 bg-slate-950/50 p-4 border border-slate-850">
-                <h4 className="font-bold text-slate-100 flex items-center gap-2 uppercase text-xs sm:text-sm tracking-wide">
-                  <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
-                  3. RPE Effort Multiplier
-                </h4>
-                <p className="text-slate-400 text-[14px] sm:text-[16px]">
-                  Rate of Perceived Exertion (RPE) reflects how close you trained to muscular failure:
-                </p>
-                <ul className="list-disc pl-5 space-y-1 text-slate-400 text-[14px] sm:text-[16px] mt-1">
-                  <li><strong className="text-amber-400">RPE 8.5 - 10</strong> (Extremely High Effort): <strong className="text-emerald-400">+2%</strong> rating boost.</li>
-                  <li><strong className="text-slate-300">RPE 7.0 - 8.4</strong> (Optimal Working Load): <strong className="text-slate-300">0%</strong> change (Perfect base baseline).</li>
-                  <li><strong className="text-slate-500">RPE 5.0 - 6.9</strong> (Sub-maximal effort): <strong className="text-rose-400">-3%</strong> reduction.</li>
-                  <li><strong className="text-slate-600">RPE &lt; 5.0</strong> (Warm-up / low stimulus intensity): <strong className="text-rose-400">-7%</strong> reduction.</li>
-                </ul>
-              </div>
-
-              {/* Grading Chart */}
+              {/* Training Categories */}
               <div className="space-y-3">
                 <h4 className="font-black text-white uppercase text-xs sm:text-sm tracking-wider font-mono">
-                  Report Card Boundaries:
+                  Primary Categories:
                 </h4>
-                <div className="grid grid-cols-1 gap-3 text-[14px] sm:text-[16px] font-sans">
-                  <div className="p-3 border border-emerald-900/40 bg-emerald-950/20 flex flex-col gap-0.5">
-                    <span className="font-black text-emerald-400 text-sm sm:text-base">Grade A (95% - 105%)</span>
-                    <span className="text-slate-400">New Personal Record or peak overload intensity.</span>
+                <div className="grid grid-cols-1 gap-3 font-sans">
+                  <div className="p-3 border border-rose-900/40 bg-rose-950/20 flex flex-col gap-0.5">
+                    <span className="font-black text-rose-400 text-sm">Peak / Test</span>
+                    <span className="text-slate-400 text-xs">Assigned during low-rep testing (1-3 reps) at 95%+ of rolling baseline e1RM or during new high-confidence PR testing.</span>
                   </div>
                   <div className="p-3 border border-indigo-900/40 bg-indigo-950/20 flex flex-col gap-0.5">
-                    <span className="font-black text-indigo-400 text-sm sm:text-base">Grade B (88% - 94%)</span>
-                    <span className="text-slate-400">Heavy optimal hypertrophy/strength working zone.</span>
+                    <span className="font-black text-indigo-400 text-sm">Strength Builder</span>
+                    <span className="text-slate-400 text-xs">Lifting focused on neural adaptations. Heavily dominated by low-rep work (1-6 reps) at 80% to 92.5% intensity of rolling baselines.</span>
                   </div>
                   <div className="p-3 border border-cyan-900/40 bg-cyan-950/20 flex flex-col gap-0.5">
-                    <span className="font-black text-cyan-400 text-sm sm:text-base">Grade C (80% - 87%)</span>
-                    <span className="text-slate-400">Classic muscle building hypertrophy stimulus.</span>
+                    <span className="font-black text-cyan-400 text-sm">Hypertrophy</span>
+                    <span className="text-slate-400 text-xs">Lifting for muscular growth. Dominated by multiple high-RPE volume sets (5-25 reps) between 30% and 85% relative intensity.</span>
                   </div>
                   <div className="p-3 border border-amber-900/40 bg-amber-950/20 flex flex-col gap-0.5">
-                    <span className="font-black text-amber-400 text-sm sm:text-base">Grade D (70% - 79%)</span>
-                    <span className="text-slate-400">Dynamic speed or motor technique session.</span>
+                    <span className="font-black text-amber-400 text-sm">Technique / Skill Practice</span>
+                    <span className="text-slate-400 text-xs">Focused on biomechanical precision, tempo, or pause reps. Loads are moderate (30-75%) with low average session RPE and strict form.</span>
                   </div>
-                  <div className="p-3 border border-orange-900/40 bg-orange-950/20 flex flex-col gap-0.5">
-                    <span className="font-black text-orange-400 text-sm sm:text-base">Grade E (60% - 69%)</span>
-                    <span className="text-slate-400">Active recovery / structured deload threshold.</span>
+                  <div className="p-3 border border-emerald-900/40 bg-emerald-950/20 flex flex-col gap-0.5">
+                    <span className="font-black text-emerald-400 text-sm">Recovery / Deload Session</span>
+                    <span className="text-slate-400 text-xs">Intentional low-intensity training (40-65% load) with low RPE and strict form, designed to stimulate blood flow and joint/CNS recovery.</span>
                   </div>
                   <div className="p-3 border border-slate-800 bg-slate-950 flex flex-col gap-0.5">
-                    <span className="font-black text-slate-400 text-sm sm:text-base">Grade F (&lt; 60%)</span>
-                    <span className="text-slate-400">Light dynamic work or incomplete session data.</span>
+                    <span className="font-black text-slate-400 text-sm">Mixed / Maintenance</span>
+                    <span className="text-slate-400 text-xs">Standard training sessions with mixed reps, loads, or non-specific stimulus. Useful for maintaining base conditioning.</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dynamic Fatigue Score */}
+              <div className="space-y-2 bg-slate-950/50 p-4 border border-slate-850">
+                <h4 className="font-bold text-slate-100 flex items-center gap-2 uppercase text-xs sm:text-sm tracking-wide font-mono">
+                  <span className="w-2 h-2 rounded-full bg-cyan-400 shrink-0" />
+                  Dynamic Fatigue Score (1 - 10)
+                </h4>
+                <p className="text-slate-400 text-xs">
+                  We calculate systemic fatigue by weighting post-workout Muscle Soreness (35%), Workout Quality/Motivation dropoffs (25%), Session Average working RPE (20%), Form Breakdown rate (10%), and Performance Index Drops (10%).
+                </p>
+              </div>
+
+              {/* Training Flags */}
+              <div className="space-y-3">
+                <h4 className="font-black text-white uppercase text-xs sm:text-sm tracking-wider font-mono">
+                  Automated Training Flags:
+                </h4>
+                <div className="space-y-2 text-xs text-slate-400">
+                  <div className="flex items-start gap-2">
+                    <strong className="text-emerald-400 shrink-0 uppercase font-mono w-40">PR / Overload:</strong>
+                    <span>Applied when your top set estimated 1RM exceeds your historical 4-8 exposure rolling average baseline by 1.5%+.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <strong className="text-amber-400 shrink-0 uppercase font-mono w-40">Technical Breakdown:</strong>
+                    <span>Applied when loose form is reported on 25%+ of your session working sets or on your highest-intensity set.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <strong className="text-rose-400 shrink-0 uppercase font-mono w-40">High Fatigue:</strong>
+                    <span>Applied when your session average RPE exceeds 8.5, soreness is 7+, or the fatigue score passes 6.5.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <strong className="text-rose-500 shrink-0 uppercase font-mono w-40">Deload Recommended:</strong>
+                    <span>Triggered only when there is both a performance decline (index below 97%) AND a high fatigue marker simultaneously.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <strong className="text-amber-500 shrink-0 uppercase font-mono w-40">Deload Watch:</strong>
+                    <span>An advisory marker when fatigue is building but hasn't caused a concurrent performance decline yet.</span>
                   </div>
                 </div>
               </div>
