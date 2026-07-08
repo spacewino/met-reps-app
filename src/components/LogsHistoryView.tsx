@@ -3,12 +3,140 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { Calendar, Trash2, Dumbbell, Clock, ChevronDown, ChevronUp, MessageSquare, Coffee, Droplet, Flame, Award, Info, X } from 'lucide-react';
-import { WorkoutLog } from '../types';
+import React, { useState, useEffect } from 'react';
+import { Calendar, Trash2, Dumbbell, Clock, ChevronDown, ChevronUp, MessageSquare, Coffee, Droplet, Flame, Award, Info, X, Pencil } from 'lucide-react';
+import { WorkoutLog, mapLitersToHydration } from '../types';
 import { storage } from '../lib/storage';
 import { ConfirmationModal } from './ConfirmationModal';
 import { classifyWorkout } from '../lib/workoutClassifier';
+import { parseLocalDate } from '../lib/dateUtils';
+
+// Format date to: TUE 9 JUN 26 format
+const formatDateWithTwoDigitYear = (dateStr: string) => {
+  const d = parseLocalDate(dateStr);
+  const weekdays = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  
+  const weekday = weekdays[d.getDay()];
+  const day = d.getDate();
+  const month = months[d.getMonth()];
+  const year2digit = String(d.getFullYear()).slice(-2);
+  
+  return `${weekday} ${day} ${month} ${year2digit}`;
+};
+
+function getCategoryStyles(category: string, themeId?: string) {
+  const isDesert = themeId === 'amber';
+  const cleanCategory = (category || '').toLowerCase();
+  
+  if (cleanCategory.includes('peak') || cleanCategory.includes('test')) {
+    if (isDesert) {
+      return {
+        badge: 'text-[#9B1C1C] bg-[#FDF2F2] border-[#E05A47] shadow-sm font-extrabold',
+        card: 'bg-[#FAF5F0] border-[#E05A47] text-[#252320]',
+      };
+    }
+    return {
+      badge: 'text-rose-100 bg-rose-950/80 border-rose-500/50 shadow-[0_0_12px_rgba(244,63,94,0.12)] font-black',
+      card: 'bg-rose-950/40 border-rose-500/50 text-rose-100',
+    };
+  }
+  
+  if (cleanCategory.includes('recovery') || cleanCategory.includes('deload')) {
+    if (isDesert) {
+      return {
+        badge: 'text-[#065F46] bg-[#ECFDF5] border-emerald-400/80 shadow-sm font-extrabold',
+        card: 'bg-[#FAF5F0] border-emerald-400/80 text-[#252320]',
+      };
+    }
+    return {
+      badge: 'text-emerald-100 bg-emerald-950/80 border-emerald-500/50 font-black',
+      card: 'bg-emerald-950/40 border-emerald-500/50 text-emerald-100',
+    };
+  }
+  
+  if (cleanCategory.includes('strength')) {
+    if (isDesert) {
+      return {
+        badge: 'text-[#3730A3] bg-[#EEF2FF] border-indigo-400/80 shadow-sm font-extrabold',
+        card: 'bg-[#FAF5F0] border-indigo-400/80 text-[#252320]',
+      };
+    }
+    return {
+      badge: 'text-indigo-100 bg-indigo-950/80 border-indigo-500/50 font-black',
+      card: 'bg-indigo-950/40 border-indigo-500/50 text-indigo-100',
+    };
+  }
+  
+  if (cleanCategory.includes('hypertrophy')) {
+    if (isDesert) {
+      return {
+        badge: 'text-[#155E75] bg-[#ECFEFF] border-cyan-400/80 shadow-sm font-extrabold',
+        card: 'bg-[#FAF5F0] border-cyan-400/80 text-[#252320]',
+      };
+    }
+    return {
+      badge: 'text-cyan-100 bg-cyan-950/80 border-cyan-500/50 font-black',
+      card: 'bg-cyan-950/40 border-cyan-500/50 text-cyan-100',
+    };
+  }
+  
+  if (cleanCategory.includes('technique') || cleanCategory.includes('skill')) {
+    if (isDesert) {
+      return {
+        badge: 'text-[#92400E] bg-[#FFFBEB] border-amber-400/80 shadow-sm font-extrabold',
+        card: 'bg-[#FAF5F0] border-amber-400/80 text-[#252320]',
+      };
+    }
+    return {
+      badge: 'text-amber-100 bg-amber-950/80 border-amber-500/50 font-black',
+      card: 'bg-amber-950/40 border-amber-500/50 text-amber-100',
+    };
+  }
+  
+  // Mixed / Maintenance / Default
+  if (isDesert) {
+    return {
+      badge: 'text-[#475569] bg-[#EDE8E0] border-slate-300 shadow-sm font-extrabold',
+      card: 'bg-[#FAF5F0] border-slate-300 text-[#252320]',
+    };
+  }
+  return {
+    badge: 'text-slate-200 bg-slate-900 border-slate-700 shadow-sm font-black',
+    card: 'bg-slate-900/40 border-slate-800 text-slate-200',
+  };
+}
+
+function getFlagStyles(flag: string, themeId?: string) {
+  const isDesert = themeId === 'amber';
+  
+  if (flag === 'Deload Recommended') {
+    if (isDesert) {
+      return 'text-[#9B1C1C] bg-[#FDF2F2] border-red-300 shadow-sm';
+    }
+    return 'text-rose-100 border-rose-500/50 bg-rose-950/80 shadow-[0_0_10px_rgba(244,63,94,0.25)]';
+  }
+  
+  if (flag === 'Deload Watch') {
+    if (isDesert) {
+      return 'text-[#92400E] bg-[#FFFBEB] border-amber-300 shadow-sm';
+    }
+    return 'text-amber-100 border-amber-500/50 bg-amber-950/80 shadow-sm';
+  }
+  
+  if (flag === 'PR / Progressive Overload') {
+    if (isDesert) {
+      return 'text-[#065F46] bg-[#ECFDF5] border-emerald-300 shadow-sm';
+    }
+    return 'text-emerald-100 border-emerald-500/50 bg-emerald-950/80 shadow-[0_0_10px_rgba(16,185,129,0.25)]';
+  }
+  
+  // Default/general flags like "High Fatigue"
+  if (isDesert) {
+    return 'text-[#3730A3] bg-[#EEF2FF] border-indigo-300 shadow-sm';
+  }
+  return 'text-indigo-300 border-indigo-500/30 bg-indigo-950/70 shadow-sm';
+}
 
 // Helper to calculate the report-card Grade of a workout log based on its intensity relative to personal records.
 function calculateWorkoutGrade(log: WorkoutLog, allLogs: WorkoutLog[], userBodyweight: number | null) {
@@ -188,20 +316,183 @@ function calculateWorkoutGrade(log: WorkoutLog, allLogs: WorkoutLog[], userBodyw
   }
 }
 
+interface TagInfo {
+  title: string;
+  description: string;
+}
+
+function getTagInfo(tagName: string): TagInfo {
+  const clean = (tagName || '').trim().toLowerCase();
+  
+  // Categories
+  if (clean.includes('peak') || clean.includes('test')) {
+    return {
+      title: 'Peak / Test',
+      description: 'Assigned during low-rep testing (1-3 reps) at 95%+ of rolling baseline e1RM or during new high-confidence PR testing.'
+    };
+  }
+  if (clean.includes('strength')) {
+    return {
+      title: 'Strength Builder',
+      description: 'Lifting focused on neural adaptations. Heavily dominated by low-rep work (1-6 reps) at 80% to 92.5% intensity of rolling baselines.'
+    };
+  }
+  if (clean.includes('hypertrophy')) {
+    return {
+      title: 'Hypertrophy',
+      description: 'Lifting for muscular growth. Dominated by multiple high-RPE volume sets (5-25 reps) between 30% and 85% relative intensity.'
+    };
+  }
+  if (clean.includes('technique') || clean.includes('skill')) {
+    return {
+      title: 'Technique / Skill Practice',
+      description: 'Focused on biomechanical precision, tempo, or pause reps. Loads are moderate (30-75%) with low average session RPE and strict form.'
+    };
+  }
+  if (clean.includes('recovery') || clean.includes('deload')) {
+    return {
+      title: 'Recovery / Deload Session',
+      description: 'Intentional low-intensity training (40-65% load) with low RPE and strict form, designed to stimulate blood flow and joint/CNS recovery.'
+    };
+  }
+  if (clean.includes('mixed') || clean.includes('maintenance')) {
+    return {
+      title: 'Mixed / Maintenance',
+      description: 'Standard training sessions with mixed reps, loads, or non-specific stimulus. Useful for maintaining base conditioning.'
+    };
+  }
+
+  // Flags
+  if (clean.includes('progressive overload') || clean.includes('pr')) {
+    return {
+      title: 'PR / Progressive Overload',
+      description: 'Applied when your top set estimated 1RM exceeds your historical 4-8 exposure rolling average baseline by 1.5%+.'
+    };
+  }
+  if (clean.includes('technical breakdown')) {
+    return {
+      title: 'Technical Breakdown',
+      description: 'Applied when loose form is reported on 25%+ of your session working sets or on your highest-intensity set.'
+    };
+  }
+  if (clean.includes('high fatigue')) {
+    return {
+      title: 'High Fatigue',
+      description: 'Applied when your session average RPE exceeds 8.5, soreness is 7+, or the fatigue score passes 6.5.'
+    };
+  }
+  if (clean.includes('deload recommended')) {
+    return {
+      title: 'Deload Recommended',
+      description: 'Triggered only when there is both a performance decline (index below 97%) AND a high fatigue marker simultaneously.'
+    };
+  }
+  if (clean.includes('deload watch')) {
+    return {
+      title: 'Deload Watch',
+      description: 'An advisory marker when fatigue is building but hasn\'t caused a concurrent performance decline yet.'
+    };
+  }
+
+  return {
+    title: tagName,
+    description: 'Automated diagnostic marker from your set-level performance and systemic recovery metrics.'
+  };
+}
+
+function getDynamicTagInfo(
+  tagName: string,
+  classification: any,
+  log: WorkoutLog
+): TagInfo {
+  const clean = (tagName || '').trim().toLowerCase();
+  
+  // Custom Dynamic Message for "Deload Recommended"
+  if (clean.includes('deload recommended')) {
+    const performanceIndex = classification.performanceIndex;
+    const stats = classification.stats;
+    const soreness = log.recovery?.soreness || 5;
+    const motivation = log.recovery?.motivation || 5;
+    
+    return {
+      title: 'Deload Recommended',
+      description: `We detected a performance decline (Performance Index dropped to ${performanceIndex}% of your baseline) alongside elevated fatigue markers: soreness at ${soreness}/10, average RPE at ${stats.avgRpe}, and motivation at ${motivation}/10. A deload week is highly recommended to prevent injury and restore neural drive.`
+    };
+  }
+
+  // Custom Dynamic Message for "Deload Watch"
+  if (clean.includes('deload watch')) {
+    const performanceIndex = classification.performanceIndex;
+    const fatigueScore = classification.fatigueScore;
+    const soreness = log.recovery?.soreness || 5;
+    
+    return {
+      title: 'Deload Watch',
+      description: `Your fatigue is building (Fatigue Score: ${fatigueScore}/10, Soreness: ${soreness}/10) while performance is at ${performanceIndex}%. You're in a safe zone, but track recovery closely to avoid cumulative overreaching.`
+    };
+  }
+
+  // Use the standard static lookup for everything else
+  return getTagInfo(tagName);
+}
+
 interface LogsHistoryViewProps {
   workoutLogs: WorkoutLog[];
   onRefresh: () => void;
+  themeId?: string;
+  onNavigate?: (view: string, params?: any) => void;
 }
 
-export function LogsHistoryView({ workoutLogs, onRefresh }: LogsHistoryViewProps) {
+export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }: LogsHistoryViewProps) {
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [deleteLogId, setDeleteLogId] = useState<string | null>(null);
   const [showGradeInfo, setShowGradeInfo] = useState(false);
+  const [activeTag, setActiveTag] = useState<{
+    logId: string;
+    tagId: string;
+    text: string;
+    title: string;
+    tagRect?: { left: number; top: number; width: number; height: number };
+    cardRect?: { left: number; top: number; width: number; height: number };
+  } | null>(null);
   const userBodyweight = storage.getBodyweight();
 
   const toggleExpand = (id: string) => {
     setExpandedLogId(prev => (prev === id ? null : id));
   };
+
+  useEffect(() => {
+    if (expandedLogId) {
+      const timer = setTimeout(() => {
+        const element = document.getElementById(`log-card-${expandedLogId}`);
+        if (element) {
+          element.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+          });
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [expandedLogId]);
+
+  useEffect(() => {
+    if (activeTag === null) return;
+
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && target.closest && target.closest('[data-tag-button="true"]')) {
+        return;
+      }
+      setActiveTag(null);
+    };
+
+    document.addEventListener('click', handleOutsideClick, { passive: true });
+    return () => {
+      document.removeEventListener('click', handleOutsideClick);
+    };
+  }, [activeTag]);
 
   const handleDeleteLog = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -243,116 +534,223 @@ export function LogsHistoryView({ workoutLogs, onRefresh }: LogsHistoryViewProps
             const isExpanded = expandedLogId === log.id;
             const classification = classifyWorkout(log, workoutLogs, userBodyweight);
             const { category, categoryDesc, color, flags, fatigueScore, stats } = classification;
+            const uniqueMuscles = Array.from(new Set(log.exercises.map(ex => ex.muscleGroup).filter(Boolean)));
+
+            const isDesert = themeId === 'amber';
+            const popoverBg = isDesert ? 'bg-[#FAF5F0]' : 'bg-slate-950';
+            const popoverBorder = isDesert ? 'border-[#E05A47]' : 'border-indigo-500/85';
+            const popoverTitleColor = isDesert ? 'text-[#9B1C1C]' : 'text-indigo-400';
+            const popoverTextColor = isDesert ? 'text-[#252320]' : 'text-slate-300';
+            const popoverArrowBorder = isDesert ? 'border-t-[#E05A47]' : 'border-t-indigo-500/85';
+            const popoverArrowBg = isDesert ? 'border-t-[#FAF5F0]' : 'border-t-slate-950';
 
             return (
               <div
                 key={log.id}
-                onClick={() => toggleExpand(log.id)}
-                className="w-full bg-slate-900 border-y border-x-0 border-slate-800 rounded-none overflow-hidden cursor-pointer hover:border-slate-700 transition"
+                id={`log-card-${log.id}`}
+                className="w-full bg-slate-900 border-y border-x-0 border-slate-800 rounded-none relative hover:border-slate-700 transition scroll-mt-14"
               >
                 {/* Log Row Header */}
                 <div className="p-4 flex items-center justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-slate-400 font-bold font-mono uppercase bg-slate-950 px-2 py-0.5 rounded-none border border-slate-850">
-                        {new Date(log.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                      <span className="text-[10px] text-slate-400 font-bold font-mono uppercase bg-slate-950 px-2 py-0.5 rounded-none border border-slate-850 whitespace-nowrap shrink-0">
+                        {formatDateWithTwoDigitYear(log.date)}
                       </span>
                       <span className="text-sm font-black text-white truncate font-sans">
                         {log.program || 'One Off'}
                       </span>
                     </div>
-
-                    <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-2 font-bold font-sans">
+ 
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400 mt-2 font-bold font-sans">
                       <span className="flex items-center gap-1">
-                        <Dumbbell className="w-4 h-4 text-indigo-400" />
+                        <Dumbbell className="w-3.5 h-3.5 text-indigo-400" />
                         {log.exercises.length} exercises
                       </span>
                       {log.durationMinutes && (
                         <span className="flex items-center gap-1">
-                          <Clock className="w-4 h-4 text-cyan-400" />
+                          <Clock className="w-3.5 h-3.5 text-cyan-400" />
                           {log.durationMinutes} mins
                         </span>
                       )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowGradeInfo(true);
-                        }}
-                        className="p-1 hover:bg-slate-800 text-slate-500 hover:text-indigo-400 rounded-full transition flex items-center justify-center ml-auto"
-                        title="How are categories and flags calculated?"
-                      >
-                        <Info className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    {/* Third line showing computed Category and Flags */}
-                    <div className="flex flex-wrap items-center gap-1.5 mt-2 font-sans">
-                      <span className={`inline-flex items-center px-2 py-0.5 border text-[9px] font-black uppercase tracking-wider ${color}`}>
-                        {category}
-                      </span>
-                      {flags.map((flag, idx) => (
-                        <span key={idx} className="text-[8px] font-mono font-black text-indigo-400 bg-indigo-950/40 border border-indigo-500/15 px-1.5 py-0.2 uppercase tracking-wide">
-                          {flag}
+                      {uniqueMuscles.length > 0 && (
+                        <span className="flex items-center gap-1">
+                          <Flame className="w-3.5 h-3.5 text-orange-400" />
+                          {uniqueMuscles.join(', ')}
                         </span>
-                      ))}
+                      )}
+                    </div>
+ 
+                    {/* Rating and Flags Layout */}
+                    <div className="flex flex-col gap-2 mt-2.5 font-sans">
+                      <div className="flex items-center gap-2 text-[11px] font-bold text-slate-400">
+                        <span className="uppercase tracking-wider">Rating:</span>
+                        {/* Interactive Category Tag */}
+                        <div className="relative inline-block">
+                          <button
+                            type="button"
+                            data-tag-button="true"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const info = getDynamicTagInfo(category, classification, log);
+                              if (activeTag?.logId === log.id && activeTag?.tagId === 'category') {
+                                setActiveTag(null);
+                              } else {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const cardEl = document.getElementById(`log-card-${log.id}`);
+                                const cardRect = cardEl ? cardEl.getBoundingClientRect() : null;
+                                setActiveTag({
+                                  logId: log.id,
+                                  tagId: 'category',
+                                  title: info.title,
+                                  text: info.description,
+                                  tagRect: {
+                                    left: rect.left,
+                                    top: rect.top,
+                                    width: rect.width,
+                                    height: rect.height,
+                                  },
+                                  cardRect: cardRect ? {
+                                    left: cardRect.left,
+                                    top: cardRect.top,
+                                    width: cardRect.width,
+                                    height: cardRect.height,
+                                  } : undefined,
+                                });
+                              }
+                            }}
+                            className={`inline-flex items-center px-3 py-1 border-2 text-[12px] font-extrabold uppercase tracking-wider rounded-none cursor-pointer transition hover:scale-[1.02] active:scale-[0.98] ${getCategoryStyles(category, themeId).badge}`}
+                          >
+                            {category}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Interactive Flag Tags */}
+                      {flags.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-400">
+                          <span className="uppercase tracking-wider shrink-0">Flags:</span>
+                          {flags.map((flag, idx) => (
+                            <div key={idx} className="relative inline-block">
+                              <button
+                                type="button"
+                                data-tag-button="true"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const info = getDynamicTagInfo(flag, classification, log);
+                                  if (activeTag?.logId === log.id && activeTag?.tagId === `flag-${idx}`) {
+                                    setActiveTag(null);
+                                  } else {
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const cardEl = document.getElementById(`log-card-${log.id}`);
+                                    const cardRect = cardEl ? cardEl.getBoundingClientRect() : null;
+                                    setActiveTag({
+                                      logId: log.id,
+                                      tagId: `flag-${idx}`,
+                                      title: info.title,
+                                      text: info.description,
+                                      tagRect: {
+                                        left: rect.left,
+                                        top: rect.top,
+                                        width: rect.width,
+                                        height: rect.height,
+                                      },
+                                      cardRect: cardRect ? {
+                                        left: cardRect.left,
+                                        top: cardRect.top,
+                                        width: cardRect.width,
+                                        height: cardRect.height,
+                                      } : undefined,
+                                    });
+                                  }
+                                }}
+                                className={`text-[11.5px] font-mono font-black border-2 px-3 py-0.5 uppercase tracking-wide rounded-none shrink-0 cursor-pointer transition hover:scale-[1.02] active:scale-[0.98] ${getFlagStyles(flag, themeId)}`}
+                              >
+                                {flag}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 shrink-0">
+                  <div className="flex flex-col items-center gap-1.5 shrink-0 self-start mt-0.5">
+                    {/* 1. Dropdown hat to expand (top) */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleExpand(log.id);
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-none transition cursor-pointer flex items-center justify-center"
+                      title={isExpanded ? "Collapse workout log" : "Expand workout log"}
+                    >
+                      {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
+
+                    {/* 2. Pencil icon to edit (second) */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onNavigate?.('logger', { editLogId: log.id });
+                      }}
+                      className="p-1.5 text-slate-500 hover:text-indigo-400 hover:bg-slate-800 rounded-none transition"
+                      title="Edit workout log"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* 3. Delete icon (third) */}
                     <button
                       onClick={e => handleDeleteLog(log.id, e)}
-                      className="p-2 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded-none transition"
+                      className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded-none transition"
                       title="Delete log"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
-                    <button className="p-1 text-slate-400">
-                      {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+
+                    {/* 4. Info icon (bottom) */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowGradeInfo(true);
+                      }}
+                      className="p-1 hover:bg-slate-800 text-slate-500 hover:text-indigo-400 rounded-full transition flex items-center justify-center mt-0.5"
+                      title="How are categories and flags calculated?"
+                    >
+                      <Info className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
-
+ 
                 {/* Log Row Body Expanded */}
                 {isExpanded && (
                   <div className="px-4 pb-4 pt-2 border-t border-slate-850/60 bg-slate-950/40 space-y-4">
                     {/* Session Training Category Analysis */}
-                    <div className={`p-4 border rounded-none flex items-start gap-3 mt-1.5 ${color}`}>
-                      <Award className="w-5 h-5 shrink-0 mt-0.5" />
-                      <div className="space-y-1.5 min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <span className="text-xs font-black uppercase tracking-wider font-sans">
-                            Session Classification: {category}
-                          </span>
-                          <span className="text-[10px] font-bold font-mono uppercase bg-slate-950/60 px-1.5 py-0.5 border border-slate-850 opacity-90">
-                            Performance Index: {classification.performanceIndex}%
-                          </span>
-                        </div>
-                        <p className="text-[11px] leading-relaxed text-slate-300 font-sans">
-                          {categoryDesc}
-                        </p>
-                        {flags.length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-1 border-t border-slate-800/30">
-                            {flags.map((flag, idx) => {
-                              let flagColor = 'text-indigo-400 border-indigo-500/15 bg-indigo-950/40';
-                              if (flag === 'Deload Recommended') flagColor = 'text-rose-400 border-rose-500/20 bg-rose-950/30';
-                              if (flag === 'Deload Watch') flagColor = 'text-amber-400 border-amber-500/20 bg-amber-950/30';
-                              if (flag === 'PR / Progressive Overload') flagColor = 'text-emerald-400 border-emerald-500/20 bg-emerald-950/30';
-                              
-                              return (
-                                <span key={idx} className={`text-[9px] font-mono font-black border px-1.5 py-0.2 uppercase tracking-wide ${flagColor}`}>
-                                  {flag}
-                                </span>
-                              );
-                            })}
-                          </div>
-                        )}
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] font-mono text-slate-400 pt-1 border-t border-slate-850/20">
-                          <div>Total Volume: <strong className="text-slate-200">{stats.totalVolume} {log.unit.toUpperCase()}</strong></div>
-                          <div>Average RPE: <strong className="text-slate-200">{stats.avgRpe}</strong></div>
-                          <div>Hard Sets: <strong className="text-slate-200">{stats.hardSets}</strong></div>
-                          <div>Form Breakdown: <strong className="text-slate-200">{stats.looseRate}% loose</strong></div>
-                          <div className="col-span-2">Computed Fatigue Score: <strong className="text-slate-200">{fatigueScore}/10</strong></div>
-                        </div>
+                    <div className={`p-4 border-2 rounded-none mt-1.5 ${getCategoryStyles(category, themeId).card} space-y-3`}>
+                      <div className="flex items-center gap-2 pb-2 border-b border-slate-800/20">
+                        <Award className="w-5 h-5 shrink-0 text-inherit" />
+                        <span className="text-[14px] sm:text-[15.5px] font-black uppercase tracking-wider font-sans truncate text-inherit">
+                          {category}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-[12px] font-bold font-sans pt-1 border-b border-slate-850/20 pb-2.5 text-inherit animate-fade-in">
+                        <div className="text-inherit">Workout Objective: <span className="font-mono text-xs text-white bg-slate-950/40 px-2 py-0.5 ml-1 border border-slate-800/30">{log.objective && log.objective !== 'Off' ? log.objective : 'None'}</span></div>
+                        <div className="text-inherit">Performance Index: <span className="font-mono text-xs text-white bg-slate-950/40 px-2 py-0.5 ml-1 border border-slate-800/30">{classification.performanceIndex}%</span></div>
+                      </div>
+                      
+                      <p className="text-[11.5px] leading-relaxed opacity-95 font-sans font-medium text-inherit">
+                        {categoryDesc}
+                      </p>
+                      
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] font-mono text-slate-400 pt-2 border-t border-slate-850/20">
+                        <div>Total Volume: <strong className="text-slate-200">{stats.totalVolume} {log.unit.toUpperCase()}</strong></div>
+                        <div>Average RPE: <strong className="text-slate-200">{stats.avgRpe}</strong></div>
+                        <div>Hard Sets: <strong className="text-slate-200">{stats.hardSets}</strong></div>
+                        <div>Form Breakdown: <strong className="text-slate-200">{stats.looseRate}% loose</strong></div>
+                        <div className="col-span-2">Fatigue Score: <strong className="text-slate-200">{fatigueScore}/10</strong></div>
                       </div>
                     </div>
 
@@ -367,8 +765,8 @@ export function LogsHistoryView({ workoutLogs, onRefresh }: LogsHistoryViewProps
                         </div>
                         <div className="text-center border-x border-slate-850/60">
                           <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider block">Hydration</span>
-                          <span className="text-xs font-black text-cyan-400 font-mono flex items-center justify-center gap-1 mt-0.5">
-                            <Droplet className="w-3.5 h-3.5" /> {log.recovery.hydrationLiters || '—'} L
+                          <span className="text-[10px] sm:text-xs font-black text-cyan-400 font-sans flex items-center justify-center gap-1 mt-0.5 uppercase">
+                            <Droplet className="w-3.5 h-3.5" /> {log.recovery.hydrationLevel || (log.recovery.hydrationLiters ? mapLitersToHydration(log.recovery.hydrationLiters) : '—')}
                           </span>
                         </div>
                         <div className="text-center">
@@ -385,7 +783,12 @@ export function LogsHistoryView({ workoutLogs, onRefresh }: LogsHistoryViewProps
                       {log.exercises.map((ex, exIdx) => (
                         <div key={exIdx} className="space-y-1.5">
                           <h4 className="text-xs font-extrabold text-slate-200 flex justify-between uppercase tracking-wider font-sans">
-                            <span>• {ex.name}</span>
+                            <span className="flex items-center gap-1">
+                              • {ex.name}
+                              {ex.isMainMovement && (
+                                <sup className="text-[9px] text-indigo-400 font-black tracking-normal align-super bg-indigo-500/10 px-1 border border-indigo-500/20 rounded-sm">MM</sup>
+                              )}
+                            </span>
                             <span className="text-[9px] text-indigo-400 font-semibold font-mono">({ex.muscleGroup})</span>
                           </h4>
 
@@ -440,6 +843,55 @@ export function LogsHistoryView({ workoutLogs, onRefresh }: LogsHistoryViewProps
                     )}
                   </div>
                 )}
+
+                {activeTag && activeTag.logId === log.id && activeTag.tagRect && activeTag.cardRect && (() => {
+                  const isDesert = themeId === 'amber';
+                  const popoverBg = isDesert ? 'bg-[#FAF5F0]' : 'bg-slate-950';
+                  const popoverBorder = isDesert ? 'border-[#E05A47]' : 'border-indigo-500/85';
+                  const popoverTitleColor = isDesert ? 'text-[#9B1C1C]' : 'text-indigo-400';
+                  const popoverTextColor = isDesert ? 'text-[#252320]' : 'text-slate-300';
+
+                  const { tagRect, cardRect } = activeTag;
+                  const topPos = tagRect.top - cardRect.top - 8;
+                  const tagCenterRel = (tagRect.left - cardRect.left) + (tagRect.width / 2);
+                  const arrowLeft = tagCenterRel;
+                  const arrowLeftClamped = Math.max(16, Math.min(cardRect.width - 16, arrowLeft));
+
+                  return (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: `${topPos}px`,
+                        left: '16px',
+                        right: '16px',
+                        transform: 'translateY(-100%)',
+                      }}
+                      className={`border-2 p-3.5 shadow-2xl z-50 font-sans text-left animate-in fade-in slide-in-from-bottom-2 duration-150 ${popoverBg} ${popoverBorder}`}
+                    >
+                      <div className={`flex items-center justify-between border-b ${isDesert ? 'border-slate-300/40' : 'border-slate-800/40'} pb-1.5 mb-1.5`}>
+                        <span className={`text-[10px] font-extrabold uppercase tracking-widest ${popoverTitleColor}`}>
+                          {activeTag.title}
+                        </span>
+                      </div>
+                      <p className={`text-[11px] font-medium leading-relaxed font-sans ${popoverTextColor}`}>
+                        {activeTag.text}
+                      </p>
+                      {/* Little arrow aligned to clicked tag/category button */}
+                      <div 
+                        style={{ left: `${arrowLeftClamped}px` }}
+                        className={`absolute top-full -translate-x-1/2 w-0 h-0 border-x-[6px] border-x-transparent border-t-[6px] ${
+                          isDesert ? 'border-t-[#E05A47]' : 'border-t-indigo-500/85'
+                        }`} 
+                      />
+                      <div 
+                        style={{ left: `${arrowLeftClamped}px` }}
+                        className={`absolute top-full -translate-x-1/2 w-0 h-0 border-x-[5px] border-x-transparent border-t-[5px] ${
+                          isDesert ? 'border-t-[#FAF5F0]' : 'border-t-slate-950'
+                        }`} 
+                      />
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
@@ -499,6 +951,18 @@ export function LogsHistoryView({ workoutLogs, onRefresh }: LogsHistoryViewProps
               <p>
                 Your workout grading is replaced with an advanced training classification engine. The app evaluates set-level and session-level metrics to assign a training Category and optional advisory Flags.
               </p>
+
+              {/* Performance Index Explanation */}
+              <div className="space-y-2 bg-indigo-950/30 p-4 border border-indigo-900/30">
+                <h4 className="font-bold text-indigo-300 flex items-center gap-2 uppercase text-xs sm:text-sm tracking-wide font-mono">
+                  <span className="w-2 h-2 rounded-full bg-indigo-400 shrink-0" />
+                  Performance Index (PI)
+                </h4>
+                <p className="text-slate-400 text-xs">
+                  Your Performance Index measures your actual capacity in today's session relative to your historical rolling baseline. 
+                  A score of <strong>100%</strong> means you perfectly matched your current baseline strength. Scores <strong>&gt;100%</strong> indicate progressive overload or new peak achievements, while scores <strong>&lt;100%</strong> indicate fatigue-induced performance decline or intentional recovery work.
+                </p>
+              </div>
 
               {/* Training Categories */}
               <div className="space-y-3">
@@ -586,6 +1050,8 @@ export function LogsHistoryView({ workoutLogs, onRefresh }: LogsHistoryViewProps
           </div>
         </div>
       )}
+
+
     </div>
   );
 }

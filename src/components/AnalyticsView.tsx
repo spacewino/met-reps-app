@@ -3,21 +3,399 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { LineChart, TrendingUp, Sparkles, Coffee, Droplet, Flame, Brain, Award, AlertCircle, Dumbbell, Target, Info, X } from 'lucide-react';
-import { WorkoutLog, SetEntry } from '../types';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { LineChart, TrendingUp, Sparkles, Coffee, Droplet, Flame, Brain, Award, AlertCircle, Dumbbell, Target, Info, X, ArrowLeft } from 'lucide-react';
+import { WorkoutLog, SetEntry, Program, HydrationLevel, mapLitersToHydration, mapHydrationToLiters } from '../types';
+import { storage } from '../lib/storage';
+
+function getProgramReportCard(program: Program, logs: WorkoutLog[]) {
+  const progLogs = logs.filter(l => l.programId === program.id);
+  
+  // Sort logs by week/day sequence
+  const sortedLogs = [...progLogs].sort((a, b) => {
+    const wa = Number(a.week) || 1;
+    const wb = Number(b.week) || 1;
+    if (wa !== wb) return wa - wb;
+    const da = Number(a.day) || 1;
+    const db = Number(b.day) || 1;
+    return da - db;
+  });
+
+  // Calculate Adherence rate
+  const totalWeeks = program.programDuration === '∞' ? 12 : Number(program.programDuration);
+  const totalPlannedDays = totalWeeks * program.daysPerWeek;
+  
+  // Count unique (week, day) completed combos
+  const completedCombos = new Set<string>();
+  progLogs.forEach(l => {
+    if (l.week && l.day) {
+      completedCombos.add(`${l.week}-${l.day}`);
+    }
+  });
+  const completedCount = completedCombos.size;
+  const adherenceRate = Math.min(100, Math.round((completedCount / (totalPlannedDays || 1)) * 100));
+
+  // Find all exercises programmed
+  const programmedExerciseNames = new Set<string>();
+  Object.values(program.exercisesByDay).forEach(exercises => {
+    exercises.forEach(ex => {
+      programmedExerciseNames.add(ex.name);
+    });
+  });
+
+  // For each exercise, calculate baseline and latest/best E1RM
+  const exerciseStats: Array<{
+    name: string;
+    baselineE1RM: number;
+    latestE1RM: number;
+    maxE1RM: number;
+    growthPercent: number;
+    muscleGroup: string;
+  }> = [];
+
+  const muscleImprovements: Record<string, number[]> = {}; // muscleGroup -> growth percentages
+
+  programmedExerciseNames.forEach(exName => {
+    const exLogs = sortedLogs.filter(l => l.exercises.some(e => e.name.toLowerCase() === exName.toLowerCase()));
+    if (exLogs.length === 0) return;
+
+    // Find muscleGroup
+    let muscleGroup = 'General';
+    for (const dayExs of Object.values(program.exercisesByDay)) {
+      const match = dayExs.find(e => e.name.toLowerCase() === exName.toLowerCase());
+      if (match) {
+        muscleGroup = match.muscleGroup || 'General';
+        break;
+      }
+    }
+
+    // Get baseline E1RM (first logged session)
+    const firstExLog = exLogs[0];
+    const firstMatchedEx = firstExLog.exercises.find(e => e.name.toLowerCase() === exName.toLowerCase());
+    const firstE1RMs = firstMatchedEx?.sets.map(s => {
+      const w = s.weight || 0;
+      const r = s.reps || 0;
+      if (r <= 0) return 0;
+      return r === 1 ? w : w * (1 + r / 30);
+    }).filter(v => v > 0) || [];
+    const baselineE1RM = firstE1RMs.length > 0 ? Math.max(...firstE1RMs) : 0;
+
+    if (baselineE1RM === 0) return;
+
+    // Get latest E1RM (last logged session)
+    const lastExLog = exLogs[exLogs.length - 1];
+    const lastMatchedEx = lastExLog.exercises.find(e => e.name.toLowerCase() === exName.toLowerCase());
+    const lastE1RMs = lastMatchedEx?.sets.map(s => {
+      const w = s.weight || 0;
+      const r = s.reps || 0;
+      if (r <= 0) return 0;
+      return r === 1 ? w : w * (1 + r / 30);
+    }).filter(v => v > 0) || [];
+    const latestE1RM = lastE1RMs.length > 0 ? Math.max(...lastE1RMs) : baselineE1RM;
+
+    // Max E1RM across all logs
+    let maxE1RM = baselineE1RM;
+    exLogs.forEach(l => {
+      const match = l.exercises.find(e => e.name.toLowerCase() === exName.toLowerCase());
+      match?.sets.forEach(s => {
+        const w = s.weight || 0;
+        const r = s.reps || 0;
+        if (r > 0) {
+          const e1rm = r === 1 ? w : w * (1 + r / 30);
+          if (e1rm > maxE1RM) maxE1RM = e1rm;
+        }
+      });
+    });
+
+    const growthPercent = baselineE1RM > 0 ? ((latestE1RM - baselineE1RM) / baselineE1RM) * 100 : 0;
+
+    exerciseStats.push({
+      name: exName,
+      baselineE1RM,
+      latestE1RM,
+      maxE1RM,
+      growthPercent,
+      muscleGroup
+    });
+
+    if (muscleGroup) {
+      if (!muscleImprovements[muscleGroup]) {
+        muscleImprovements[muscleGroup] = [];
+      }
+      muscleImprovements[muscleGroup].push(growthPercent);
+    }
+  });
+
+  // Strongest Muscle / Best Progressing Muscle Group
+  let strongestMuscle = 'N/A';
+  let bestMuscleGrowth = -999;
+  Object.entries(muscleImprovements).forEach(([muscle, growths]) => {
+    const avgGrowth = growths.reduce((a, b) => a + b, 0) / growths.length;
+    if (avgGrowth > bestMuscleGrowth) {
+      bestMuscleGrowth = avgGrowth;
+      strongestMuscle = muscle;
+    }
+  });
+  if (strongestMuscle !== 'N/A' && bestMuscleGrowth > 0) {
+    strongestMuscle = `${strongestMuscle} (+${bestMuscleGrowth.toFixed(1)}%)`;
+  } else if (strongestMuscle !== 'N/A') {
+    strongestMuscle = `${strongestMuscle} (0.0%)`;
+  }
+
+  // Count PRs Hit: How many times was the previous personal best exceeded during the program?
+  let programPRs = 0;
+  const runningBest: Record<string, number> = {};
+  sortedLogs.forEach(l => {
+    l.exercises.forEach(ex => {
+      const match = exerciseStats.find(es => es.name.toLowerCase() === ex.name.toLowerCase());
+      if (!match) return;
+
+      const sessionMax = Math.max(...ex.sets.map(s => {
+        const w = s.weight || 0;
+        const r = s.reps || 0;
+        if (r <= 0) return 0;
+        return r === 1 ? w : w * (1 + r / 30);
+      }));
+
+      if (sessionMax > 0) {
+        const prevBest = runningBest[ex.name] || 0;
+        if (prevBest > 0 && sessionMax > prevBest * 1.005) { // 0.5% threshold for significant PR
+          programPRs++;
+        }
+        if (sessionMax > prevBest) {
+          runningBest[ex.name] = sessionMax;
+        }
+      }
+    });
+  });
+
+  // Compute overall performance growth score (relative to targets)
+  const targetGrowthRate = program.objective === 'Strength' ? 0.005 : (program.objective === 'Hypertrophy' ? 0.004 : 0.002);
+  const targetTotalGrowth = targetGrowthRate * (totalWeeks - 1) * 100; // Expected final growth
+
+  let avgActualGrowth = 0;
+  if (exerciseStats.length > 0) {
+    avgActualGrowth = exerciseStats.reduce((a, b) => a + b.growthPercent, 0) / exerciseStats.length;
+  }
+
+  // Score formula:
+  // 1. Adherence Base: up to 50 pts
+  // 2. Progression bonus: up to 30 pts
+  // 3. Recovery factor (soreness management, sleep, quality): up to 20 pts
+
+  // Gather recovery averages
+  let totalSleep = 0;
+  let totalSoreness = 0;
+  let totalQuality = 0;
+  let totalHydration = 0;
+  let sleepCount = 0;
+  let sorenessCount = 0;
+  let qualityCount = 0;
+  let hydrationCount = 0;
+  let deficitCount = 0;
+  let surplusCount = 0;
+  let maintenanceCount = 0;
+
+  progLogs.forEach(l => {
+    if (l.recovery) {
+      if (l.recovery.sleepHours !== undefined && l.recovery.sleepHours !== null) {
+        totalSleep += l.recovery.sleepHours;
+        sleepCount++;
+      }
+      if (l.recovery.soreness !== undefined && l.recovery.soreness !== null) {
+        totalSoreness += l.recovery.soreness;
+        sorenessCount++;
+      }
+      if (l.recovery.motivation !== undefined && l.recovery.motivation !== null) {
+        totalQuality += l.recovery.motivation;
+        qualityCount++;
+      }
+      if (l.recovery.hydrationLevel) {
+        totalHydration += mapHydrationToLiters(l.recovery.hydrationLevel);
+        hydrationCount++;
+      } else if (l.recovery.hydrationLiters !== undefined && l.recovery.hydrationLiters !== null) {
+        totalHydration += l.recovery.hydrationLiters;
+        hydrationCount++;
+      }
+      if (l.recovery.nutritionCalories !== undefined && l.recovery.nutritionCalories !== null) {
+        const c = l.recovery.nutritionCalories;
+        if (c < 1800) deficitCount++;
+        else if (c > 2700) surplusCount++;
+        else maintenanceCount++;
+      }
+    }
+  });
+
+  const avgSleep = sleepCount > 0 ? totalSleep / sleepCount : 7.0;
+  const avgSoreness = sorenessCount > 0 ? totalSoreness / sorenessCount : 3.0;
+  const avgQuality = qualityCount > 0 ? totalQuality / qualityCount : 7.0;
+  const avgHydration = hydrationCount > 0 ? totalHydration / hydrationCount : 2.0;
+
+  const adherencePoints = adherenceRate * 0.5; // up to 50 pts
+
+  let progressionPoints = 15; // default base for steady state
+  if (targetTotalGrowth > 0) {
+    const growthRatio = avgActualGrowth / Math.max(1, targetTotalGrowth);
+    if (growthRatio >= 1.2) progressionPoints = 30;
+    else if (growthRatio >= 1.0) progressionPoints = 27;
+    else if (growthRatio >= 0.5) progressionPoints = 22;
+    else if (growthRatio > 0) progressionPoints = 18;
+    else progressionPoints = 10;
+  } else {
+    progressionPoints = avgActualGrowth > 0 ? 25 : 15;
+  }
+
+  let recoveryPoints = 0;
+  if (avgSleep >= 7.5) recoveryPoints += 7;
+  else if (avgSleep >= 7.0) recoveryPoints += 5;
+  else recoveryPoints += 2;
+
+  if (avgSoreness <= 4.0) recoveryPoints += 7;
+  else if (avgSoreness <= 6.0) recoveryPoints += 5;
+  else recoveryPoints += 2;
+
+  if (avgQuality >= 7.5) recoveryPoints += 6;
+  else if (avgQuality >= 6.0) recoveryPoints += 4;
+  else recoveryPoints += 1;
+
+  const rawScore = adherencePoints + progressionPoints + recoveryPoints;
+  const score = Math.max(10, Math.min(100, Math.round(rawScore)));
+
+  // Letter Grade mapping
+  let grade = 'C';
+  let gradeSub = 'Steady Progress';
+  let gradeColor = 'text-yellow-400 border-yellow-500/30 bg-yellow-500/10';
+  if (score >= 95) {
+    grade = 'A+';
+    gradeSub = 'Masterful Adaptation';
+    gradeColor = 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
+  } else if (score >= 90) {
+    grade = 'A';
+    gradeSub = 'Outstanding Growth';
+    gradeColor = 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
+  } else if (score >= 85) {
+    grade = 'B+';
+    gradeSub = 'Superb Recovery';
+    gradeColor = 'text-cyan-400 border-cyan-500/30 bg-cyan-500/10';
+  } else if (score >= 80) {
+    grade = 'B';
+    gradeSub = 'Solid Consistency';
+    gradeColor = 'text-cyan-400 border-cyan-500/30 bg-cyan-500/10';
+  } else if (score >= 75) {
+    grade = 'C+';
+    gradeSub = 'Moderate Adapt';
+    gradeColor = 'text-yellow-400 border-yellow-500/30 bg-yellow-500/10';
+  } else if (score >= 70) {
+    grade = 'C';
+    gradeSub = 'Baseline Achieved';
+    gradeColor = 'text-yellow-400 border-yellow-500/30 bg-yellow-500/10';
+  } else {
+    grade = 'D';
+    gradeSub = 'Needs Recovery Focus';
+    gradeColor = 'text-rose-400 border-rose-500/30 bg-rose-500/10';
+  }
+
+  // Create Magic Feedback items
+  const feedbacks: string[] = [];
+
+  // 1. Sleep Feedback
+  if (avgSleep < 7.0) {
+    feedbacks.push(`Your average sleep was low at **${avgSleep.toFixed(1)} hrs**. Muscle protein synthesis and central nervous system replenishment peak during deep sleep stages. Prioritize 7.5+ hrs to prevent performance drops.`);
+  } else {
+    feedbacks.push(`Outstanding sleep hygiene! Averaging **${avgSleep.toFixed(1)} hrs** provided excellent neural restoration and glycogen replenishment, supporting your weekly weight jumps.`);
+  }
+
+  // 2. Soreness Feedback
+  if (avgSoreness >= 6.0) {
+    feedbacks.push(`Accumulated soreness was high (**${avgSoreness.toFixed(1)}/10**). This suggests mechanical eccentric overload is outpacing systemic recovery. Consider slightly trimming accessory volume or extending deload frequency.`);
+  } else if (avgSoreness <= 3.0) {
+    feedbacks.push(`Average soreness was minimal (**${avgSoreness.toFixed(1)}/10**), proving superb muscular work capacity and rapid tissue rebuilding. You can safely increase training density or accessory volume.`);
+  } else {
+    feedbacks.push(`Muscle soreness was managed perfectly, averaging a comfortable **${avgSoreness.toFixed(1)}/10**, indicating stimulus is ideal without entering localized exhaustion.`);
+  }
+
+  // 3. Hydration Feedback
+  if (avgHydration < 2.5) {
+    feedbacks.push(`Hydration averaged **${avgHydration.toFixed(1)} Liters** daily. Even mild dehydration (2% body mass drop) reduces plasma volume, raising your working RPE and accelerating motor-unit fatigue.`);
+  } else {
+    feedbacks.push(`Solid fluid intake! Your **${avgHydration.toFixed(1)}L** average sustains cell volumization and intracellular pressure, crucial for maintaining leverage on heavy lifts.`);
+  }
+
+  // 4. Caloric status or general advice
+  const mainCalStatus = surplusCount > deficitCount && surplusCount > maintenanceCount
+    ? 'surplus'
+    : (deficitCount > surplusCount && deficitCount > maintenanceCount ? 'deficit' : 'maintenance');
+
+  if (mainCalStatus === 'deficit') {
+    feedbacks.push(`You trained mostly in a **Caloric Deficit**. While excellent for body composition, a deficit limits raw glycogen reserves. Keep protein high (~2.0g/kg) to safeguard your myofibrillar density.`);
+  } else if (mainCalStatus === 'surplus') {
+    feedbacks.push(`Your consistent **Caloric Surplus** provided the direct thermodynamic energy required to synthesize new contractile tissues and fuel heavy linear periodization progression.`);
+  } else {
+    feedbacks.push(`Maintaining **Caloric Balance** supported steady recomposition, providing enough daily glycogen for high workout quality without excessive body weight changes.`);
+  }
+
+  return {
+    score,
+    grade,
+    gradeSub,
+    gradeColor,
+    adherenceRate,
+    completedCount,
+    totalPlannedDays,
+    totalPRsHit: programPRs,
+    strongestMuscle,
+    exerciseStats,
+    feedbacks,
+    avgActualGrowth,
+    avgSleep,
+    avgSoreness,
+    avgQuality,
+    avgHydration
+  };
+}
 
 interface AnalyticsViewProps {
   workoutLogs: WorkoutLog[];
 }
 
 export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
-  const [selectedExercise, setSelectedExercise] = useState<string>('Squat');
+  const [selectedExercise, setSelectedExercise] = useState<string>('Back Squat (High Bar)');
   const [prSearch, setPrSearch] = useState<string>('');
   const [selectedPrMuscle, setSelectedPrMuscle] = useState<string>('All');
   const [isExerciseDropdownOpen, setIsExerciseDropdownOpen] = useState(false);
   const [isMuscleDropdownOpen, setIsMuscleDropdownOpen] = useState(false);
   const [showTargetInfo, setShowTargetInfo] = useState(false);
+  
+  // Report Card state
+  const [selectedReportProgram, setSelectedReportProgram] = useState<Program | null>(null);
+  const [reportChartExercise, setReportChartExercise] = useState<string>('Overall');
+
+  // Scroll to top when report card is loaded
+  useEffect(() => {
+    if (selectedReportProgram) {
+      window.scrollTo(0, 0);
+    }
+  }, [selectedReportProgram]);
+
+  const exerciseDropdownRef = useRef<HTMLDivElement>(null);
+  const muscleDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: PointerEvent | TouchEvent) {
+      if (exerciseDropdownRef.current && !exerciseDropdownRef.current.contains(event.target as Node)) {
+        setIsExerciseDropdownOpen(false);
+      }
+      if (muscleDropdownRef.current && !muscleDropdownRef.current.contains(event.target as Node)) {
+        setIsMuscleDropdownOpen(false);
+      }
+    }
+    document.addEventListener('pointerdown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    return () => {
+      document.removeEventListener('pointerdown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, []);
 
   // Extract all unique exercises logged in history
   const uniqueExercises = useMemo(() => {
@@ -30,7 +408,7 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
       });
     });
     // Add default if empty
-    if (list.size === 0) list.add('Squat');
+    if (list.size === 0) list.add('Back Squat (High Bar)');
     return Array.from(list);
   }, [workoutLogs]);
 
@@ -121,7 +499,7 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
     const w3 = lastThree[2].max1RM;
 
     if (w3 > w2 && w2 >= w1) {
-      return { status: 'Breaking Through', desc: 'Great job! Your standardized 1RM strength curve is actively ascending week-over-week.', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
+      return { status: 'Breaking Through', desc: 'Great job! Your standardised 1RM strength curve is actively ascending week-over-week.', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
     } else if (Math.abs(w3 - w2) < 1 && Math.abs(w2 - w1) < 1) {
       return { status: 'Strength Plateau', desc: 'Your estimated 1RM is stuck. Try increasing recovery, tweaking food volume, or deloading.', color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
     } else {
@@ -140,7 +518,7 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
         date: string;
         sleep: number;
         calories: number;
-        hydration: number;
+        hydration: string;
         muscleGroup: string;
       }
     > = {};
@@ -163,7 +541,7 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
                   date: log.date,
                   sleep: log.recovery?.sleepHours || 7,
                   calories: log.recovery?.nutritionCalories || 2500,
-                  hydration: log.recovery?.hydrationLiters || 2,
+                  hydration: log.recovery?.hydrationLevel || (log.recovery?.hydrationLiters ? mapLitersToHydration(log.recovery.hydrationLiters) : 'Adequate'),
                   muscleGroup: ex.muscleGroup || 'Other',
                 };
               }
@@ -422,13 +800,503 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
     return { linePath, dots: points };
   }, [processedHistory]);
 
+  const reportPrograms = useMemo(() => {
+    const list = storage.getPrograms();
+    return list.filter(p => workoutLogs.some(l => l.programId === p.id));
+  }, [workoutLogs]);
+
+  const activeReportPrograms = useMemo(() => {
+    return reportPrograms.filter(p => !storage.isProgramCompleted(p, workoutLogs));
+  }, [reportPrograms, workoutLogs]);
+
+  const completedReportPrograms = useMemo(() => {
+    return reportPrograms.filter(p => storage.isProgramCompleted(p, workoutLogs));
+  }, [reportPrograms, workoutLogs]);
+
+  const reportCard = useMemo(() => {
+    if (!selectedReportProgram) return null;
+    return getProgramReportCard(selectedReportProgram, workoutLogs);
+  }, [selectedReportProgram, workoutLogs]);
+
+  const reportExercises = useMemo(() => {
+    if (!selectedReportProgram) return [];
+    const list = new Set<string>();
+    Object.values(selectedReportProgram.exercisesByDay).forEach(exs => {
+      exs.forEach(ex => list.add(ex.name));
+    });
+    return ['Overall', ...Array.from(list)];
+  }, [selectedReportProgram]);
+
+  const reportChartData = useMemo(() => {
+    if (!selectedReportProgram || !reportCard) return null;
+    
+    const totalWeeks = selectedReportProgram.programDuration === '∞' ? 12 : Number(selectedReportProgram.programDuration);
+    const growthRate = selectedReportProgram.objective === 'Strength' ? 0.005 : (selectedReportProgram.objective === 'Hypertrophy' ? 0.004 : 0.002);
+    
+    // Sort logs chronologically to help baseline finding
+    const progLogs = workoutLogs.filter(l => l.programId === selectedReportProgram.id);
+    const sortedLogs = [...progLogs].sort((a, b) => {
+      const wa = Number(a.week) || 1;
+      const wb = Number(b.week) || 1;
+      if (wa !== wb) return wa - wb;
+      const da = Number(a.day) || 1;
+      const db = Number(b.day) || 1;
+      return da - db;
+    });
+
+    const weeks = Array.from({ length: totalWeeks }, (_, i) => i + 1);
+
+    if (reportChartExercise === 'Overall') {
+      const exerciseBaselines: Record<string, number> = {};
+      const programmedNames = reportExercises.filter(name => name !== 'Overall');
+      
+      programmedNames.forEach(exName => {
+        const exLogs = sortedLogs.filter(l => l.exercises.some(e => e.name.toLowerCase() === exName.toLowerCase()));
+        if (exLogs.length > 0) {
+          const firstLog = exLogs[0];
+          const matchedEx = firstLog.exercises.find(e => e.name.toLowerCase() === exName.toLowerCase());
+          const e1rms = matchedEx?.sets.map(s => {
+            const w = s.weight || 0;
+            const r = s.reps || 0;
+            if (r <= 0) return 0;
+            return r === 1 ? w : w * (1 + r / 30);
+          }).filter(v => v > 0) || [];
+          if (e1rms.length > 0) {
+            exerciseBaselines[exName] = Math.max(...e1rms);
+          }
+        }
+      });
+
+      const points = weeks.map(w => {
+        const weekLogs = sortedLogs.filter(l => Number(l.week) === w);
+        const exerciseRatios: number[] = [];
+
+        programmedNames.forEach(exName => {
+          const baseline = exerciseBaselines[exName];
+          if (!baseline || baseline === 0) return;
+
+          const exWeekLog = weekLogs.find(l => l.exercises.some(e => e.name.toLowerCase() === exName.toLowerCase()));
+          if (exWeekLog) {
+            const matchedEx = exWeekLog.exercises.find(e => e.name.toLowerCase() === exName.toLowerCase());
+            const e1rms = matchedEx?.sets.map(s => {
+              const weight = s.weight || 0;
+              const reps = s.reps || 0;
+              if (reps <= 0) return 0;
+              return reps === 1 ? weight : weight * (1 + reps / 30);
+            }).filter(v => v > 0) || [];
+            if (e1rms.length > 0) {
+              const weekMax = Math.max(...e1rms);
+              const ratio = (weekMax / baseline) * 100;
+              exerciseRatios.push(ratio);
+            }
+          }
+        });
+
+        const projected = 100 * (1 + growthRate * (w - 1));
+
+        let actual: number | null = null;
+        if (exerciseRatios.length > 0) {
+          actual = exerciseRatios.reduce((a, b) => a + b, 0) / exerciseRatios.length;
+        }
+
+        return {
+          week: `W${w}`,
+          projected: Math.round(projected * 10) / 10,
+          actual: actual !== null ? Math.round(actual * 10) / 10 : null,
+        };
+      });
+
+      let lastKnownActual = 100;
+      const pointsFilled = points.map(p => {
+        if (p.actual !== null) {
+          lastKnownActual = p.actual;
+          return p;
+        }
+        return {
+          ...p,
+          actual: lastKnownActual,
+        };
+      });
+
+      return {
+        unit: '%',
+        points: pointsFilled,
+      };
+    } else {
+      const exName = reportChartExercise;
+      const exLogs = sortedLogs.filter(l => l.exercises.some(e => e.name.toLowerCase() === exName.toLowerCase()));
+      let baseline = 0;
+      if (exLogs.length > 0) {
+        const firstLog = exLogs[0];
+        const matchedEx = firstLog.exercises.find(e => e.name.toLowerCase() === exName.toLowerCase());
+        const e1rms = matchedEx?.sets.map(s => {
+          const w = s.weight || 0;
+          const r = s.reps || 0;
+          if (r <= 0) return 0;
+          return r === 1 ? w : w * (1 + r / 30);
+        }).filter(v => v > 0) || [];
+        if (e1rms.length > 0) {
+          baseline = Math.max(...e1rms);
+        }
+      }
+
+      const points = weeks.map(w => {
+        const weekLogs = sortedLogs.filter(l => Number(l.week) === w);
+        const exWeekLog = weekLogs.find(l => l.exercises.some(e => e.name.toLowerCase() === exName.toLowerCase()));
+        
+        let actual: number | null = null;
+        if (exWeekLog) {
+          const matchedEx = exWeekLog.exercises.find(e => e.name.toLowerCase() === exName.toLowerCase());
+          const e1rms = matchedEx?.sets.map(s => {
+            const weight = s.weight || 0;
+            const reps = s.reps || 0;
+            if (reps <= 0) return 0;
+            return reps === 1 ? weight : weight * (1 + reps / 30);
+          }).filter(v => v > 0) || [];
+          if (e1rms.length > 0) {
+            actual = Math.max(...e1rms);
+          }
+        }
+
+        const projected = baseline * (1 + growthRate * (w - 1));
+
+        return {
+          week: `W${w}`,
+          projected: Math.round(projected * 10) / 10,
+          actual: actual !== null ? Math.round(actual * 10) / 10 : null,
+        };
+      });
+
+      let lastKnownActual = baseline;
+      const pointsFilled = points.map(p => {
+        if (p.actual !== null) {
+          lastKnownActual = p.actual;
+          return p;
+        }
+        return {
+          ...p,
+          actual: lastKnownActual,
+        };
+      });
+
+      return {
+        unit: storage.getWeightUnit(),
+        points: pointsFilled,
+      };
+    }
+  }, [selectedReportProgram, reportCard, reportChartExercise, workoutLogs, reportExercises]);
+
+  // Coordinate math for Report SVG Chart
+  const { pointsWithCoords, paddedMin, paddedMax, paddedRange, projPath, actPath } = useMemo(() => {
+    if (!reportChartData || reportChartData.points.length === 0) {
+      return { pointsWithCoords: [], paddedMin: 0, paddedMax: 100, paddedRange: 100, projPath: '', actPath: '' };
+    }
+
+    const allValues = reportChartData.points.flatMap(p => [p.projected, p.actual].filter((v): v is number => v !== null));
+    const maxVal = allValues.length > 0 ? Math.max(...allValues) : 100;
+    const minVal = allValues.length > 0 ? Math.min(...allValues) : 0;
+    const range = maxVal - minVal || 10;
+    
+    const pMin = Math.max(0, minVal - range * 0.1);
+    const pMax = maxVal + range * 0.1;
+    const pRange = pMax - pMin || 10;
+
+    const numPoints = reportChartData.points.length;
+    const svgWidth = 500;
+    const svgHeight = 220;
+    const padL = 45;
+    const padR = 20;
+    const padT = 20;
+    const padB = 30;
+
+    const points = reportChartData.points.map((p, index) => {
+      const x = padL + (index / (numPoints - 1 || 1)) * (svgWidth - padL - padR);
+      const yProj = svgHeight - padB - ((p.projected - pMin) / pRange) * (svgHeight - padB - padT);
+      const yAct = p.actual !== null
+        ? svgHeight - padB - ((p.actual - pMin) / pRange) * (svgHeight - padB - padT)
+        : null;
+
+      return { ...p, x, yProj, yAct };
+    });
+
+    let pPath = `M ${points[0].x} ${points[0].yProj}`;
+    for (let i = 1; i < points.length; i++) {
+      pPath += ` L ${points[i].x} ${points[i].yProj}`;
+    }
+
+    const validActuals = points.filter(p => p.yAct !== null);
+    let aPath = '';
+    if (validActuals.length > 0) {
+      aPath = `M ${validActuals[0].x} ${validActuals[0].yAct}`;
+      for (let i = 1; i < validActuals.length; i++) {
+        aPath += ` L ${validActuals[i].x} ${validActuals[i].yAct}`;
+      }
+    }
+
+    return {
+      pointsWithCoords: points,
+      paddedMin: pMin,
+      paddedMax: pMax,
+      paddedRange: pRange,
+      projPath: pPath,
+      actPath: aPath
+    };
+  }, [reportChartData]);
+
+  if (selectedReportProgram && reportCard) {
+    return (
+      <div className="space-y-6 pb-20 font-sans animate-fade-in bg-slate-950 min-h-screen">
+        {/* Header Bar with Back Button */}
+        <div className="sticky top-[-16px] -mt-4 pt-3 pb-2.5 bg-slate-950 z-30 flex items-center gap-3 border-b border-slate-850 px-4 shadow-md">
+          <button
+            onClick={() => setSelectedReportProgram(null)}
+            className="p-2 bg-slate-900 hover:bg-slate-800 rounded-none text-slate-400 hover:text-white border border-slate-800 transition cursor-pointer"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <div>
+            <h2 className="font-extrabold text-xs text-white uppercase tracking-wide font-sans">
+              PROGRAM REPORT CARD
+            </h2>
+            <p className="text-[9px] text-emerald-400 font-mono uppercase tracking-widest">
+              {storage.isProgramCompleted(selectedReportProgram, workoutLogs) ? 'Final Performance Evaluation' : 'Interim Midterm Analysis'}
+            </p>
+          </div>
+        </div>
+
+        {/* Program Title Block */}
+        <div className="w-full bg-slate-900 border-y border-slate-800 p-4 space-y-1.5">
+          <h3 className="text-base font-black text-white uppercase tracking-tight">{selectedReportProgram.name}</h3>
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+            <span>Objective: {selectedReportProgram.objective}</span>
+            <span>•</span>
+            <span>Split: {selectedReportProgram.daysPerWeek === 1 ? 'Full Body' : (selectedReportProgram.assignedWeekdays && Object.keys(selectedReportProgram.assignedWeekdays).length > 0 ? 'Custom Split' : 'Sequential Split')}</span>
+            <span>•</span>
+            <span>Model: {selectedReportProgram.algorithmId ? selectedReportProgram.algorithmId.replace('_', ' ') : 'linear'}</span>
+          </div>
+        </div>
+
+        {/* Score and Grade Bento Block */}
+        <div className="px-4">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            {/* Grade display */}
+            <div className="sm:col-span-2 border border-slate-800 bg-slate-900 p-4 flex flex-col items-center justify-center text-center space-y-1">
+              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest font-mono">Performance Grade</span>
+              <div className={`text-5xl font-black font-mono tracking-tighter ${reportCard.score >= 90 ? 'text-emerald-400' : reportCard.score >= 80 ? 'text-cyan-400' : reportCard.score >= 70 ? 'text-yellow-400' : 'text-rose-400'}`}>
+                {reportCard.grade}
+              </div>
+              <div className="text-[10px] text-white uppercase font-black tracking-wide">
+                {reportCard.gradeSub}
+              </div>
+              <div className="text-sm text-slate-400 font-semibold font-mono">
+                Score: {reportCard.score}/100
+              </div>
+            </div>
+
+            {/* Quick stats columns */}
+            <div className="sm:col-span-2 grid grid-cols-2 sm:grid-cols-1 gap-2">
+              <div className="bg-slate-900 border border-slate-800 p-3.5 flex flex-col justify-between">
+                <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider font-mono">Adherence Rate</span>
+                <div>
+                  <div className="text-xl font-black text-indigo-400 font-mono leading-none">{reportCard.adherenceRate}%</div>
+                  <span className="text-[8px] text-slate-500 font-semibold uppercase block mt-1">{reportCard.completedCount} / {reportCard.totalPlannedDays} Sessions</span>
+                </div>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-3.5 flex flex-col justify-between">
+                <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider font-mono">Personal Records Hit</span>
+                <div>
+                  <div className="text-xl font-black text-cyan-400 font-mono leading-none">+{reportCard.totalPRsHit}</div>
+                  <span className="text-[8px] text-slate-500 font-semibold uppercase block mt-1">During Program</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Strongest Muscle and Growth Summary */}
+        <div className="px-4">
+          <div className="bg-slate-900 border border-slate-800 p-4 grid grid-cols-2 gap-4">
+            <div>
+              <span className="block text-[8px] text-slate-500 font-bold uppercase tracking-wider font-mono">Strongest Adaptor</span>
+              <div className="text-sm font-black text-emerald-400 uppercase mt-1 leading-tight">{reportCard.strongestMuscle}</div>
+              <span className="text-[8px] text-slate-500 font-semibold uppercase block mt-0.5">Top responding muscle group</span>
+            </div>
+            <div>
+              <span className="block text-[8px] text-slate-500 font-bold uppercase tracking-wider font-mono">Average E1RM Progression</span>
+              <div className="text-sm font-black text-indigo-400 font-mono mt-1 leading-tight">+{reportCard.avgActualGrowth.toFixed(1)}%</div>
+              <span className="text-[8px] text-slate-500 font-semibold uppercase block mt-0.5">Across programmed lifts</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Magic Recovery & Science Feedback */}
+        <div className="w-full bg-slate-900 border-y border-slate-800 p-4 space-y-3">
+          <div className="flex items-center border-b border-slate-850 pb-1.5">
+            <h4 className="font-extrabold text-xs text-white uppercase tracking-wider">Recovery & Bio-Feedback Diagnostics</h4>
+          </div>
+          
+          <div className="bg-slate-950/40 border border-slate-850 p-4 space-y-3.5">
+            {reportCard.feedbacks.map((fb, idx) => (
+              <div key={idx} className="flex gap-2.5 items-start">
+                <span className="text-[10px] text-emerald-400 font-mono font-bold mt-0.5 bg-emerald-500/10 border border-emerald-500/20 px-1 py-0.2">0{idx + 1}</span>
+                <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
+                  {fb.split('**').map((chunk, chunkIdx) => 
+                    chunkIdx % 2 === 1 ? <strong key={chunkIdx} className="text-white font-extrabold">{chunk}</strong> : chunk
+                  )}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Chart Section */}
+        <div className="w-full bg-slate-900 border-y border-slate-800 p-4 space-y-4">
+          <div className="space-y-3 border-b border-slate-850 pb-2">
+            <h4 className="font-extrabold text-xs text-white uppercase tracking-wider">Algorithmic Projection Mapping</h4>
+
+            {/* Dropdown for chart filtering */}
+            <div className="relative w-full">
+              <select
+                value={reportChartExercise}
+                onChange={e => setReportChartExercise(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-850 rounded-none px-2 text-xs font-bold text-slate-300 focus:outline-none focus:border-indigo-500 h-8 flex items-center justify-between cursor-pointer hover:bg-slate-900 transition font-sans"
+              >
+                {reportExercises.map(exName => (
+                  <option key={exName} value={exName} className="bg-slate-950 text-slate-300">
+                    {exName === 'Overall' ? 'Overall Relative Progress' : exName}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {reportChartData && (
+            <div className="bg-slate-950/40 border border-slate-850 p-3.5 rounded-none space-y-3">
+              <div className="flex items-center justify-between text-[9px] font-bold uppercase tracking-wider font-sans">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1">
+                    <span className="w-3 h-0.5 bg-emerald-400 inline-block border-t border-dashed border-emerald-400"></span>
+                    <span className="text-emerald-400 font-semibold">Algorithmic Target (Projected)</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="w-3 h-0.5 bg-indigo-400 inline-block"></span>
+                    <span className="text-indigo-400 font-semibold">Your Progress (Actual)</span>
+                  </div>
+                </div>
+                <div className="text-slate-500 font-mono">Unit: {reportChartData.unit}</div>
+              </div>
+
+              {/* SVG Chart */}
+              <div className="w-full overflow-hidden">
+                <svg viewBox="0 0 500 220" className="w-full h-auto overflow-visible select-none">
+                  {/* Grid lines */}
+                  {Array.from({ length: 4 }).map((_, i) => {
+                    const y = 20 + i * 56.6;
+                    const gridVal = paddedMax - i * (paddedRange / 3);
+                    return (
+                      <g key={i} className="opacity-20">
+                        <line x1="45" y1={y} x2="480" y2={y} className="stroke-slate-700" strokeWidth="1" strokeDasharray="2 2" />
+                        <text x="5" y={y + 4} className="fill-slate-500 text-[8px] font-mono font-bold">
+                          {Math.round(gridVal)}{reportChartData.unit}
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {/* Chart lines */}
+                  {pointsWithCoords.length > 1 && (
+                    <>
+                      {/* Projected Line */}
+                      <path
+                        d={projPath}
+                        fill="none"
+                        className="stroke-emerald-400 opacity-80"
+                        strokeWidth="2.5"
+                        strokeDasharray="4 4"
+                      />
+                      {/* Actual Line */}
+                      {actPath && (
+                        <path
+                          d={actPath}
+                          fill="none"
+                          className="stroke-indigo-400"
+                          strokeWidth="3"
+                        />
+                      )}
+
+                      {/* Data Points */}
+                      {pointsWithCoords.map((p, idx) => (
+                        <g key={idx}>
+                          <circle
+                            cx={p.x}
+                            cy={p.yProj}
+                            r="3"
+                            className="fill-slate-900 stroke-emerald-400"
+                            strokeWidth="1.5"
+                          />
+                          {p.yAct !== null && (
+                            <>
+                              <circle
+                                cx={p.x}
+                                cy={p.yAct}
+                                r="4"
+                                className="fill-indigo-500 stroke-slate-900"
+                                strokeWidth="2"
+                              />
+                              <text
+                                x={p.x}
+                                y={p.yAct - 8}
+                                textAnchor="middle"
+                                className="fill-white text-[8px] font-mono font-black"
+                              >
+                                {p.actual}{reportChartData.unit === '%' ? '%' : ''}
+                              </text>
+                            </>
+                          )}
+                        </g>
+                      ))}
+                    </>
+                  )}
+
+                  {/* X Axis labels */}
+                  {pointsWithCoords.map((p, idx) => (
+                    <text
+                      key={idx}
+                      x={p.x}
+                      y="210"
+                      textAnchor="middle"
+                      className="fill-slate-500 text-[8px] font-mono font-bold"
+                    >
+                      {p.week}
+                    </text>
+                  ))}
+                </svg>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer Button to Return */}
+        <div className="px-4">
+          <button
+            type="button"
+            onClick={() => setSelectedReportProgram(null)}
+            className="w-full bg-slate-900 hover:bg-slate-800 text-slate-300 font-extrabold text-xs py-4 px-4 border border-slate-800 transition uppercase tracking-widest cursor-pointer"
+          >
+            Back to Trends
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 pb-20">
       {/* Header Bar */}
       <div className="flex items-center gap-2 border-b border-slate-850 pb-3 px-4">
         <Dumbbell className="w-5 h-5 text-indigo-400" />
         <div>
-          <h2 className="font-extrabold text-sm text-white uppercase tracking-wide">Performance & Trends</h2>
+          <h2 className="font-extrabold text-sm text-white uppercase tracking-wide">PERFORMANCE TRENDS</h2>
           <p className="text-[10px] text-indigo-400 font-mono uppercase tracking-widest">Progress and analytics for weighted exercises</p>
         </div>
       </div>
@@ -436,15 +1304,12 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
       {/* Selector and Chart Card */}
       <div className="w-full bg-slate-900 border-y border-x-0 border-slate-800 p-4 shadow-sm rounded-none">
         <div className="border-b border-slate-850 pb-3 mb-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <LineChart className="w-5 h-5 text-indigo-400" />
-            <div>
-              <h2 className="font-extrabold text-xs text-slate-300 uppercase tracking-wide">Strength Progression</h2>
-              <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">Standardized Est. 1RM (Epley formula)</p>
-            </div>
+          <div>
+            <h2 className="font-extrabold text-xs text-slate-300 uppercase tracking-wide">Strength Progression</h2>
+            <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">Standardised Est. 1RM (Epley formula)</p>
           </div>
           
-          <div className="relative">
+          <div ref={exerciseDropdownRef} className="relative">
             <button
               type="button"
               onClick={() => setIsExerciseDropdownOpen(!isExerciseDropdownOpen)}
@@ -454,28 +1319,25 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
               <span className="text-[8px] text-slate-500">▼</span>
             </button>
             {isExerciseDropdownOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setIsExerciseDropdownOpen(false)} />
-                <div className="absolute left-0 right-0 top-12 bg-slate-950 border border-slate-800 rounded-none shadow-2xl z-50 overflow-y-auto max-h-60 py-1 font-sans">
-                  {uniqueExercises.map(exName => (
-                    <button
-                      key={exName}
-                      type="button"
-                      onClick={() => {
-                        setSelectedExercise(exName);
-                        setIsExerciseDropdownOpen(false);
-                      }}
-                      className={`w-full text-left px-4 py-2.5 text-xs font-bold border-y border-transparent cursor-pointer transition ${
-                        selectedExercise === exName
-                          ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
-                          : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-                      }`}
-                    >
-                      {exName}
-                    </button>
-                  ))}
-                </div>
-              </>
+              <div className="absolute left-0 right-0 top-12 bg-slate-950 border border-slate-800 rounded-none shadow-2xl z-50 overflow-y-auto max-h-60 py-1 font-sans">
+                {uniqueExercises.map(exName => (
+                  <button
+                    key={exName}
+                    type="button"
+                    onClick={() => {
+                      setSelectedExercise(exName);
+                      setIsExerciseDropdownOpen(false);
+                    }}
+                    className={`w-full text-left px-4 py-2.5 text-xs font-bold border-y border-transparent cursor-pointer transition ${
+                      selectedExercise === exName
+                        ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
+                        : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                    }`}
+                  >
+                    {exName}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -491,9 +1353,8 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
         ) : (
           <div className="space-y-4">
             {exerciseHistory.length > 10 && (
-              <div className="text-[9px] text-indigo-400 font-bold bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1.5 rounded-none inline-flex items-center gap-1.5 shadow-sm font-sans">
-                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                Showing {processedHistory.length} chronological peak points across {exerciseHistory.length} logged sessions. Hover for details!
+              <div className="text-[11px] text-indigo-400 font-bold bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1.5 rounded-none inline-flex items-center shadow-sm font-sans">
+                Showing {processedHistory.length} chronological peak points across {exerciseHistory.length} logged sessions. Tap for details!
               </div>
             )}
             <div className="relative overflow-hidden rounded-none border border-slate-850 bg-slate-950/75 p-2">
@@ -508,7 +1369,7 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
                 {svgPaths.dots.map((dot, idx) => (
                   <g key={idx} className="group cursor-pointer">
                     <title>
-                      {`Date: ${dot.date}\nStandardized Est. 1RM: ${dot.val} kg\nLogged Max Weight: ${dot.rawWeight} kg`}
+                      {`Date: ${dot.date}\nStandardised Est. 1RM: ${dot.val} kg\nLogged Max Weight: ${dot.rawWeight} kg`}
                     </title>
                     <circle cx={dot.x} cy={dot.y} r="5" className="fill-slate-950 stroke-indigo-400 stroke-[2.5]" />
                     {/* Text above active dots - increased font size and brightness for maximum clarity */}
@@ -546,8 +1407,7 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
       {/* Correlation Insight Engine */}
       <div className="w-full bg-slate-900 border-y border-x-0 border-slate-800 p-4 space-y-4 shadow-sm rounded-none">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-850 pb-2.5">
-          <h3 className="font-extrabold text-xs text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-            <TrendingUp className="w-4.5 h-4.5 text-indigo-400" />
+          <h3 className="font-extrabold text-xs text-slate-400 uppercase tracking-wider">
             Recovery Correlations
           </h3>
           <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-2.5 py-0.5 rounded-none border border-indigo-500/20 font-bold uppercase tracking-wider self-start sm:self-auto">
@@ -660,15 +1520,108 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
         )}
       </div>
 
+      {/* Program Report Cards Section */}
+      <div className="w-full bg-slate-900 border-y border-x-0 border-slate-800 p-4 shadow-sm rounded-none">
+        <div className="border-b border-slate-850 pb-3 mb-4">
+          <div>
+            <h2 className="font-extrabold text-xs text-slate-300 uppercase tracking-wide">Program Report Cards</h2>
+            <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">Performance Grading, Algorithmic Projections & Recovery Analysis</p>
+          </div>
+        </div>
+
+        {reportPrograms.length === 0 ? (
+          <div className="p-4 bg-slate-950/40 rounded-none text-center border border-slate-950 text-[11px] text-slate-500 leading-relaxed font-sans">
+            No active or completed programs found with logged workout data yet. Start tracking your program workouts in the Logger to unlock your performance report cards!
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-[11px] text-slate-400 font-sans leading-relaxed">
+              Tapping an active program displays an **Interim Midterm Report**, while a fully completed program issues your **Final Report Card** based on progression math and recovery factors.
+            </p>
+            
+            <div className="grid grid-cols-1 gap-2.5">
+              {activeReportPrograms.map(prog => {
+                const card = getProgramReportCard(prog, workoutLogs);
+                return (
+                  <button
+                    key={prog.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedReportProgram(prog);
+                      setReportChartExercise('Overall');
+                    }}
+                    className="w-full bg-slate-950 hover:bg-slate-900 border border-slate-850 hover:border-slate-800 p-3.5 flex items-center justify-between transition text-left cursor-pointer group"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black text-white uppercase group-hover:text-indigo-400 transition">{prog.name}</span>
+                        <span className="px-1.5 py-0.5 text-[8px] font-mono font-bold tracking-wider uppercase border border-amber-500/30 text-amber-500 bg-amber-500/5 rounded-none">Active</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-500 font-semibold uppercase">
+                        <span>Obj: {prog.objective || 'Hypertrophy'}</span>
+                        <span>•</span>
+                        <span>{prog.programDuration === '∞' ? 'Ongoing' : `${prog.programDuration} Weeks`}</span>
+                        <span>•</span>
+                        <span>Adherence: {card.adherenceRate}%</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <span className="block text-lg font-black text-amber-500 font-mono leading-none">{card.grade}</span>
+                        <span className="text-[8px] text-slate-500 font-semibold uppercase font-mono">Interim Grade</span>
+                      </div>
+                      <span className="text-xs text-slate-600 group-hover:text-slate-300 transition-all transform group-hover:translate-x-1 font-mono">➔</span>
+                    </div>
+                  </button>
+                );
+              })}
+
+              {completedReportPrograms.map(prog => {
+                const card = getProgramReportCard(prog, workoutLogs);
+                return (
+                  <button
+                    key={prog.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedReportProgram(prog);
+                      setReportChartExercise('Overall');
+                    }}
+                    className="w-full bg-slate-950 hover:bg-slate-900 border border-slate-850 hover:border-slate-800 p-3.5 flex items-center justify-between transition text-left cursor-pointer group"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black text-white uppercase group-hover:text-emerald-400 transition">{prog.name}</span>
+                        <span className="px-1.5 py-0.5 text-[8px] font-mono font-bold tracking-wider uppercase border border-emerald-500/30 text-emerald-400 bg-emerald-400/5 rounded-none">Completed</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-500 font-semibold uppercase">
+                        <span>Obj: {prog.objective || 'Hypertrophy'}</span>
+                        <span>•</span>
+                        <span>{prog.programDuration} Weeks</span>
+                        <span>•</span>
+                        <span>Adherence: {card.adherenceRate}%</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <span className="block text-lg font-black text-emerald-400 font-mono leading-none">{card.grade}</span>
+                        <span className="text-[8px] text-slate-500 font-semibold uppercase font-mono">Final Grade</span>
+                      </div>
+                      <span className="text-xs text-slate-600 group-hover:text-slate-300 transition-all transform group-hover:translate-x-1 font-mono">➔</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* PR Spotlight with wellness factors */}
       <div className="w-full bg-slate-900 border-y border-x-0 border-slate-800 p-4 shadow-sm rounded-none">
         <div className="border-b border-slate-850 pb-3 mb-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <Award className="w-5 h-5 text-cyan-400" />
-            <div>
-              <h2 className="font-extrabold text-xs text-slate-300 uppercase tracking-wide">Personal Records</h2>
-              <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">All-time peak lift performance & recovery tracking</p>
-            </div>
+          <div>
+            <h2 className="font-extrabold text-xs text-slate-300 uppercase tracking-wide">Personal Records</h2>
+            <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">All-time peak lift performance & recovery tracking</p>
           </div>
           
           <div className="flex flex-col sm:flex-row gap-2">
@@ -679,7 +1632,7 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
               onChange={e => setPrSearch(e.target.value)}
               className="w-full sm:flex-1 bg-slate-950 border border-slate-850 rounded-none px-3 text-sm font-bold text-slate-300 placeholder-slate-600 focus:outline-none focus:border-cyan-500 h-11 font-sans"
             />
-            <div className="w-full sm:w-48 relative">
+            <div ref={muscleDropdownRef} className="w-full sm:w-48 relative">
               <button
                 type="button"
                 onClick={() => setIsMuscleDropdownOpen(!isMuscleDropdownOpen)}
@@ -689,42 +1642,39 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
                 <span className="text-[8px] text-slate-500">▼</span>
               </button>
               {isMuscleDropdownOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setIsMuscleDropdownOpen(false)} />
-                  <div className="absolute left-0 right-0 top-12 bg-slate-950 border border-slate-800 rounded-none shadow-2xl z-50 overflow-y-auto max-h-48 py-1 font-sans">
+                <div className="absolute left-0 right-0 top-12 bg-slate-950 border border-slate-800 rounded-none shadow-2xl z-50 overflow-y-auto max-h-48 py-1 font-sans">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedPrMuscle('All');
+                      setIsMuscleDropdownOpen(false);
+                    }}
+                    className={`w-full text-left px-4 py-2.5 text-xs font-bold border-y border-transparent cursor-pointer transition ${
+                      selectedPrMuscle === 'All'
+                        ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+                        : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                    }`}
+                  >
+                    All Muscles
+                  </button>
+                  {uniquePrMuscles.map(m => (
                     <button
+                      key={m}
                       type="button"
                       onClick={() => {
-                        setSelectedPrMuscle('All');
+                        setSelectedPrMuscle(m);
                         setIsMuscleDropdownOpen(false);
                       }}
                       className={`w-full text-left px-4 py-2.5 text-xs font-bold border-y border-transparent cursor-pointer transition ${
-                        selectedPrMuscle === 'All'
+                        selectedPrMuscle === m
                           ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
                           : 'text-slate-300 hover:bg-slate-900 hover:text-white'
                       }`}
                     >
-                      All Muscles
+                      {m}
                     </button>
-                    {uniquePrMuscles.map(m => (
-                      <button
-                        key={m}
-                        type="button"
-                        onClick={() => {
-                          setSelectedPrMuscle(m);
-                          setIsMuscleDropdownOpen(false);
-                        }}
-                        className={`w-full text-left px-4 py-2.5 text-xs font-bold border-y border-transparent cursor-pointer transition ${
-                          selectedPrMuscle === m
-                            ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
-                            : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-                        }`}
-                      >
-                        {m}
-                      </button>
-                    ))}
-                  </div>
-                </>
+                  ))}
+                </div>
               )}
             </div>
           </div>
@@ -752,7 +1702,7 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
                   <div className="flex items-center gap-2.5 text-[10px] font-bold text-slate-500 mt-2 font-mono">
                     <span className="flex items-center gap-0.5"><Coffee className="w-3 h-3" /> {pr.sleep}h sleep</span>
                     <span className="flex items-center gap-0.5"><Flame className="w-3 h-3" /> {pr.calories}kcal</span>
-                    <span className="flex items-center gap-0.5"><Droplet className="w-3 h-3" /> {pr.hydration}L</span>
+                    <span className="flex items-center gap-0.5"><Droplet className="w-3 h-3" /> {pr.hydration}</span>
                   </div>
                 </div>
 

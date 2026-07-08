@@ -13,21 +13,23 @@ export const PREBUILT_TEMPLATES: Program[] = [
     daysPerWeek: 3,
     programDuration: 4,
     createdAt: new Date().toISOString(),
+    objective: 'Hypertrophy',
+    algorithmId: 'hypertrophy_linear',
     exercisesByDay: {
       1: [
-        { name: 'Squat', muscleGroup: 'Quads', modality: 'weighted', sets: [{ setNumber: 1, weight: 60, reps: 5, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 60, reps: 5, rpe: 8, form: 'strict' }, { setNumber: 3, weight: 60, reps: 5, rpe: 8, form: 'standard' }] },
-        { name: 'Bench Press', muscleGroup: 'Chest', modality: 'weighted', sets: [{ setNumber: 1, weight: 40, reps: 8, rpe: 7, form: 'strict' }, { setNumber: 2, weight: 40, reps: 8, rpe: 8, form: 'strict' }] },
-        { name: 'Lat Pulldown', muscleGroup: 'Back', modality: 'weighted', sets: [{ setNumber: 1, weight: 35, reps: 10, rpe: 8, form: 'standard' }, { setNumber: 2, weight: 35, reps: 10, rpe: 8, form: 'standard' }] },
+        { name: 'Back Squat (High Bar)', muscleGroup: 'Quads', modality: 'weighted', sets: [{ setNumber: 1, weight: 60, reps: 5, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 60, reps: 5, rpe: 8, form: 'strict' }, { setNumber: 3, weight: 60, reps: 5, rpe: 8, form: 'standard' }] },
+        { name: 'Bench Press (Barbell, Flat)', muscleGroup: 'Pecs', modality: 'weighted', sets: [{ setNumber: 1, weight: 40, reps: 8, rpe: 7, form: 'strict' }, { setNumber: 2, weight: 40, reps: 8, rpe: 8, form: 'strict' }] },
+        { name: 'Lat Pulldown (Wide)', muscleGroup: 'Back', modality: 'weighted', sets: [{ setNumber: 1, weight: 35, reps: 10, rpe: 8, form: 'standard' }, { setNumber: 2, weight: 35, reps: 10, rpe: 8, form: 'standard' }] },
       ],
       2: [
-        { name: 'Deadlift', muscleGroup: 'Hamstrings & Back', modality: 'weighted', sets: [{ setNumber: 1, weight: 70, reps: 5, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 70, reps: 5, rpe: 8, form: 'standard' }] },
-        { name: 'Overhead Press', muscleGroup: 'Shoulders', modality: 'weighted', sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 20, reps: 8, rpe: 8, form: 'strict' }] },
-        { name: 'Dumbbell Curl', muscleGroup: 'Biceps', modality: 'weighted', sets: [{ setNumber: 1, weight: 10, reps: 12, rpe: 7, form: 'strict' }, { setNumber: 2, weight: 10, reps: 12, rpe: 8, form: 'standard' }] },
+        { name: 'Deadlift (Conventional)', muscleGroup: 'Hamstrings', modality: 'weighted', sets: [{ setNumber: 1, weight: 70, reps: 5, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 70, reps: 5, rpe: 8, form: 'standard' }] },
+        { name: 'Overhead Press (Barbell)', muscleGroup: 'Delts', modality: 'weighted', sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 20, reps: 8, rpe: 8, form: 'strict' }] },
+        { name: 'Dumbbell Curl (Alternating)', muscleGroup: 'Biceps', modality: 'weighted', sets: [{ setNumber: 1, weight: 10, reps: 12, rpe: 7, form: 'strict' }, { setNumber: 2, weight: 10, reps: 12, rpe: 8, form: 'standard' }] },
       ],
       3: [
         { name: 'Leg Press', muscleGroup: 'Quads', modality: 'weighted', sets: [{ setNumber: 1, weight: 100, reps: 10, rpe: 7, form: 'strict' }, { setNumber: 2, weight: 100, reps: 10, rpe: 8, form: 'standard' }] },
-        { name: 'Incline Dumbbell Press', muscleGroup: 'Chest', modality: 'weighted', sets: [{ setNumber: 1, weight: 16, reps: 10, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 16, reps: 10, rpe: 8, form: 'standard' }] },
-        { name: 'Cable Row', muscleGroup: 'Back', modality: 'weighted', sets: [{ setNumber: 1, weight: 40, reps: 10, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 40, reps: 10, rpe: 8, form: 'standard' }] },
+        { name: 'Incline Dumbbell Press', muscleGroup: 'Pecs', modality: 'weighted', sets: [{ setNumber: 1, weight: 16, reps: 10, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 16, reps: 10, rpe: 8, form: 'standard' }] },
+        { name: 'Seated Cable Row', muscleGroup: 'Back', modality: 'weighted', sets: [{ setNumber: 1, weight: 40, reps: 10, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 40, reps: 10, rpe: 8, form: 'standard' }] },
       ],
     },
     assignedWeekdays: { 1: 0, 2: 2, 3: 4 }, // Mon, Wed, Fri
@@ -38,26 +40,28 @@ export const PREBUILT_TEMPLATES: Program[] = [
     daysPerWeek: 4,
     programDuration: 8,
     createdAt: new Date().toISOString(),
+    objective: 'Hypertrophy',
+    algorithmId: 'hypertrophy_linear',
     exercisesByDay: {
       1: [
-        { name: 'Bench Press', muscleGroup: 'Chest', modality: 'weighted', sets: [{ setNumber: 1, weight: 50, reps: 8 }, { setNumber: 2, weight: 50, reps: 8 }] },
-        { name: 'Barbell Row', muscleGroup: 'Back', modality: 'weighted', sets: [{ setNumber: 1, weight: 40, reps: 8 }, { setNumber: 2, weight: 40, reps: 8 }] },
-        { name: 'Overhead Dumbbell Press', muscleGroup: 'Shoulders', sets: [{ setNumber: 1, weight: 14, reps: 10 }] },
+        { name: 'Bench Press (Barbell, Flat)', muscleGroup: 'Pecs', modality: 'weighted', sets: [{ setNumber: 1, weight: 50, reps: 8 }, { setNumber: 2, weight: 50, reps: 8 }] },
+        { name: 'Barbell Row (Bent-Over)', muscleGroup: 'Back', modality: 'weighted', sets: [{ setNumber: 1, weight: 40, reps: 8 }, { setNumber: 2, weight: 40, reps: 8 }] },
+        { name: 'Seated Dumbbell Shoulder Press', muscleGroup: 'Delts', sets: [{ setNumber: 1, weight: 14, reps: 10 }] },
       ],
       2: [
-        { name: 'Barbell Back Squat', muscleGroup: 'Quads', sets: [{ setNumber: 1, weight: 70, reps: 6 }, { setNumber: 2, weight: 70, reps: 6 }] },
-        { name: 'Romanian Deadlift', muscleGroup: 'Hamstrings', sets: [{ setNumber: 1, weight: 60, reps: 10 }] },
+        { name: 'Back Squat (High Bar)', muscleGroup: 'Quads', sets: [{ setNumber: 1, weight: 70, reps: 6 }, { setNumber: 2, weight: 70, reps: 6 }] },
+        { name: 'Romanian Deadlift (RDL)', muscleGroup: 'Hamstrings', sets: [{ setNumber: 1, weight: 60, reps: 10 }] },
         { name: 'Standing Calf Raise', muscleGroup: 'Calves', sets: [{ setNumber: 1, weight: 40, reps: 15 }] },
       ],
       3: [
-        { name: 'Weighted Pull-Ups', muscleGroup: 'Back', sets: [{ setNumber: 1, reps: 6 }] },
-        { name: 'Incline Barbell Bench', muscleGroup: 'Chest', sets: [{ setNumber: 1, weight: 45, reps: 8 }] },
-        { name: 'Lateral Raise', muscleGroup: 'Shoulders', sets: [{ setNumber: 1, weight: 8, reps: 12 }] },
+        { name: 'Pull-Up (Wide Grip)', muscleGroup: 'Back', sets: [{ setNumber: 1, reps: 6 }] },
+        { name: 'Incline Bench Press (Barbell)', muscleGroup: 'Pecs', sets: [{ setNumber: 1, weight: 45, reps: 8 }] },
+        { name: 'Lateral Raise (Dumbbell)', muscleGroup: 'Delts', sets: [{ setNumber: 1, weight: 8, reps: 12 }] },
       ],
       4: [
-        { name: 'Leg Curl', muscleGroup: 'Hamstrings', sets: [{ setNumber: 1, weight: 30, reps: 12 }] },
+        { name: 'Lying Leg Curl (Machine)', muscleGroup: 'Hamstrings', sets: [{ setNumber: 1, weight: 30, reps: 12 }] },
         { name: 'Leg Extension', muscleGroup: 'Quads', sets: [{ setNumber: 1, weight: 40, reps: 12 }] },
-        { name: 'Plank', muscleGroup: 'Core', sets: [{ setNumber: 1, reps: 1 }] },
+        { name: 'Plank', muscleGroup: 'Abs', sets: [{ setNumber: 1, reps: 1 }] },
       ],
     },
     assignedWeekdays: { 1: 0, 2: 1, 3: 3, 4: 4 }, // Mon, Tue, Thu, Fri
@@ -72,117 +76,7 @@ const KEYS = {
 };
 
 // Seed programs
-const SEED_PROGRAMS: Program[] = [
-  {
-    id: 'prog-strength-101',
-    name: 'MetReps Strength Builder',
-    daysPerWeek: 3,
-    programDuration: 4,
-    createdAt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(), // 14 days ago
-    exercisesByDay: {
-      1: [
-        {
-          name: 'Squat',
-          muscleGroup: 'Quads',
-          modality: 'weighted',
-          sets: [
-            { setNumber: 1, weight: 100, reps: 5, rpe: 8, form: 'strict' },
-            { setNumber: 2, weight: 100, reps: 5, rpe: 8, form: 'strict' },
-            { setNumber: 3, weight: 100, reps: 5, rpe: 9, form: 'standard' },
-          ],
-        },
-        {
-          name: 'Bench Press',
-          muscleGroup: 'Chest',
-          modality: 'weighted',
-          sets: [
-            { setNumber: 1, weight: 80, reps: 5, rpe: 7, form: 'strict' },
-            { setNumber: 2, weight: 80, reps: 5, rpe: 8, form: 'strict' },
-            { setNumber: 3, weight: 80, reps: 5, rpe: 8, form: 'standard' },
-          ],
-        },
-        {
-          name: 'Barbell Row',
-          muscleGroup: 'Back',
-          modality: 'weighted',
-          sets: [
-            { setNumber: 1, weight: 60, reps: 8, rpe: 7, form: 'standard' },
-            { setNumber: 2, weight: 60, reps: 8, rpe: 8, form: 'standard' },
-            { setNumber: 3, weight: 60, reps: 8, rpe: 8, form: 'standard' },
-          ],
-        },
-      ],
-      2: [
-        {
-          name: 'Deadlift',
-          muscleGroup: 'Hamstrings & Back',
-          modality: 'weighted',
-          sets: [
-            { setNumber: 1, weight: 120, reps: 5, rpe: 8, form: 'strict' },
-            { setNumber: 2, weight: 120, reps: 5, rpe: 9, form: 'standard' },
-          ],
-        },
-        {
-          name: 'Overhead Press',
-          muscleGroup: 'Shoulders',
-          modality: 'weighted',
-          sets: [
-            { setNumber: 1, weight: 45, reps: 5, rpe: 8, form: 'strict' },
-            { setNumber: 2, weight: 45, reps: 5, rpe: 8, form: 'strict' },
-            { setNumber: 3, weight: 45, reps: 5, rpe: 9, form: 'loose' },
-          ],
-        },
-        {
-          name: 'Pull-Ups',
-          muscleGroup: 'Back',
-          modality: 'bodyweight',
-          sets: [
-            { setNumber: 1, reps: 8, rpe: 8, form: 'strict' },
-            { setNumber: 2, reps: 6, rpe: 9, form: 'standard' },
-            { setNumber: 3, reps: 5, rpe: 10, form: 'loose' },
-          ],
-        },
-      ],
-      3: [
-        {
-          name: 'Squat',
-          muscleGroup: 'Quads',
-          modality: 'weighted',
-          sets: [
-            { setNumber: 1, weight: 105, reps: 3, rpe: 8, form: 'strict' },
-            { setNumber: 2, weight: 105, reps: 3, rpe: 8, form: 'strict' },
-            { setNumber: 3, weight: 105, reps: 3, rpe: 9, form: 'standard' },
-          ],
-        },
-        {
-          name: 'Incline Dumbbell Press',
-          muscleGroup: 'Chest',
-          modality: 'weighted',
-          sets: [
-            { setNumber: 1, weight: 26, reps: 8, rpe: 7, form: 'strict' },
-            { setNumber: 2, weight: 26, reps: 8, rpe: 8, form: 'strict' },
-            { setNumber: 3, weight: 26, reps: 8, rpe: 8, form: 'standard' },
-          ],
-        },
-        {
-          name: 'Romanian Deadlift',
-          muscleGroup: 'Hamstrings',
-          modality: 'weighted',
-          sets: [
-            { setNumber: 1, weight: 80, reps: 8, rpe: 7, form: 'strict' },
-            { setNumber: 2, weight: 80, reps: 8, rpe: 7, form: 'strict' },
-            { setNumber: 3, weight: 80, reps: 8, rpe: 8, form: 'standard' },
-          ],
-        },
-      ],
-    },
-    assignedWeekdays: {
-      1: 0, // Monday
-      2: 2, // Wednesday
-      3: 4, // Friday
-    },
-  },
-];
+const SEED_PROGRAMS: Program[] = [];
 
 // Helper to format date offset in YYYY-MM-DD
 function getDateStringOffset(daysOffset: number): string {
@@ -195,178 +89,7 @@ function getDateStringOffset(daysOffset: number): string {
 }
 
 // Seed workout logs
-const SEED_WORKOUT_LOGS: WorkoutLog[] = [
-  {
-    id: 'log-1',
-    date: getDateStringOffset(-7), // 7 days ago (typically a Mon)
-    programId: 'prog-strength-101',
-    program: 'MetReps Strength Builder',
-    week: '1',
-    day: '1',
-    unit: 'kg',
-    durationMinutes: 55,
-    exercises: [
-      {
-        name: 'Squat',
-        muscleGroup: 'Quads',
-        modality: 'weighted',
-        sets: [
-          { setNumber: 1, weight: 95, reps: 5, rpe: 7, form: 'strict' },
-          { setNumber: 2, weight: 95, reps: 5, rpe: 7, form: 'strict' },
-          { setNumber: 3, weight: 95, reps: 5, rpe: 8, form: 'strict' },
-        ],
-      },
-      {
-        name: 'Bench Press',
-        muscleGroup: 'Chest',
-        modality: 'weighted',
-        sets: [
-          { setNumber: 1, weight: 77.5, reps: 5, rpe: 7, form: 'strict' },
-          { setNumber: 2, weight: 77.5, reps: 5, rpe: 8, form: 'strict' },
-          { setNumber: 3, weight: 77.5, reps: 5, rpe: 8, form: 'standard' },
-        ],
-      },
-      {
-        name: 'Barbell Row',
-        muscleGroup: 'Back',
-        modality: 'weighted',
-        sets: [
-          { setNumber: 1, weight: 57.5, reps: 8, rpe: 7, form: 'standard' },
-          { setNumber: 2, weight: 57.5, reps: 8, rpe: 8, form: 'standard' },
-        ],
-      },
-    ],
-    recovery: {
-      sleepHours: 8,
-      hydrationLiters: 2.5,
-      nutritionCalories: 2800,
-      proteinGrams: 150,
-      soreness: 3,
-      motivation: 4,
-    },
-    notes: 'Felt great. Squats were smooth.',
-  },
-  {
-    id: 'log-2',
-    date: getDateStringOffset(-5), // 5 days ago (Wed)
-    programId: 'prog-strength-101',
-    program: 'MetReps Strength Builder',
-    week: '1',
-    day: '2',
-    unit: 'kg',
-    durationMinutes: 60,
-    exercises: [
-      {
-        name: 'Deadlift',
-        muscleGroup: 'Hamstrings & Back',
-        modality: 'weighted',
-        sets: [
-          { setNumber: 1, weight: 115, reps: 5, rpe: 7, form: 'strict' },
-          { setNumber: 2, weight: 115, reps: 5, rpe: 8, form: 'strict' },
-        ],
-      },
-      {
-        name: 'Overhead Press',
-        muscleGroup: 'Shoulders',
-        modality: 'weighted',
-        sets: [
-          { setNumber: 1, weight: 42.5, reps: 5, rpe: 8, form: 'strict' },
-          { setNumber: 2, weight: 42.5, reps: 5, rpe: 8, form: 'strict' },
-          { setNumber: 3, weight: 42.5, reps: 5, rpe: 9, form: 'standard' },
-        ],
-      },
-    ],
-    recovery: {
-      sleepHours: 6.5,
-      hydrationLiters: 2.0,
-      nutritionCalories: 2500,
-      proteinGrams: 130,
-      soreness: 5,
-      motivation: 3,
-    },
-    notes: 'Slightly tired, but finished overhead presses.',
-  },
-  {
-    id: 'log-3',
-    date: getDateStringOffset(-3), // 3 days ago (Fri)
-    programId: 'prog-strength-101',
-    program: 'MetReps Strength Builder',
-    week: '1',
-    day: '3',
-    unit: 'kg',
-    durationMinutes: 45,
-    exercises: [
-      {
-        name: 'Squat',
-        muscleGroup: 'Quads',
-        modality: 'weighted',
-        sets: [
-          { setNumber: 1, weight: 100, reps: 3, rpe: 8, form: 'strict' },
-          { setNumber: 2, weight: 100, reps: 3, rpe: 8, form: 'strict' },
-        ],
-      },
-      {
-        name: 'Incline Dumbbell Press',
-        muscleGroup: 'Chest',
-        modality: 'weighted',
-        sets: [
-          { setNumber: 1, weight: 24, reps: 8, rpe: 7, form: 'strict' },
-          { setNumber: 2, weight: 24, reps: 8, rpe: 8, form: 'standard' },
-        ],
-      },
-    ],
-    recovery: {
-      sleepHours: 9,
-      hydrationLiters: 3.2,
-      nutritionCalories: 3100,
-      proteinGrams: 170,
-      soreness: 2,
-      motivation: 5,
-    },
-    notes: 'Incredible session. Slept perfectly last night!',
-  },
-  {
-    id: 'log-4',
-    date: getDateStringOffset(-1), // Yesterday
-    programId: 'prog-strength-101',
-    program: 'MetReps Strength Builder',
-    week: '2',
-    day: '1',
-    unit: 'kg',
-    durationMinutes: 50,
-    exercises: [
-      {
-        name: 'Squat',
-        muscleGroup: 'Quads',
-        modality: 'weighted',
-        sets: [
-          { setNumber: 1, weight: 100, reps: 5, rpe: 8, form: 'strict' },
-          { setNumber: 2, weight: 100, reps: 5, rpe: 8, form: 'strict' },
-          { setNumber: 3, weight: 100, reps: 5, rpe: 9, form: 'standard' },
-        ],
-      },
-      {
-        name: 'Bench Press',
-        muscleGroup: 'Chest',
-        modality: 'weighted',
-        sets: [
-          { setNumber: 1, weight: 80, reps: 5, rpe: 8, form: 'strict' },
-          { setNumber: 2, weight: 80, reps: 5, rpe: 8, form: 'strict' },
-          { setNumber: 3, weight: 80, reps: 5, rpe: 9, form: 'standard' },
-        ],
-      },
-    ],
-    recovery: {
-      sleepHours: 7.5,
-      hydrationLiters: 2.8,
-      nutritionCalories: 2950,
-      proteinGrams: 165,
-      soreness: 4,
-      motivation: 4,
-    },
-    notes: 'Squatted 100kg for 5 reps! Personal record feel.',
-  },
-];
+const SEED_WORKOUT_LOGS: WorkoutLog[] = [];
 
 // Initialize storage helper
 export const storage = {
@@ -494,12 +217,21 @@ export const storage = {
         const sessionDate = calculateSessionDate(program.createdAt, program.assignedWeekdays, w, dayIdx);
         const dateStr = getLocalDateString(sessionDate);
 
-        // Check if there is already a completed log for this program/week/day on any date
+        // Check if there is already a completed log for this program/week/day on any date after the program was started/re-started
         const completedLog = logs.find(
-          l =>
-            l.programId === programId &&
-            l.week === String(w) &&
-            l.day === String(dayIdx)
+          l => {
+            if (l.programId !== programId) return false;
+            if (String(l.week) !== String(w)) return false;
+            if (String(l.day) !== String(dayIdx)) return false;
+            
+            const progTime = new Date(program.createdAt).getTime();
+            const logTime = Number(l.id.replace('log-', ''));
+            const actualLogTime = (!isNaN(logTime) && logTime > 1000000000000)
+              ? logTime
+              : new Date(l.date).getTime();
+              
+            return actualLogTime >= progTime;
+          }
         );
 
         map[dateStr] = {
@@ -513,5 +245,34 @@ export const storage = {
     }
 
     return map;
+  },
+
+  isProgramCompleted: (program: Program | null, logs: WorkoutLog[]): boolean => {
+    if (!program) return false;
+    if (program.programDuration === '∞') return false;
+    
+    const totalWeeks = Number(program.programDuration);
+    if (isNaN(totalWeeks)) return false;
+    
+    const dayIndexes = Object.keys(program.exercisesByDay).map(Number).sort((a, b) => a - b);
+    if (dayIndexes.length === 0) return false;
+    
+    const lastDay = dayIndexes[dayIndexes.length - 1];
+    const progTime = new Date(program.createdAt).getTime();
+    
+    return logs.some(
+      l => {
+        if (l.programId !== program.id) return false;
+        if (String(l.week) !== String(totalWeeks)) return false;
+        if (String(l.day) !== String(lastDay)) return false;
+        
+        const logTime = Number(l.id.replace('log-', ''));
+        const actualLogTime = (!isNaN(logTime) && logTime > 1000000000000)
+          ? logTime
+          : new Date(l.date).getTime();
+          
+        return actualLogTime >= progTime;
+      }
+    );
   },
 };

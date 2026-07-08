@@ -19,6 +19,7 @@
   --color-slate-500: var(--theme-text-muted, #64748b);
   --color-slate-600: var(--theme-text-muted, #64748b);
   
+  --color-indigo-300: var(--theme-accent-light, #a5b4fc);
   --color-indigo-400: var(--theme-accent-light, #818cf8);
   --color-indigo-500: var(--theme-accent, #6366f1);
   --color-indigo-600: var(--theme-accent-dark, #4f46e5);

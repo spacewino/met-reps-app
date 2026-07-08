@@ -5,6 +5,26 @@
 
 export type WeightUnit = 'kg' | 'lb';
 
+export type HydrationLevel = 'Dehydrated' | 'Under-hydrated' | 'Adequate' | 'Optimal';
+
+export const mapHydrationToLiters = (level: HydrationLevel | string | number | null | undefined): number => {
+  if (level === 'Dehydrated') return 1.0;
+  if (level === 'Under-hydrated') return 1.8;
+  if (level === 'Adequate') return 2.6;
+  if (level === 'Optimal') return 3.5;
+  if (typeof level === 'number') return level;
+  if (typeof level === 'string' && !isNaN(Number(level))) return Number(level);
+  return 2.5; // default fallback
+};
+
+export const mapLitersToHydration = (liters: number | null | undefined): HydrationLevel => {
+  if (liters === null || liters === undefined) return 'Adequate';
+  if (liters < 1.5) return 'Dehydrated';
+  if (liters < 2.2) return 'Under-hydrated';
+  if (liters < 3.2) return 'Adequate';
+  return 'Optimal';
+};
+
 export type SetEntry = {
   setNumber: number;
   weight?: number | null;
@@ -21,11 +41,13 @@ export type ExerciseEntry = {
   modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed';
   sets: SetEntry[];
   isSuperset?: boolean | null;
+  isMainMovement?: boolean | null;
 };
 
 export type DailyRecoveryMetrics = {
   sleepHours?: number | null;
   hydrationLiters?: number | null;
+  hydrationLevel?: HydrationLevel | null;
   nutritionCalories?: number | null;
   proteinGrams?: number | null;
   soreness?: number | null; // 1-5 or 1-10
@@ -45,6 +67,7 @@ export type WorkoutLog = {
   durationMinutes?: number;
   recovery?: DailyRecoveryMetrics;
   notes?: string;
+  objective?: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload';
 };
 
 export type Program = {
@@ -55,6 +78,8 @@ export type Program = {
   createdAt: string; // ISO string
   exercisesByDay: Record<number, ExerciseEntry[]>; // Day Index (1-based) -> list of exercises
   assignedWeekdays?: Record<number, number | null>; // Day Index -> Weekday index (0=Mon, 1=Tue... 6=Sun)
+  objective?: 'Off' | 'Hypertrophy' | 'Strength';
+  algorithmId?: 'hypertrophy_linear' | 'hypertrophy_step' | 'strength_undulating' | 'strength_linear' | 'none';
 };
 
 export type PlannedSession = {

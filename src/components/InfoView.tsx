@@ -64,8 +64,8 @@ export function InfoView({ onClose }: InfoViewProps) {
                 1
               </div>
               <div className="space-y-1">
-                <h4 className="font-bold text-[14px] text-slate-100 uppercase tracking-wide">
-                  Create Your Program
+                <h4 className="font-bold text-[14px] text-slate-100 uppercase tracking-wide flex items-center gap-1.5">
+                  Create Your <span className="text-indigo-400 font-mono text-[11px] bg-slate-900 border border-slate-800 px-1">Program</span>
                 </h4>
                 <p className="text-[13px] leading-relaxed text-slate-400">
                   Navigate to the <span className="text-white font-bold">Program</span> tab in the main navigation menu. From there, you can choose one of the pre-made master templates or design a custom multi-week routine from scratch.
@@ -80,10 +80,10 @@ export function InfoView({ onClose }: InfoViewProps) {
               </div>
               <div className="space-y-1">
                 <h4 className="font-bold text-[14px] text-slate-100 uppercase tracking-wide flex items-center gap-1.5">
-                  The <span className="text-indigo-400 font-mono text-[11px] bg-slate-900 border border-slate-800 px-1">Next Prog</span> TAB
+                  The <span className="text-indigo-400 font-mono text-[11px] bg-slate-900 border border-slate-800 px-1">Workout</span> TAB
                 </h4>
                 <p className="text-[13px] leading-relaxed text-slate-400">
-                  Once your active program is set, the Next Prog tab automatically takes you to your next workout in your program. From this screen, you will be able to log your exercises for the session, with your weights, sets, reps, and RPE pre-populated using previously achieved values.
+                  Once your active program is set, the Workout tab automatically takes you to your next workout in your program. From this screen, you will be able to log your exercises for the session, with your weights, sets, reps, and RPE pre-populated using previously achieved values.
                 </p>
               </div>
             </div>

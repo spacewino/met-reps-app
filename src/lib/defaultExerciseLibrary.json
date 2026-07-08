@@ -165,5 +165,18 @@
     "Single-Leg Calf Raise",
     "Farmer's Walk on Toes",
     "Tibialis Raise"
+  ],
+  "Glutes": [
+    "Barbell Hip Thrust",
+    "Glute Bridge",
+    "Romanian Deadlift",
+    "Bulgarian Split Squat",
+    "Cable Glute Kickback",
+    "Walking Lunge"
+  ],
+  "Forearms": [
+    "Wrist Curl",
+    "Reverse Wrist Curl",
+    "Farmer’s Carry"
   ]
 }

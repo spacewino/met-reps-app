@@ -38,8 +38,21 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  const isNavigation = event.request.mode === 'navigate';
   const url = new URL(event.request.url);
+
+  // Bypass service worker entirely for development environments and Vite dev assets
+  const isDev = url.hostname === 'localhost' || 
+                url.hostname.includes('ais-dev-') || 
+                url.pathname.includes('/src/') || 
+                url.pathname.includes('/@vite/') || 
+                url.pathname.includes('/node_modules/') ||
+                url.pathname.includes('/@fs/');
+  
+  if (isDev) {
+    return;
+  }
+
+  const isNavigation = event.request.mode === 'navigate';
   const isCoreConfig = url.pathname === '/manifest.json' || url.pathname === '/sw.js';
 
   if (isNavigation || isCoreConfig) {

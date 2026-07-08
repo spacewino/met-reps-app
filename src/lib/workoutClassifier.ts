@@ -69,10 +69,10 @@ export function calculateE1RMForSet(weight: number, reps: number, rpe: number): 
     return weight / percentChart;
   }
 
-  // Fallback for reps/RPE values outside chart
+  // Fallback for reps/RPE values outside chart (matches getRTSMultiplier fallback)
   const rir = Math.max(0, 10 - rpe);
-  const estimatedRepsToFailure = reps + rir;
-  return weight * (1 + estimatedRepsToFailure / 30); // Epley Formula
+  const multiplier = 1 - (reps + rir) * 0.03;
+  return weight / Math.max(0.1, multiplier);
 }
 
 /**
@@ -382,28 +382,28 @@ export function classifyWorkout(
   // Descriptions, Labels and colors
   let category = 'Mixed / Maintenance';
   let categoryDesc = 'Balanced training session with mixed intensity, volume, or focus.';
-  let color = 'text-slate-400 bg-slate-950 border-slate-800';
+  let color = 'text-slate-200 bg-slate-900 border-slate-700 shadow-sm';
 
   if (bestCategoryKey === 'peakTest') {
     category = 'Peak / Test';
     categoryDesc = 'Intense peak intensity training session. Excellent for testing top-end strength limits.';
-    color = 'text-rose-400 bg-slate-950 border-rose-500/30 shadow-[0_0_12px_rgba(244,63,94,0.12)]';
+    color = 'text-rose-100 bg-rose-950/80 border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.3)] font-black';
   } else if (bestCategoryKey === 'recoveryDeload') {
     category = 'Recovery / Deload Session';
     categoryDesc = 'Lighter recovery-focused session to allow nervous system and muscle regeneration.';
-    color = 'text-emerald-400 bg-slate-950 border-emerald-500/30';
+    color = 'text-emerald-100 bg-emerald-950/80 border-emerald-500/50 font-black';
   } else if (bestCategoryKey === 'strengthBuilder') {
     category = 'Strength Builder';
     categoryDesc = 'Heavier low-rep lifting focused on neurological adaptations and absolute strength.';
-    color = 'text-indigo-400 bg-slate-950 border-indigo-500/30';
+    color = 'text-indigo-100 bg-indigo-950/80 border-indigo-500/50 font-black';
   } else if (bestCategoryKey === 'hypertrophy') {
     category = 'Hypertrophy';
     categoryDesc = 'Hard working sets in high-stimulus volume ranges optimized for muscle growth.';
-    color = 'text-cyan-400 bg-slate-950 border-cyan-500/30';
+    color = 'text-cyan-100 bg-cyan-950/80 border-cyan-500/50 font-black';
   } else if (bestCategoryKey === 'techniqueSkill') {
     category = 'Technique / Skill Practice';
     categoryDesc = 'Sub-maximal motor pattern practice. Focus is on execution, pause reps, or tempo.';
-    color = 'text-amber-400 bg-slate-950 border-amber-500/30';
+    color = 'text-amber-100 bg-amber-950/80 border-amber-500/50 font-black';
   }
 
   // 5. Secondary Flags Logic

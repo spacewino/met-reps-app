@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Dumbbell, Feather, Settings, ChevronLeft, ChevronRight, CheckCircle2, Play, Calendar as CalendarIcon, Info } from 'lucide-react';
+import { Dumbbell, Feather, Settings, ChevronLeft, ChevronRight, CheckCircle2, Play, Calendar as CalendarIcon, Info, Pencil } from 'lucide-react';
 import { Program, WorkoutLog } from '../types';
 import { storage } from '../lib/storage';
 import { getLocalDateString, getTodayLocalDateString, parseLocalDate } from '../lib/dateUtils';
@@ -51,7 +51,11 @@ export function HomeView({
     workoutLogs.forEach((l) => {
       const key = l.date.slice(0, 10);
       if (!key) return;
-      const isCurrent = currentProgram && (l.programId === currentProgram.id || l.program === currentProgram.name);
+      const isCurrent = currentProgram && (
+        l.programId 
+          ? l.programId === currentProgram.id 
+          : l.program === currentProgram.name
+      );
       const isOneOff = l.program === 'One Off';
       if (isCurrent || isOneOff) {
         map.set(key, (map.get(key) || 0) + 1);
@@ -97,7 +101,9 @@ export function HomeView({
 
     return workoutLogs.filter((l) => {
       const d = new Date(l.date);
-      const isCurrent = l.programId === currentProgram.id || l.program === currentProgram.name;
+      const isCurrent = l.programId 
+        ? l.programId === currentProgram.id 
+        : l.program === currentProgram.name;
       const isOneOff = l.program === 'One Off';
       return (isCurrent || isOneOff) && d >= mon && d <= sun;
     }).length;
@@ -330,7 +336,12 @@ export function HomeView({
                 <div className="space-y-1.5">
                   {log.exercises.map((ex, exIdx) => (
                     <div key={exIdx} className="text-sm text-slate-300 flex items-center justify-between">
-                      <span>• {ex.name}</span>
+                      <span className="flex items-center gap-1">
+                        • {ex.name}
+                        {ex.isMainMovement && (
+                          <sup className="text-[9px] text-indigo-400 font-black tracking-normal align-super bg-indigo-500/10 px-1 border border-indigo-500/20 rounded-sm">MM</sup>
+                        )}
+                      </span>
                       <span className="text-slate-500 font-mono text-[11px] bg-slate-900 px-1.5 py-0.5 rounded-none border border-slate-800">
                         {ex.sets.length} sets ({ex.muscleGroup})
                       </span>
@@ -342,6 +353,16 @@ export function HomeView({
                     "{log.notes}"
                   </p>
                 )}
+                <div className="flex justify-end mt-2 pt-1.5 border-t border-slate-800/30">
+                  <button
+                    onClick={() => onNavigate('logger', { editLogId: log.id })}
+                    className="p-1.5 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-none border border-slate-800 bg-slate-900/60 transition flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider cursor-pointer"
+                    title="Edit Completed Workout"
+                  >
+                    <Pencil className="w-3 h-3 text-indigo-400" />
+                    <span>Edit Workout</span>
+                  </button>
+                </div>
               </div>
             ))}
           </div>

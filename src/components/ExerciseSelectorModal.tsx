@@ -11,6 +11,7 @@ interface ExerciseSelectorModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelect: (selected: { name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' }[]) => void;
+  confirmLabel?: string;
 }
 
 const typedLibrary = libraryData as Record<string, string[]>;
@@ -106,7 +107,7 @@ const migrateExerciseDetails = (
   }
 };
 
-export function ExerciseSelectorModal({ isOpen, onClose, onSelect }: ExerciseSelectorModalProps) {
+export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel }: ExerciseSelectorModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   
@@ -625,7 +626,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect }: ExerciseSel
                     : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                 }`}
               >
-                Add to Workout ({checkedExercises.length})
+                {confirmLabel ? `${confirmLabel} (${checkedExercises.length})` : `Add to Workout (${checkedExercises.length})`}
               </button>
             </>
           )}

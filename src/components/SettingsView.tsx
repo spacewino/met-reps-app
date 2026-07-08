@@ -103,45 +103,151 @@ export function SettingsView({
   };
 
   const handleGenerateTestData = () => {
-    const testProgId = 'prog-test-10-weeks';
+    const testProgId = 'prog-test-12-weeks';
     
-    // 1. Create the program
+    // 1. Create the program with hypertrophy_linear algorithm
     const testProgram: Program = {
       id: testProgId,
-      name: 'PR Correlation Testing',
+      name: '12-Week Hypertrophy Mastery',
       daysPerWeek: 1,
-      programDuration: 10,
-      createdAt: new Date(Date.now() - 70 * 24 * 60 * 60 * 1000).toISOString(),
+      programDuration: 12,
+      createdAt: new Date(Date.now() - 84 * 24 * 60 * 60 * 1000).toISOString(),
+      objective: 'Hypertrophy',
+      algorithmId: 'hypertrophy_linear',
       exercisesByDay: {
         1: [
-          { name: 'Squat', muscleGroup: 'Quads', modality: 'weighted', sets: [] },
-          { name: 'Bench Press', muscleGroup: 'Chest', modality: 'weighted', sets: [] },
-          { name: 'Deadlift', muscleGroup: 'Hamstrings & Back', modality: 'weighted', sets: [] },
+          { name: 'Back Squat (High Bar)', muscleGroup: 'Quads', modality: 'weighted', sets: [] },
+          { name: 'Bench Press (Barbell, Flat)', muscleGroup: 'Pecs', modality: 'weighted', sets: [] },
+          { name: 'Deadlift (Conventional)', muscleGroup: 'Hamstrings', modality: 'weighted', sets: [] },
         ]
       },
       assignedWeekdays: { 1: 0 }
     };
 
     // 2. Clear old test entries if they exist
-    const currentLogs = storage.getWorkoutLogs().filter(l => l.programId !== testProgId);
+    const currentLogs = storage.getWorkoutLogs().filter(l => l.programId !== testProgId && l.programId !== 'prog-test-20-weeks' && l.programId !== 'prog-test-10-weeks');
 
-    // 3. Generate 10 logs with progressive peaks at Week 5, then taper off
-    const progressionData = [
-      { sleep: 7.0, cals: 2400, squat: 100, bench: 75, dead: 120 },
-      { sleep: 7.2, cals: 2500, squat: 105, bench: 78, dead: 125 },
-      { sleep: 7.5, cals: 2650, squat: 110, bench: 82, dead: 130 },
-      { sleep: 8.0, cals: 2800, squat: 115, bench: 87, dead: 135 },
-      { sleep: 8.5, cals: 3200, squat: 125, bench: 95, dead: 145 }, // Peak Week 5
-      { sleep: 7.8, cals: 2700, squat: 118, bench: 90, dead: 138 },
-      { sleep: 7.4, cals: 2550, squat: 112, bench: 85, dead: 132 },
-      { sleep: 7.1, cals: 2450, squat: 108, bench: 81, dead: 127 },
-      { sleep: 6.8, cals: 2300, squat: 102, bench: 76, dead: 121 },
-      { sleep: 6.5, cals: 2200, squat: 95,  bench: 71, dead: 115 },
+    // 3. Generate 12 logs covering progressive overload and biofeedback
+    interface TestSet {
+      weight: number;
+      reps: number;
+      rpe: number;
+      form?: 'strict' | 'standard' | 'loose';
+    }
+
+    const progressionData: Array<{
+      sleep: number;
+      cals: number;
+      protein: number;
+      soreness: number;
+      motivation: number;
+      durationMinutes: number;
+      squatSets: TestSet[];
+      benchSets: TestSet[];
+      deadSets: TestSet[];
+      notes: string;
+    }> = [
+      // Week 1: Baseline (Establishes initial E1RM reference)
+      {
+        sleep: 7.5, cals: 2800, protein: 160, soreness: 3, motivation: 4, durationMinutes: 60,
+        squatSets: [{ weight: 100, reps: 8, rpe: 7.5, form: 'standard' }],
+        benchSets: [{ weight: 75, reps: 8, rpe: 7.5, form: 'standard' }],
+        deadSets: [{ weight: 120, reps: 8, rpe: 7.5, form: 'standard' }],
+        notes: "Week 1 baseline. Feeling strong, pacing is perfect."
+      },
+      // Week 2: Small overload
+      {
+        sleep: 7.6, cals: 2800, protein: 160, soreness: 3, motivation: 4, durationMinutes: 62,
+        squatSets: [{ weight: 102.5, reps: 8, rpe: 7.5, form: 'standard' }],
+        benchSets: [{ weight: 77.5, reps: 8, rpe: 7.5, form: 'standard' }],
+        deadSets: [{ weight: 122.5, reps: 8, rpe: 7.5, form: 'standard' }],
+        notes: "Slight increase. Muscles felt warm, reps were fluid."
+      },
+      // Week 3: Linear build
+      {
+        sleep: 7.8, cals: 2850, protein: 165, soreness: 3, motivation: 4, durationMinutes: 60,
+        squatSets: [{ weight: 105, reps: 8, rpe: 8.0, form: 'standard' }],
+        benchSets: [{ weight: 80, reps: 8, rpe: 8.0, form: 'standard' }],
+        deadSets: [{ weight: 125, reps: 8, rpe: 8.0, form: 'standard' }],
+        notes: "Slept deeply last night. Weights felt comfortable."
+      },
+      // Week 4: Final overload of Block 1
+      {
+        sleep: 7.5, cals: 2900, protein: 170, soreness: 4, motivation: 4, durationMinutes: 65,
+        squatSets: [{ weight: 107.5, reps: 8, rpe: 8.5, form: 'standard' }],
+        benchSets: [{ weight: 82.5, reps: 8, rpe: 8.5, form: 'standard' }],
+        deadSets: [{ weight: 127.5, reps: 8, rpe: 8.5, form: 'standard' }],
+        notes: "End of block 1. Intense pump, high fatigue but hit top targets!"
+      },
+      // Week 5: Planned Deload / Joint Recovery (Low volume & low RPE)
+      {
+        sleep: 8.2, cals: 2400, protein: 140, soreness: 1, motivation: 4, durationMinutes: 45,
+        squatSets: [{ weight: 80, reps: 6, rpe: 5.5, form: 'strict' }],
+        benchSets: [{ weight: 60, reps: 6, rpe: 5.5, form: 'strict' }],
+        deadSets: [{ weight: 95, reps: 6, rpe: 5.5, form: 'strict' }],
+        notes: "Scheduled recovery deload. Focusing on perfect kinematics."
+      },
+      // Week 6: Rebuilding heavier (Block 2 starts)
+      {
+        sleep: 7.2, cals: 2950, protein: 170, soreness: 4, motivation: 5, durationMinutes: 60,
+        squatSets: [{ weight: 110, reps: 8, rpe: 8.0, form: 'standard' }],
+        benchSets: [{ weight: 85, reps: 8, rpe: 8.0, form: 'standard' }],
+        deadSets: [{ weight: 130, reps: 8, rpe: 8.0, form: 'standard' }],
+        notes: "Supercharged after recovery. Powering through sets with explosive speed."
+      },
+      // Week 7: Building
+      {
+        sleep: 7.4, cals: 2950, protein: 170, soreness: 4, motivation: 4, durationMinutes: 62,
+        squatSets: [{ weight: 112.5, reps: 8, rpe: 8.0, form: 'standard' }],
+        benchSets: [{ weight: 87.5, reps: 8, rpe: 8.0, form: 'standard' }],
+        deadSets: [{ weight: 132.5, reps: 8, rpe: 8.0, form: 'standard' }],
+        notes: "Muscle density feels outstanding. Steady hypertrophy progression."
+      },
+      // Week 8: Higher stress
+      {
+        sleep: 7.5, cals: 3000, protein: 175, soreness: 4, motivation: 4, durationMinutes: 65,
+        squatSets: [{ weight: 115, reps: 8, rpe: 8.5, form: 'standard' }],
+        benchSets: [{ weight: 90, reps: 8, rpe: 8.5, form: 'standard' }],
+        deadSets: [{ weight: 135, reps: 8, rpe: 8.5, form: 'standard' }],
+        notes: "Solid overload. Reps are heavy but secure."
+      },
+      // Week 9: Tech breakdown / High Fatigue warning triggered (Severe sleep and protein drop)
+      {
+        sleep: 5.2, cals: 2200, protein: 110, soreness: 8, motivation: 2, durationMinutes: 70,
+        squatSets: [{ weight: 117.5, reps: 7, rpe: 9.5, form: 'loose' }],
+        benchSets: [{ weight: 92.5, reps: 7, rpe: 9.5, form: 'loose' }],
+        deadSets: [{ weight: 137.5, reps: 7, rpe: 9.5, form: 'loose' }],
+        notes: "Terrible fatigue. High soreness. Poor sleep and under-eating caused form breakdown."
+      },
+      // Week 10: Recovery / Active rehabilitation (Soreness drops, energy returns)
+      {
+        sleep: 8.5, cals: 2800, protein: 160, soreness: 2, motivation: 4, durationMinutes: 45,
+        squatSets: [{ weight: 85, reps: 6, rpe: 6.0, form: 'strict' }],
+        benchSets: [{ weight: 65, reps: 6, rpe: 6.0, form: 'strict' }],
+        deadSets: [{ weight: 100, reps: 6, rpe: 6.0, form: 'strict' }],
+        notes: "Light recovery session. Soreness completely resolved."
+      },
+      // Week 11: Rebound surge
+      {
+        sleep: 7.8, cals: 3200, protein: 180, soreness: 3, motivation: 5, durationMinutes: 58,
+        squatSets: [{ weight: 120, reps: 8, rpe: 8.5, form: 'standard' }],
+        benchSets: [{ weight: 95, reps: 8, rpe: 8.5, form: 'standard' }],
+        deadSets: [{ weight: 140, reps: 8, rpe: 8.5, form: 'standard' }],
+        notes: "Phenomenal rebound. Sleep and nutrients have supercharged recovery."
+      },
+      // Week 12: Peak Test / Ultimate PRs! (A+ Peak Performance)
+      {
+        sleep: 8.0, cals: 3200, protein: 180, soreness: 3, motivation: 5, durationMinutes: 60,
+        squatSets: [{ weight: 125, reps: 8, rpe: 10.0, form: 'standard' }],
+        benchSets: [{ weight: 100, reps: 8, rpe: 10.0, form: 'standard' }],
+        deadSets: [{ weight: 145, reps: 8, rpe: 10.0, form: 'standard' }],
+        notes: "True max peak! All-time PRs hit. Program fully completed with exceptional gains!"
+      }
     ];
 
     const logsToSave: WorkoutLog[] = progressionData.map((data, idx) => {
       const weekNum = idx + 1;
-      const daysOffset = -70 + (idx * 7); // Spread over 10 weeks
+      const daysOffset = -84 + (idx * 7); // Spread chronologically over 12 weeks
       const d = new Date();
       d.setDate(d.getDate() + daysOffset);
       const dateStr = d.toISOString().split('T')[0];
@@ -150,48 +256,60 @@ export function SettingsView({
         id: `test-log-w${weekNum}`,
         date: dateStr,
         programId: testProgId,
-        program: 'PR Correlation Testing',
+        program: '12-Week Hypertrophy Mastery',
         week: String(weekNum),
         day: '1',
         unit: 'kg',
-        durationMinutes: 60,
+        objective: (weekNum === 5 || weekNum === 10) ? 'Deload' : 'Hypertrophy',
+        durationMinutes: data.durationMinutes,
         exercises: [
           {
-            name: 'Squat',
+            name: 'Back Squat (High Bar)',
             muscleGroup: 'Quads',
             modality: 'weighted',
-            sets: [
-              { setNumber: 1, weight: data.squat, reps: 5, rpe: 8, form: 'strict' },
-              { setNumber: 2, weight: data.squat, reps: 5, rpe: 8, form: 'strict' },
-            ]
+            sets: data.squatSets.map((s, sIdx) => ({
+              setNumber: sIdx + 1,
+              weight: s.weight,
+              reps: s.reps,
+              rpe: s.rpe,
+              form: s.form || 'strict'
+            }))
           },
           {
-            name: 'Bench Press',
-            muscleGroup: 'Chest',
+            name: 'Bench Press (Barbell, Flat)',
+            muscleGroup: 'Pecs',
             modality: 'weighted',
-            sets: [
-              { setNumber: 1, weight: data.bench, reps: 5, rpe: 8, form: 'strict' },
-              { setNumber: 2, weight: data.bench, reps: 5, rpe: 8, form: 'strict' },
-            ]
+            sets: data.benchSets.map((s, sIdx) => ({
+              setNumber: sIdx + 1,
+              weight: s.weight,
+              reps: s.reps,
+              rpe: s.rpe,
+              form: s.form || 'strict'
+            }))
           },
           {
-            name: 'Deadlift',
-            muscleGroup: 'Hamstrings & Back',
+            name: 'Deadlift (Conventional)',
+            muscleGroup: 'Hamstrings',
             modality: 'weighted',
-            sets: [
-              { setNumber: 1, weight: data.dead, reps: 5, rpe: 8, form: 'strict' },
-            ]
+            sets: data.deadSets.map((s, sIdx) => ({
+              setNumber: sIdx + 1,
+              weight: s.weight,
+              reps: s.reps,
+              rpe: s.rpe,
+              form: s.form || 'strict'
+            }))
           },
         ],
         recovery: {
           sleepHours: data.sleep,
           hydrationLiters: 3.0,
+          hydrationLevel: 'Optimal',
           nutritionCalories: data.cals,
-          proteinGrams: 160,
-          soreness: idx === 4 ? 1 : 3,
-          motivation: idx === 4 ? 5 : 3,
+          proteinGrams: data.protein,
+          soreness: data.soreness,
+          motivation: data.motivation,
         },
-        notes: `Test Log Week ${weekNum} - Sleep: ${data.sleep} hrs, Calories: ${data.cals} kcal.`
+        notes: data.notes
       };
     });
 
@@ -207,23 +325,25 @@ export function SettingsView({
     onRefresh();
     setActiveProgId(testProgId);
     setAlertMsg({
-      title: 'Test Program Generated',
-      message: 'A 10-week mock program "PR Correlation Testing" has been populated with 10 historically logged workouts. The program has been set to Active. Navigate to the Analytics tab to visualize the beautiful peaks and see your dynamic PR targets!'
+      title: '12-Week Test Program Generated',
+      message: 'A complete high-fidelity 12-week program "12-Week Hypertrophy Mastery" has been generated with 12 sequential logs. Try visiting the Trends view to inspect the newly unlocked Report Card page!'
     });
   };
 
   const handleDeleteTestData = () => {
-    const testProgId = 'prog-test-10-weeks';
-    const logs = storage.getWorkoutLogs().filter(l => l.programId !== testProgId);
+    const testProgId = 'prog-test-12-weeks';
+    const logs = storage.getWorkoutLogs().filter(l => l.programId !== testProgId && l.programId !== 'prog-test-20-weeks' && l.programId !== 'prog-test-10-weeks');
     localStorage.setItem('workoutLogs', JSON.stringify(logs));
     storage.deleteProgram(testProgId);
+    storage.deleteProgram('prog-test-20-weeks');
+    storage.deleteProgram('prog-test-10-weeks');
     
     onRefresh();
     const currentId = storage.getCurrentProgramId() || '';
     setActiveProgId(currentId);
     setAlertMsg({
       title: 'Test Program Removed',
-      message: 'The "PR Correlation Testing" program and its 10 mock logs have been deleted. Active program returned to default.'
+      message: 'The "12-Week Hypertrophy Mastery" program and its mock logs have been deleted.'
     });
   };
 
@@ -575,7 +695,7 @@ export function SettingsView({
                 Test Data
               </h4>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Want to test the Recovery Correlation graphs, trendlines, and target guidelines? Generate a 10-week, 1-day/week testing program with progressive strength, sleep, and nutrition data that peaks in Week 5 and tapers off:
+                Want to test the program Report Card system? Generate a high-fidelity 12-week Hypertrophy linear testing program that populates complete historical logs, progressive overload trends, recovery dips, and detailed bio-feedback:
               </p>
 
               <div className="flex flex-col gap-2 pt-1">
@@ -584,7 +704,7 @@ export function SettingsView({
                   onClick={handleGenerateTestData}
                   className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs py-3.5 px-3 rounded-none transition flex items-center justify-center gap-1.5 shadow uppercase tracking-wider cursor-pointer"
                 >
-                  <RefreshCw className="w-4 h-4" /> Generate 10-Week Test Data
+                  <RefreshCw className="w-4 h-4" /> Generate 12-Week Test Data
                 </button>
                 
                 <button

@@ -18,6 +18,7 @@ import { LogsHistoryView } from './components/LogsHistoryView';
 import { SettingsView, THEME_PRESETS } from './components/SettingsView';
 import { MetRepsLogo } from './components/MetRepsLogo';
 import { InfoView } from './components/InfoView';
+import { ConfirmationModal } from './components/ConfirmationModal';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<string>(() => {
@@ -88,6 +89,11 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     return getTodayLocalDateString();
   });
+  const [showNoProgramPopup, setShowNoProgramPopup] = useState<boolean>(false);
+
+  // Unsaved changes failsafe states
+  const [isBuilderDirty, setIsBuilderDirty] = useState<boolean>(false);
+  const [pendingNavigation, setPendingNavigation] = useState<{ view: string; params: any } | null>(null);
 
   // Load state on mount and on trigger
   const loadData = () => {
@@ -99,7 +105,12 @@ export default function App() {
     loadData();
   }, []);
 
-  const handleNavigate = (view: string, params: any = null) => {
+  const handleNavigate = (view: string, params: any = null, force: boolean = false) => {
+    if (!force && currentView === 'builder' && isBuilderDirty && view !== 'builder') {
+      setPendingNavigation({ view, params });
+      return;
+    }
+
     setViewParams(params);
     setCurrentView(view);
     localStorage.setItem('metreps_current_view', view);
@@ -119,15 +130,25 @@ export default function App() {
       .map(Number)
       .sort((a, b) => a - b);
       
+    const progTime = new Date(currentProgram.createdAt).getTime();
+
     // Loop up to a high limit (e.g., 1000 weeks) to support infinite progression beyond the standard duration.
     const searchWeeksLimit = Math.max(totalWeeks + 100, 1000);
     for (let w = 1; w <= searchWeeksLimit; w++) {
       for (const d of dayIndexes) {
         const hasCompletedLog = logs.some(
-          l =>
-            l.programId === currentProgram.id &&
-            l.week === String(w) &&
-            l.day === String(d)
+          l => {
+            if (l.programId !== currentProgram.id) return false;
+            if (String(l.week) !== String(w)) return false;
+            if (String(l.day) !== String(d)) return false;
+
+            const logTime = Number(l.id.replace('log-', ''));
+            const actualLogTime = (!isNaN(logTime) && logTime > 1000000000000)
+              ? logTime
+              : new Date(l.date).getTime();
+
+            return actualLogTime >= progTime;
+          }
         );
         if (!hasCompletedLog) {
           const sessionDate = calculateSessionDate(currentProgram.createdAt, currentProgram.assignedWeekdays, w, d);
@@ -161,7 +182,11 @@ export default function App() {
 
   const handleNextProgrammedWorkout = () => {
     if (!currentProgram) {
-      alert('Please select or build a workout program first in the "Program" or "Home" tab.');
+      setShowNoProgramPopup(true);
+      return;
+    }
+    if (storage.isProgramCompleted(currentProgram, workoutLogs)) {
+      setShowNoProgramPopup(true);
       return;
     }
     const params = getNextProgrammedWorkoutParams();
@@ -174,8 +199,9 @@ export default function App() {
   };
 
   const handleProgramSaved = () => {
+    setIsBuilderDirty(false);
     loadData();
-    handleNavigate('home', null);
+    handleNavigate('home', null, true);
   };
 
   return (
@@ -297,6 +323,8 @@ export default function App() {
                   handleNavigate('home', null);
                 }}
                 onSave={handleProgramSaved}
+                flashSave={viewParams?.flashSave}
+                onDirtyChange={setIsBuilderDirty}
               />
             )}
 
@@ -318,6 +346,8 @@ export default function App() {
               <LogsHistoryView
                 workoutLogs={workoutLogs}
                 onRefresh={loadData}
+                themeId={themeId}
+                onNavigate={handleNavigate}
               />
             )}
 
@@ -335,6 +365,88 @@ export default function App() {
               <InfoView onClose={() => handleNavigate('home', null)} />
             )}
           </div>
+
+          {/* Elegant Program Guidance Popup */}
+          {showNoProgramPopup && (
+            <div className="absolute inset-0 bg-slate-950/50 z-40 animate-fade-in" onClick={() => setShowNoProgramPopup(false)}>
+              <div 
+                className={`absolute bottom-[72px] left-4 right-4 border-2 p-4 shadow-2xl z-50 font-sans text-left rounded-xl transition-all duration-300 transform translate-y-0 ${
+                  themeId === 'amber' 
+                    ? 'bg-[#FAF5F0] border-amber-600/60 text-slate-900' 
+                    : 'bg-slate-900/95 border-indigo-500/80 text-slate-100 backdrop-blur-md'
+                }`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between border-b border-indigo-500/20 pb-2 mb-2">
+                  <span className={`text-[10px] font-black uppercase tracking-widest ${
+                    themeId === 'amber' ? 'text-amber-700' : 'text-indigo-400'
+                  }`}>
+                    Program Required
+                  </span>
+                  <button 
+                    onClick={() => setShowNoProgramPopup(false)}
+                    className="text-xs text-slate-400 hover:text-slate-200 font-bold font-mono px-1 transition-transform hover:scale-110 active:scale-95 cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <p className={`text-xs font-semibold leading-relaxed mb-3 ${
+                  themeId === 'amber' ? 'text-slate-800' : 'text-slate-300'
+                }`}>
+                  To begin your next programmed workout, create or load a program from the <strong className="text-indigo-400 font-bold">(+) Program</strong> menu.
+                </p>
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => {
+                      setShowNoProgramPopup(false);
+                      handleNavigate('builder', { flashSave: true });
+                    }}
+                    className={`text-[10px] font-extrabold uppercase tracking-wider px-3.5 py-2 transition-all cursor-pointer ${
+                      themeId === 'amber'
+                        ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-sm'
+                        : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20'
+                    }`}
+                  >
+                    Go to Program Builder
+                  </button>
+                </div>
+
+                {/* Arrow pointing down precisely to the middle of the "Workout" tab (3rd button, center at ~42%) */}
+                <div className={`absolute top-full left-[41.66%] -translate-x-1/2 w-0 h-0 border-x-[8px] border-x-transparent border-t-[8px] ${
+                  themeId === 'amber' ? 'border-t-amber-600/60' : 'border-t-indigo-500/80'
+                }`} />
+                <div className={`absolute top-full left-[41.66%] -translate-x-1/2 w-0 h-0 border-x-[7px] border-x-transparent border-t-[7px] ${
+                  themeId === 'amber' ? 'border-t-[#FAF5F0]' : 'border-t-slate-900'
+                }`} />
+              </div>
+            </div>
+          )}
+
+          {/* Unsaved changes confirmation modal */}
+          <ConfirmationModal
+            visible={pendingNavigation !== null}
+            title="Discard changes?"
+            message="You have unsaved changes in your program. If you leave now, your edits will be lost."
+            confirmLabel="Discard"
+            cancelLabel="Resume Editing"
+            confirmVariant="danger"
+            onConfirm={() => {
+              setIsBuilderDirty(false);
+              const target = pendingNavigation;
+              setPendingNavigation(null);
+              if (target) {
+                setViewParams(target.params);
+                setCurrentView(target.view);
+                localStorage.setItem('metreps_current_view', target.view);
+                if (target.params) {
+                  localStorage.setItem('metreps_view_params', JSON.stringify(target.params));
+                } else {
+                  localStorage.removeItem('metreps_view_params');
+                }
+              }
+            }}
+            onCancel={() => setPendingNavigation(null)}
+          />
 
           {/* Phone Navigation Bar Mockup */}
           <nav className="bg-slate-900/90 backdrop-blur-md border-t border-slate-850 py-1.5 px-1 h-16 shrink-0 flex items-center justify-around text-slate-400 z-40">
@@ -374,7 +486,7 @@ export default function App() {
               }`}
             >
               <Dumbbell className="w-5 h-5" />
-              <span className="text-[8px] font-bold mt-1 uppercase tracking-tight line-clamp-1">Next Prog</span>
+              <span className="text-[8px] font-bold mt-1 uppercase tracking-tight line-clamp-1">Workout</span>
               {currentView === 'logger' && !viewParams?.isOneOff && (
                 <span className="absolute bottom-[-2px] w-1 h-1 rounded-full bg-indigo-400 shadow-[0_0_8px_#818cf8]" />
               )}
