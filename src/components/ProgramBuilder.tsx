@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Dumbbell, Plus, Trash2, ArrowLeft, Clipboard, HelpCircle, Save, Info, Pencil, Check, TrendingUp } from 'lucide-react';
+import { Dumbbell, Plus, Trash2, ArrowLeft, Clipboard, HelpCircle, Save, Info, Pencil, Check, TrendingUp, CalendarX, User } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Program, ExerciseEntry, WeightUnit } from '../types';
 import { storage, PREBUILT_TEMPLATES } from '../lib/storage';
@@ -59,6 +59,7 @@ const getDefaultWeekdays = (num: number): Record<number, number> => {
 
 export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: ProgramBuilderProps) {
   const themeId = React.useMemo(() => storage.getTheme(), []);
+  const isAmber = themeId === 'amber';
   const activeProg = useState(() => storage.getCurrentProgram())[0];
   const [currentProgramId, setCurrentProgramId] = useState<string | null>(() => activeProg?.id || null);
   const [editingProgramId, setEditingProgramId] = useState<string | null>(() => activeProg?.id || null);
@@ -147,6 +148,9 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
   // Overwrite target state
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false);
   const [pendingSaveProgram, setPendingSaveProgram] = useState<Program | null>(null);
+
+  // Unenroll state
+  const [showUnenrollConfirm, setShowUnenrollConfirm] = useState(false);
 
   const executeSaveProgram = (updatedProgram: Program) => {
     // If there is another saved program with the same name (but different ID), delete it first to avoid duplicate names and clear its references
@@ -449,6 +453,23 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     setSwapTarget(null);
   };
 
+  const handleConfirmUnenroll = () => {
+    storage.setCurrentProgramId(null);
+    setCurrentProgramId(null);
+    setEditingProgramId(null);
+    setShowUnenrollConfirm(false);
+    onSave();
+  };
+
+  const enrolledProgramName = React.useMemo(() => {
+    if (!currentProgramId) return null;
+    const prebuilt = PREBUILT_TEMPLATES.find(p => p.id === currentProgramId);
+    if (prebuilt) return prebuilt.name;
+    const saved = savedPrograms.find(p => p.id === currentProgramId);
+    if (saved) return saved.name;
+    return null;
+  }, [currentProgramId, savedPrograms]);
+
   const handleCreateNewCustom = () => {
     setEditingProgramId(null);
     setName('My Custom Strength Program');
@@ -638,7 +659,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
           <Clipboard className="w-[18px] h-[18px]" /> My Programs
         </h3>
         <p className="text-xs text-slate-400 leading-relaxed font-sans">
-          Select a <span className="font-bold border border-slate-800 bg-slate-900 px-1.5 py-0.5 text-[10px] text-slate-200 uppercase tracking-wide">template</span> or one of your <span className="font-bold border border-indigo-900/30 bg-indigo-950/40 px-1.5 py-0.5 text-[10px] text-indigo-300 uppercase tracking-wide">saved custom programs</span> to quickly load its settings and exercises:
+          Select a <span className="font-bold text-slate-200">template</span> or one of your <span className="font-bold text-slate-200">saved custom programs</span> to quickly load its settings and exercises:
         </p>
         <div className="flex flex-wrap gap-2 pt-1">
           {PREBUILT_TEMPLATES.map((tpl) => {
@@ -667,15 +688,40 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-none text-xs font-bold transition border cursor-pointer ${
                   isCurrent
                     ? 'bg-slate-950 border-emerald-500 text-emerald-400 font-extrabold shadow-[0_0_8px_rgba(16,185,129,0.15)]'
-                    : 'bg-indigo-950/40 hover:bg-indigo-900/40 border-indigo-900/30 text-indigo-300 hover:text-indigo-200'
+                    : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-200 hover:text-white'
                 }`}
               >
-                {isCurrent ? <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <span className="text-indigo-500/80 font-bold text-xs">★</span>}
+                {isCurrent ? <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
                 {prog.name}
               </button>
             );
           })}
         </div>
+
+        {currentProgramId && (
+          <div className="border-t border-slate-800/60 pt-3.5 mt-2 flex flex-col xs:flex-row items-start xs:items-center justify-between gap-3 font-sans">
+            <div className="flex flex-col text-left">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                Active Program
+              </span>
+              <span className={`text-xs font-extrabold mt-0.5 flex items-center gap-1.5 ${isAmber ? 'text-[#B56D3E]' : 'text-emerald-400'}`}>
+                <span className={`inline-block w-2 h-2 rounded-full ${isAmber ? 'bg-[#B56D3E]' : 'bg-emerald-500'} animate-pulse`} />
+                {enrolledProgramName || 'Active Program'}
+              </span>
+            </div>
+            <button
+              onClick={() => setShowUnenrollConfirm(true)}
+              className={`px-3 py-2.5 border text-xs font-black uppercase tracking-wider rounded-none transition flex items-center gap-2 cursor-pointer w-full xs:w-auto justify-center ${
+                isAmber
+                  ? 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 shadow-sm'
+                  : 'bg-rose-950/20 hover:bg-rose-900/30 border-rose-900/40 text-rose-400 hover:text-rose-300'
+              }`}
+            >
+              <CalendarX className="w-4 h-4" />
+              Unenrol from selected program
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Form Settings */}
@@ -780,7 +826,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
         {/* Progression Algorithm Card Section */}
         <div className="border-t border-slate-850 pt-4 space-y-4">
           <div className="flex items-center gap-2">
-            <h4 className="text-lg font-black text-indigo-400 uppercase tracking-widest">
+            <TrendingUp className="w-4 h-4 text-indigo-400 shrink-0" />
+            <h4 className="text-[15.5px] sm:text-[16.5px] font-black text-indigo-400 uppercase tracking-widest">
               Progression & Periodisation
             </h4>
           </div>
@@ -1039,42 +1086,38 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                     <button
                       type="button"
                       onClick={() => openSelectorFor(activeTabDay, exIdx)}
-                      className="col-span-7 text-left focus:outline-none group/btn cursor-pointer"
+                      className="col-span-8 text-left focus:outline-none group/btn cursor-pointer"
                     >
                       <label className="block text-[8px] font-extrabold text-slate-500 uppercase tracking-wider mb-1 cursor-pointer">Name</label>
                       <div className="w-full bg-slate-900 border border-slate-800 rounded-none px-2.5 h-10 text-xs font-semibold text-white flex items-center justify-between group-hover/btn:border-indigo-500/50 transition duration-150 font-sans truncate">
                         <span className="truncate">{ex.name}</span>
                       </div>
                     </button>
-                    {/* Muscle Group */}
+                    {/* Muscle */}
                     <button
                       type="button"
                       onClick={() => openSelectorFor(activeTabDay, exIdx)}
-                      className="col-span-3 text-left focus:outline-none group/btn cursor-pointer"
+                      className="col-span-4 text-center focus:outline-none group/btn cursor-pointer"
                     >
-                      <label className="block text-[8px] font-extrabold text-slate-500 uppercase tracking-wider mb-1 cursor-pointer">Muscle Group</label>
-                      <div className="w-full bg-slate-900 border border-slate-800 rounded-none px-2.5 h-10 text-xs font-semibold text-slate-300 flex items-center justify-between group-hover/btn:border-indigo-500/50 transition duration-150 font-sans truncate">
+                      <label className="block text-[8px] font-extrabold text-slate-500 uppercase tracking-wider mb-1 cursor-pointer text-center w-full">Muscle</label>
+                      <div className="w-full bg-slate-900 border border-slate-800 rounded-none px-2.5 h-10 text-xs font-semibold text-slate-300 flex items-center justify-center group-hover/btn:border-indigo-500/50 transition duration-150 font-sans truncate">
                         <span className="truncate">{ex.muscleGroup}</span>
                       </div>
                     </button>
-                    {/* Browse Library Button */}
-                    <div className="col-span-2">
-                      <label className="block text-[8px] font-extrabold text-transparent select-none uppercase tracking-wider mb-1">Edit</label>
-                      <button
-                        onClick={() => openSelectorFor(activeTabDay, exIdx)}
-                        className="w-full h-10 bg-slate-900 hover:bg-slate-850 border border-slate-800 rounded-none flex items-center justify-center text-indigo-400 hover:text-indigo-300 transition"
-                        title="Browse Library"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                    </div>
                   </div>
 
-                  {/* Remove Exercise */}
-                  <div className="self-end pb-2">
+                  {/* Actions: Edit & Remove */}
+                  <div className="flex items-center gap-1 shrink-0 self-end pb-2">
+                    <button
+                      onClick={() => openSelectorFor(activeTabDay, exIdx)}
+                      className="p-1.5 text-indigo-400 hover:text-indigo-300 transition cursor-pointer"
+                      title="Browse Library"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
                     <button
                       onClick={() => handleDeleteExerciseFromDay(activeTabDay, exIdx)}
-                      className="p-1.5 text-slate-500 hover:text-rose-400 transition"
+                      className="p-1.5 text-slate-500 hover:text-rose-400 transition cursor-pointer"
                       title="Delete exercise template"
                     >
                       <Trash2 className="w-4.5 h-4.5" />
@@ -1141,6 +1184,17 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
           setShowOverwriteConfirm(false);
           setPendingSaveProgram(null);
         }}
+      />
+
+      <ConfirmationModal
+        visible={showUnenrollConfirm}
+        title="Unenrol from Program?"
+        message={`Are you sure you want to unenrol from '${enrolledProgramName || 'your active program'}'? This will remove future scheduled program workouts from your calendar, but all of your completed logs, historical workout entries, and weights are 100% safe and intact.`}
+        confirmLabel="Yes, Unenrol"
+        cancelLabel="No, Stay Enrolled"
+        confirmVariant="danger"
+        onConfirm={handleConfirmUnenroll}
+        onCancel={() => setShowUnenrollConfirm(false)}
       />
     </div>
   );

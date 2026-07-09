@@ -18,6 +18,7 @@ import { LogsHistoryView } from './components/LogsHistoryView';
 import { SettingsView, THEME_PRESETS } from './components/SettingsView';
 import { MetRepsLogo } from './components/MetRepsLogo';
 import { InfoView } from './components/InfoView';
+import { useModalHistory } from './lib/useModalHistory';
 import { ConfirmationModal } from './components/ConfirmationModal';
 
 export default function App() {
@@ -90,6 +91,9 @@ export default function App() {
     return getTodayLocalDateString();
   });
   const [showNoProgramPopup, setShowNoProgramPopup] = useState<boolean>(false);
+
+  // Back button physical popstate interceptor
+  const { dismiss: dismissNoProgramPopup } = useModalHistory(showNoProgramPopup, () => setShowNoProgramPopup(false), 'no-program-popup');
 
   // Unsaved changes failsafe states
   const [isBuilderDirty, setIsBuilderDirty] = useState<boolean>(false);
@@ -193,9 +197,9 @@ export default function App() {
     handleNavigate('logger', params);
   };
 
-  const handleWorkoutSaved = () => {
+  const handleWorkoutSaved = (targetView?: string, params: any = null) => {
     loadData();
-    handleNavigate('home', null);
+    handleNavigate(targetView || 'home', params);
   };
 
   const handleProgramSaved = () => {
@@ -339,7 +343,7 @@ export default function App() {
             )}
 
             {currentView === 'analytics' && (
-              <AnalyticsView workoutLogs={workoutLogs} />
+              <AnalyticsView workoutLogs={workoutLogs} initialProgramId={viewParams?.programId} />
             )}
 
             {currentView === 'history' && (
@@ -368,7 +372,7 @@ export default function App() {
 
           {/* Elegant Program Guidance Popup */}
           {showNoProgramPopup && (
-            <div className="absolute inset-0 bg-slate-950/50 z-40 animate-fade-in" onClick={() => setShowNoProgramPopup(false)}>
+            <div className="absolute inset-0 bg-slate-950/50 z-40 animate-fade-in" onClick={dismissNoProgramPopup}>
               <div 
                 className={`absolute bottom-[72px] left-4 right-4 border-2 p-4 shadow-2xl z-50 font-sans text-left rounded-xl transition-all duration-300 transform translate-y-0 ${
                   themeId === 'amber' 
@@ -384,7 +388,7 @@ export default function App() {
                     Program Required
                   </span>
                   <button 
-                    onClick={() => setShowNoProgramPopup(false)}
+                    onClick={dismissNoProgramPopup}
                     className="text-xs text-slate-400 hover:text-slate-200 font-bold font-mono px-1 transition-transform hover:scale-110 active:scale-95 cursor-pointer"
                   >
                     ✕
@@ -398,7 +402,7 @@ export default function App() {
                 <div className="flex justify-end">
                   <button
                     onClick={() => {
-                      setShowNoProgramPopup(false);
+                      dismissNoProgramPopup();
                       handleNavigate('builder', { flashSave: true });
                     }}
                     className={`text-[10px] font-extrabold uppercase tracking-wider px-3.5 py-2 transition-all cursor-pointer ${

@@ -33,6 +33,7 @@ export type SetEntry = {
   form?: 'strict' | 'standard' | 'loose' | null;
   comment?: string | null;
   isDropSet?: boolean | null;
+  isWarmup?: boolean | null;
 };
 
 export type ExerciseEntry = {
@@ -68,6 +69,7 @@ export type WorkoutLog = {
   recovery?: DailyRecoveryMetrics;
   notes?: string;
   objective?: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload';
+  startTime?: string;
 };
 
 export type Program = {

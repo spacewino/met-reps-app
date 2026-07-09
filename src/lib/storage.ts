@@ -126,8 +126,12 @@ export const storage = {
     return localStorage.getItem(KEYS.CURRENT_PROGRAM_ID);
   },
 
-  setCurrentProgramId: (id: string) => {
-    localStorage.setItem(KEYS.CURRENT_PROGRAM_ID, id);
+  setCurrentProgramId: (id: string | null) => {
+    if (id === null) {
+      localStorage.removeItem(KEYS.CURRENT_PROGRAM_ID);
+    } else {
+      localStorage.setItem(KEYS.CURRENT_PROGRAM_ID, id);
+    }
   },
 
   getCurrentProgram: (): Program | null => {

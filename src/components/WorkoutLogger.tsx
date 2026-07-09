@@ -11,6 +11,7 @@ import { getTodayLocalDateString } from '../lib/dateUtils';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { calculateObjectiveSets } from '../lib/objectiveMath';
+import { useModalHistory } from '../lib/useModalHistory';
 
 function formatDayMonYear(dateStr: string): string {
   try {
@@ -39,9 +40,10 @@ interface WorkoutLoggerProps {
     scheduledDate?: string | null;
     isOneOff?: boolean;
     editLogId?: string | null;
+    redoFromLogId?: string | null;
   };
   onClose: () => void;
-  onSave: () => void;
+  onSave: (targetView?: string, params?: any) => void;
 }
 
 export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerProps) {
@@ -272,11 +274,58 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
     }
     return 60;
   });
+  const [startTime, setStartTime] = useState<string>(() => {
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = isOneOff
+          ? draft.isOneOff === true
+          : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum));
+        if (matches && draft.startTime) {
+          return draft.startTime;
+        }
+      }
+    } catch (_) {}
+
+    if (existingLog && existingLog.startTime) {
+      return existingLog.startTime;
+    }
+
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+  });
+
+  const handleAutoCalculateDuration = () => {
+    if (!startTime) return;
+    try {
+      const [startHours, startMinutes] = startTime.split(':').map(Number);
+      const now = new Date();
+      const currentHours = now.getHours();
+      const currentMinutes = now.getMinutes();
+
+      let startTotalMin = startHours * 60 + startMinutes;
+      let currentTotalMin = currentHours * 60 + currentMinutes;
+
+      if (currentTotalMin < startTotalMin) {
+        currentTotalMin += 24 * 60;
+      }
+
+      const diffMin = currentTotalMin - startTotalMin;
+      setDuration(Math.max(1, diffMin));
+    } catch (e) {
+      console.error('Error auto calculating duration:', e);
+    }
+  };
+
   const [notes, setNotes] = useState<string>('');
 
   // Wellness & Recovery Metrics
   const [sleep, setSleep] = useState<number>(7.5);
   const [hydration, setHydration] = useState<HydrationLevel>('Adequate');
+  const [isHydrationDropdownOpen, setIsHydrationDropdownOpen] = useState<boolean>(false);
   const [calories, setCalories] = useState<number>(2500);
   const [protein, setProtein] = useState<number>(140);
   const [soreness, setSoreness] = useState<number>(3);
@@ -284,21 +333,47 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
 
   // Easter Egg Rest Timer states
   const [restSeconds, setRestSeconds] = useState<number>(0);
-  const [isResting, setIsResting] = useState<boolean>(false);
+  const [isResting, setIsResting] = useState<boolean>(() => {
+    const saved = localStorage.getItem('isResting');
+    return saved === 'true';
+  });
+  const [restStartTime, setRestStartTime] = useState<number | null>(() => {
+    const saved = localStorage.getItem('restStartTime');
+    return saved ? Number(saved) : null;
+  });
+
+  useEffect(() => {
+    if (isResting) {
+      localStorage.setItem('isResting', 'true');
+    } else {
+      localStorage.removeItem('isResting');
+    }
+  }, [isResting]);
+
+  useEffect(() => {
+    if (restStartTime !== null) {
+      localStorage.setItem('restStartTime', restStartTime.toString());
+    } else {
+      localStorage.removeItem('restStartTime');
+    }
+  }, [restStartTime]);
 
   useEffect(() => {
     let interval: any = null;
-    if (isResting) {
+    if (isResting && restStartTime !== null) {
+      // Immediately calculate the correct elapsed seconds on startup/resume
+      const elapsed = Math.floor((Date.now() - restStartTime) / 1000);
+      setRestSeconds(elapsed);
+
       interval = setInterval(() => {
-        setRestSeconds(prev => prev + 1);
-      }, 1000);
-    } else {
-      if (interval) clearInterval(interval);
+        const elapsedNow = Math.floor((Date.now() - restStartTime) / 1000);
+        setRestSeconds(elapsedNow);
+      }, 250);
     }
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isResting]);
+  }, [isResting, restStartTime]);
 
   const [alertMsg, setAlertMsg] = useState<string | null>(null);
 
@@ -344,6 +419,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
   const [activeSelector, setActiveSelector] = useState<{ exIdx: number; setIdx: number; type: 'rpe' | 'form' } | null>(null);
   const [swapMainTargetIdx, setSwapMainTargetIdx] = useState<number | null>(null);
   const [showNoMainMovementConfirm, setShowNoMainMovementConfirm] = useState(false);
+
+  // Back button physical popstate interceptors
+  const { dismiss: dismissSetAction } = useModalHistory(activeSetAction !== null, () => setActiveSetAction(null), 'set-options');
+  const { dismiss: dismissExAction } = useModalHistory(activeExAction !== null, () => setActiveExAction(null), 'exercise-actions');
+  const { dismiss: dismissHistory } = useModalHistory(historyExerciseName !== null, () => setHistoryExerciseName(null), 'exercise-history');
+  const { dismiss: dismissCompletion } = useModalHistory(showCompletionModal, () => setShowCompletionModal(false), 'workout-completion');
 
   // Draft persistence states
   const [isDraftLoaded, setIsDraftLoaded] = useState(false);
@@ -392,6 +473,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
       setProtein(existingLog.recovery?.proteinGrams ?? 140);
       setSoreness(existingLog.recovery?.soreness ?? 3);
       setMotivation(existingLog.recovery?.motivation ?? 4);
+      if (existingLog.startTime) {
+        setStartTime(existingLog.startTime);
+      }
 
       // Pre-check all sets so they show as checked in edit mode
       const initialChecked: Record<string, boolean> = {};
@@ -407,6 +491,66 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
       setUserTouchedSets({});
       setIsDraftLoaded(true);
       return;
+    }
+
+    if (initialParams?.redoFromLogId) {
+      try {
+        const sourceLog = storage.getWorkoutLogs().find(l => l.id === initialParams.redoFromLogId);
+        if (sourceLog) {
+          const prefilled = sourceLog.exercises.map(ex => {
+            const targetSets = ex.sets.map(s => ({
+              setNumber: s.setNumber,
+              weight: s.weight,
+              reps: s.reps,
+              rpe: s.rpe,
+              form: s.form || 'standard',
+              comment: s.comment,
+              isDropSet: s.isDropSet,
+            }));
+            return {
+              name: ex.name,
+              muscleGroup: ex.muscleGroup,
+              modality: ex.modality || 'weighted',
+              isMainMovement: !!ex.isMainMovement,
+              sets: targetSets,
+            };
+          });
+
+          const finalPre = prefilled.map((ex, exIdx) => {
+            const calculated = calculateObjectiveSets({
+              objective: 'Off',
+              exercise: ex,
+              exerciseIndex: exIdx,
+              totalExercises: prefilled.length,
+              weekNum: 1,
+              programDuration: 8,
+              previousLogs: storage.getWorkoutLogs(),
+              userTouchedSets: {},
+              checkedSets: {},
+            });
+            return { ...ex, sets: calculated };
+          });
+
+          setExercises(finalPre);
+          setDuration(sourceLog.durationMinutes || 60);
+          setNotes(`Redo of workout from ${sourceLog.date}`);
+          setSleep(7.5);
+          setHydration('Adequate');
+          setCalories(2500);
+          setProtein(140);
+          setSoreness(3);
+          setMotivation(4);
+          setCheckedSets({});
+          setCollapsed({});
+          setObjective('Off');
+          setUserRawExercises(JSON.parse(JSON.stringify(prefilled)));
+          setUserTouchedSets({});
+          setIsDraftLoaded(true);
+          return;
+        }
+      } catch (err) {
+        console.error('Error handling redoFromLogId in WorkoutLogger:', err);
+      }
     }
 
     // Dynamic duration lookup on load / change
@@ -467,6 +611,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
           setObjective(draft.objective || 'Off');
           setUserRawExercises(draft.userRawExercises || draft.exercises || []);
           setUserTouchedSets(draft.userTouchedSets || {});
+          if (draft.startTime) {
+            setStartTime(draft.startTime);
+          }
           setHasExistingDraft(true);
           setIsDraftLoaded(true);
           return;
@@ -584,7 +731,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
       setObjective(defaultObjective);
     }
     setIsDraftLoaded(true);
-  }, [programId, dayNum, isOneOff, weekNum]);
+  }, [programId, dayNum, isOneOff, weekNum, initialParams]);
 
   // Auto-save draft on every modification
   useEffect(() => {
@@ -612,6 +759,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
       objective,
       userRawExercises,
       userTouchedSets,
+      startTime,
     };
 
     localStorage.setItem('metreps_workout_draft', JSON.stringify(draftData));
@@ -639,6 +787,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
     objective,
     userRawExercises,
     userTouchedSets,
+    startTime,
   ]);
 
   const handleDiscardDraft = () => {
@@ -955,7 +1104,21 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
       prev.map((ex, i) => {
         if (i === exIdx) {
           const sets = ex.sets.map((s, sIdx) =>
-            sIdx === setIdx ? { ...s, isDropSet: !s.isDropSet } : s
+            sIdx === setIdx ? { ...s, isDropSet: !s.isDropSet, isWarmup: false } : s
+          );
+          return { ...ex, sets };
+        }
+        return ex;
+      })
+    );
+  };
+
+  const handleToggleWarmup = (exIdx: number, setIdx: number) => {
+    setExercises(prev =>
+      prev.map((ex, i) => {
+        if (i === exIdx) {
+          const sets = ex.sets.map((s, sIdx) =>
+            sIdx === setIdx ? { ...s, isWarmup: !s.isWarmup, isDropSet: false } : s
           );
           return { ...ex, sets };
         }
@@ -1244,6 +1407,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
       rpe?: number;
       form?: string;
       modality?: string;
+      isWarmup?: boolean;
+      isDropSet?: boolean;
     }> = [];
     const sortedLogs = getSortedLogs(logs);
     for (const log of sortedLogs) {
@@ -1266,7 +1431,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
               reps: s.reps ?? 0,
               rpe: s.rpe ?? undefined,
               form: s.form ?? undefined,
-              modality: match.modality
+              modality: match.modality,
+              isWarmup: !!s.isWarmup,
+              isDropSet: !!s.isDropSet
             });
           }
         }
@@ -1303,6 +1470,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
       durationMinutes: duration,
       notes: notes,
       objective: objective,
+      startTime: startTime,
       recovery: {
         sleepHours: sleep,
         hydrationLiters: mapHydrationToLiters(hydration),
@@ -1348,7 +1516,11 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
       if (isResting) {
         setIsResting(false);
         setRestSeconds(0);
+        setRestStartTime(null);
       } else {
+        const now = Date.now();
+        setRestStartTime(now);
+        setRestSeconds(0);
         setIsResting(true);
       }
     };
@@ -1459,18 +1631,26 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
             </label>
             <div className="relative flex items-center justify-center bg-slate-950 rounded-none border border-slate-850 px-3 h-10 select-none">
               <span className="text-[13px] font-black text-slate-300 uppercase font-mono tracking-wider">
-                {isOneOff ? 'ONE-OFF' : `D${dayNum} - WEEK ${weekNum} OF ${totalWeeks || '8'}`}
+                {isOneOff ? (
+                  'ONE-OFF'
+                ) : (
+                  `WEEK ${weekNum} / ${totalWeeks || '8'}`
+                )}
               </span>
             </div>
           </div>
 
           <div>
             <label className="block text-[12.5px] font-black text-slate-400 uppercase tracking-wider mb-1 font-mono">
-              Workout Date
+              Start Time
             </label>
-            <div className="bg-slate-950 rounded-none border border-slate-850 px-3 h-10 flex items-center justify-center text-[13px] font-black text-slate-300 font-mono">
-              {formatDayMonYear(dateStr)}
-            </div>
+            <input
+              type="time"
+              value={startTime}
+              onChange={e => setStartTime(e.target.value)}
+              className="w-full bg-slate-950 text-slate-300 rounded-none border border-slate-850 px-2 h-10 text-center text-[13px] font-black font-mono focus:outline-none focus:border-indigo-500/85 cursor-pointer"
+              style={{ textAlign: 'center' }}
+            />
           </div>
         </div>
 
@@ -1641,6 +1821,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
                                 <span className="text-sm font-bold">{set.setNumber}</span>
                                 {set.isDropSet && (
                                   <span className="text-rose-500 font-black text-xs" title="Drop Set">↓</span>
+                                )}
+                                {set.isWarmup && (
+                                  <span className="text-amber-500 font-black text-xs" title="Warmup Set">⌇⌇⌇</span>
                                 )}
                               </div>
                             </div>
@@ -1828,12 +2011,16 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
                       );
                     })}
 
-                    <div className="p-3">
+                    <div className="px-2 py-1.5 bg-slate-950/25 border-b border-slate-850">
                       <button
+                        type="button"
                         onClick={() => handleAddSet(exIdx)}
-                        className="w-full bg-slate-950 hover:bg-slate-850 text-slate-300 hover:text-white border border-slate-850 rounded-none py-3 text-sm font-extrabold transition flex items-center justify-center gap-1"
+                        className="w-full bg-slate-950/15 hover:bg-slate-950/35 border border-dashed border-slate-800 hover:border-slate-700 rounded-none h-10 px-3.5 flex items-center gap-2 text-xs transition cursor-pointer group"
                       >
-                        <Plus className="w-4 h-4" /> Add Set
+                        <Plus className="w-3.5 h-3.5 text-indigo-400 group-hover:scale-110 transition-transform shrink-0" />
+                        <span className="text-[13px] text-slate-400 group-hover:text-slate-300 font-sans font-medium">
+                          Add set {ex.sets.length + 1}
+                        </span>
                       </button>
                     </div>
                   </div>
@@ -1876,19 +2063,28 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
         </h3>
 
         {/* Workout Duration and Easter Egg Game Rest Timer row */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full items-end">
+        <div className="grid grid-cols-2 gap-3 w-full items-end">
           <div className="space-y-1.5 w-full">
             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
               Workout Duration
             </label>
-            <div className="bg-slate-950 px-3 py-2 rounded-none border border-slate-850 flex items-center justify-between gap-1 h-10">
+            <div className="bg-slate-950 rounded-none border border-slate-850 flex items-center justify-between h-10 overflow-hidden">
               <input
                 type="number"
                 value={duration}
                 onChange={e => setDuration(Math.max(1, Number(e.target.value)))}
-                className="bg-transparent font-black text-sm text-white flex-1 w-0 min-w-0 focus:outline-none font-mono text-center"
+                className="bg-transparent font-black text-sm text-white flex-1 w-0 min-w-0 focus:outline-none font-mono text-center pl-3"
               />
-              <span className="text-[9px] text-slate-500 font-black shrink-0">MIN</span>
+              <span className="text-[9px] text-slate-500 font-black shrink-0 pr-2">MIN</span>
+              <button
+                type="button"
+                onClick={handleAutoCalculateDuration}
+                className={`bg-indigo-600 hover:bg-indigo-500 ${themeId === 'amber' ? 'text-[#FBFAF8]' : 'text-white'} text-[10px] font-black uppercase tracking-widest h-full px-3.5 transition cursor-pointer border-l border-slate-850 shrink-0 flex items-center gap-1 group`}
+                title="Calculate duration from start time to now"
+              >
+                <Clock className={`w-3 h-3 ${themeId === 'amber' ? 'text-[#FBFAF8]/80' : 'text-white/80'} group-hover:scale-110 transition-transform`} />
+                <span>Calc</span>
+              </button>
             </div>
           </div>
 
@@ -1926,19 +2122,41 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
               Hydration
             </label>
             <div className="relative w-full">
-              <select
-                value={hydration}
-                onChange={e => setHydration(e.target.value as HydrationLevel)}
-                className="w-full bg-slate-950 font-black text-xs text-white px-3 py-2 rounded-none border border-slate-850 focus:outline-none font-sans uppercase h-10 cursor-pointer appearance-none pr-8 text-center"
+              <button
+                type="button"
+                onClick={() => setIsHydrationDropdownOpen(!isHydrationDropdownOpen)}
+                className="w-full bg-slate-950 font-black text-xs text-white px-3 py-2 rounded-none border border-slate-850 focus:outline-none font-sans uppercase h-10 cursor-pointer hover:bg-slate-900 transition flex items-center justify-between relative"
               >
-                <option value="Dehydrated">Dehydrated</option>
-                <option value="Under-hydrated">Under-hydrated</option>
-                <option value="Adequate">Adequate</option>
-                <option value="Optimal">Optimal</option>
-              </select>
-              <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none">
-                <ChevronDown className="w-4 h-4 text-slate-500" />
-              </div>
+                <span className="text-center w-full">{hydration}</span>
+                <span className="text-[8px] text-slate-500 shrink-0 select-none absolute right-3">▼</span>
+              </button>
+              {isHydrationDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsHydrationDropdownOpen(false)} />
+                  <div className="absolute left-0 right-0 top-11 bg-slate-950 border border-slate-800 rounded-none shadow-2xl z-50 overflow-hidden py-1 font-sans">
+                    {(['Dehydrated', 'Under-hydrated', 'Adequate', 'Optimal'] as HydrationLevel[]).map(level => {
+                      const isSelected = hydration === level;
+                      return (
+                        <button
+                          key={level}
+                          type="button"
+                          onClick={() => {
+                            setHydration(level);
+                            setIsHydrationDropdownOpen(false);
+                          }}
+                          className={`w-full text-center py-2.5 text-xs font-bold border-y border-transparent cursor-pointer transition uppercase font-sans ${
+                            isSelected
+                              ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
+                              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                          }`}
+                        >
+                          {level}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -2041,6 +2259,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
           setSelectorTargetIdx(null);
         }}
         onSelect={handleSelectExercise}
+        confirmLabel={selectorTargetIdx !== null && selectorTargetIdx >= 0 ? 'Replace Exercise' : 'Add to Workout'}
       />
 
       <ConfirmationModal
@@ -2109,13 +2328,19 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
         const ex = exercises[activeExAction];
         if (!ex) return null;
         return (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
+          <div 
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in"
+            onClick={dismissExAction}
+          >
+            <div 
+              className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
               <div className="p-4 border-b border-slate-850 bg-slate-950/40 flex justify-between items-center">
                 <h3 className="font-extrabold text-xs text-white uppercase tracking-wider">
                   Configure <span className="text-indigo-400 font-semibold normal-case tracking-normal">"{ex.name}"</span>
                 </h3>
-                <button onClick={() => setActiveExAction(null)} className="text-slate-400 hover:text-white text-xs font-bold font-sans">CLOSE</button>
+                <button onClick={dismissExAction} className="text-slate-400 hover:text-white text-xs font-bold font-sans">CLOSE</button>
               </div>
               <div className="p-4 space-y-3">
                 
@@ -2123,7 +2348,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
                   <button
                     onClick={() => {
                       handleMoveExercise(activeExAction, 'up');
-                      setActiveExAction(null);
+                      dismissExAction();
                     }}
                     disabled={activeExAction === 0}
                     className="bg-slate-950 hover:bg-slate-850 disabled:opacity-40 border border-slate-850 rounded-xl p-2.5 text-xs font-bold text-slate-300 transition text-center cursor-pointer"
@@ -2133,7 +2358,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
                   <button
                     onClick={() => {
                       handleMoveExercise(activeExAction, 'down');
-                      setActiveExAction(null);
+                      dismissExAction();
                     }}
                     disabled={activeExAction === exercises.length - 1}
                     className="bg-slate-950 hover:bg-slate-850 disabled:opacity-40 border border-slate-850 rounded-xl p-2.5 text-xs font-bold text-slate-300 transition text-center cursor-pointer"
@@ -2145,7 +2370,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
                 <button
                   onClick={() => {
                     handleToggleSuperset(activeExAction);
-                    setActiveExAction(null);
+                    dismissExAction();
                   }}
                   className="w-full text-left bg-slate-950 hover:bg-slate-850 border border-slate-850 rounded-xl p-3 text-xs font-bold text-slate-300 transition flex items-center justify-between"
                 >
@@ -2157,7 +2382,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
                 <button
                   onClick={() => {
                     toggleCollapse(activeExAction);
-                    setActiveExAction(null);
+                    dismissExAction();
                   }}
                   className="w-full text-left bg-slate-950 hover:bg-slate-850 border border-slate-850 rounded-xl p-3 text-xs font-bold text-slate-300 transition flex items-center justify-between"
                 >
@@ -2169,7 +2394,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
                 <button
                   onClick={() => {
                     setDeleteExerciseIdx(activeExAction);
-                    setActiveExAction(null);
+                    dismissExAction();
                   }}
                   className="w-full text-left bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/40 rounded-xl p-3 text-xs font-bold text-rose-400 transition flex items-center justify-between"
                 >
@@ -2189,31 +2414,37 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
         const set = ex?.sets[setIdx];
         if (!set) return null;
         return (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
+          <div 
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in"
+            onClick={dismissSetAction}
+          >
+            <div 
+              className="bg-slate-900 border border-slate-800 rounded-none w-full max-w-sm overflow-hidden shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
               <div className="p-4 border-b border-slate-850 bg-slate-950/40 flex justify-between items-center">
-                <h3 className="font-extrabold text-xs text-white uppercase tracking-wider">Set {set.setNumber} Options</h3>
-                <button onClick={() => setActiveSetAction(null)} className="text-slate-400 hover:text-white text-xs font-bold font-sans">CLOSE</button>
+                <h3 className="font-extrabold text-xs text-white uppercase tracking-wider font-mono">Set {set.setNumber} Options</h3>
+                <button onClick={dismissSetAction} className="text-slate-400 hover:text-white text-xs font-bold font-mono">CLOSE</button>
               </div>
               <div className="p-4 space-y-3">
                 {/* Comment Inline Input */}
                 <div className="space-y-1.5">
-                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">Set Comment / Note</label>
+                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider font-mono">Set Comment / Note</label>
                   <div className="flex gap-1.5">
                     <input
                       type="text"
                       defaultValue={set.comment || ''}
                       id="set-comment-input-field"
                       placeholder="e.g., Last rep was slow, good squeeze"
-                      className="flex-1 bg-slate-950 border border-slate-850 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-sans"
+                      className="flex-1 bg-slate-950 border border-slate-850 rounded-none px-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-sans"
                     />
                     <button
                       onClick={() => {
                         const val = (document.getElementById('set-comment-input-field') as HTMLInputElement)?.value || '';
                         handleUpdateSetComment(exIdx, setIdx, val);
-                        setActiveSetAction(null);
+                        dismissSetAction();
                       }}
-                      className="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs px-3 py-1.5 rounded-xl transition shrink-0"
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs px-3 py-1.5 rounded-none transition shrink-0 font-mono"
                     >
                       Save
                     </button>
@@ -2221,50 +2452,65 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
                 </div>
 
                 <div className="border-t border-slate-850 my-2 pt-2 space-y-2">
-                  <button
-                    onClick={() => {
-                      handleToggleDropSet(exIdx, setIdx);
-                      setActiveSetAction(null);
-                    }}
-                    className="w-full text-left bg-slate-950 hover:bg-slate-850 border border-slate-850 rounded-xl p-2.5 text-xs font-bold text-slate-300 transition flex items-center justify-between"
-                  >
-                    <span>Mark as Drop Set</span>
-                    <span className={`text-[8px] px-2 py-0.5 rounded-full font-extrabold uppercase font-mono ${set.isDropSet ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-850 text-slate-500'}`}>
-                      {set.isDropSet ? 'YES ↓' : 'NO'}
-                    </span>
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => {
+                        handleToggleDropSet(exIdx, setIdx);
+                        dismissSetAction();
+                      }}
+                      className="bg-slate-950 hover:bg-slate-850 border border-slate-850 rounded-none p-2.5 text-xs font-bold text-slate-300 transition flex flex-col items-center justify-center gap-1.5"
+                    >
+                      <span>Drop Set</span>
+                      <span className={`text-[8px] px-2 py-0.5 rounded-none font-extrabold uppercase font-mono ${set.isDropSet ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-850 text-slate-500'}`}>
+                        {set.isDropSet ? 'YES ↓' : 'NO'}
+                      </span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        handleToggleWarmup(exIdx, setIdx);
+                        dismissSetAction();
+                      }}
+                      className="bg-slate-950 hover:bg-slate-850 border border-slate-850 rounded-none p-2.5 text-xs font-bold text-slate-300 transition flex flex-col items-center justify-center gap-1.5"
+                    >
+                      <span>Warmup Set</span>
+                      <span className={`text-[8px] px-2 py-0.5 rounded-none font-extrabold uppercase font-mono ${set.isWarmup ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-850 text-slate-500'}`}>
+                        {set.isWarmup ? 'YES ⌇⌇⌇' : 'NO'}
+                      </span>
+                    </button>
+                  </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       onClick={() => {
                         handleMoveSet(exIdx, setIdx, 'up');
-                        setActiveSetAction(null);
+                        dismissSetAction();
                       }}
                       disabled={setIdx === 0}
-                      className="bg-slate-950 hover:bg-slate-850 disabled:opacity-40 border border-slate-850 rounded-xl p-2 text-xs font-bold text-slate-300 transition text-center"
+                      className="bg-slate-950 hover:bg-slate-850 disabled:opacity-40 border border-slate-850 rounded-none p-2 text-xs font-bold text-slate-300 transition text-center font-mono"
                     >
-                      Move Set Up ▲
+                      Move Up ▲
                     </button>
                     <button
                       onClick={() => {
                         handleMoveSet(exIdx, setIdx, 'down');
-                        setActiveSetAction(null);
+                        dismissSetAction();
                       }}
                       disabled={setIdx === ex.sets.length - 1}
-                      className="bg-slate-950 hover:bg-slate-850 disabled:opacity-40 border border-slate-850 rounded-xl p-2 text-xs font-bold text-slate-300 transition text-center"
+                      className="bg-slate-950 hover:bg-slate-850 disabled:opacity-40 border border-slate-850 rounded-none p-2 text-xs font-bold text-slate-300 transition text-center font-mono"
                     >
-                      Move Set Down ▼
+                      Move Down ▼
                     </button>
                   </div>
 
                   <button
                     onClick={() => {
                       handleDeleteSet(exIdx, setIdx);
-                      setActiveSetAction(null);
+                      dismissSetAction();
                     }}
-                    className="w-full text-left bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/40 rounded-xl p-2.5 text-xs font-bold text-rose-400 transition flex items-center justify-between"
+                    className="w-full text-left bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/40 rounded-none p-2.5 text-xs font-bold text-rose-400 transition flex items-center justify-between"
                   >
-                    <span>Delete Set</span>
+                    <span className="font-mono">DELETE SET</span>
                     <Trash2 className="w-3.5 h-3.5 text-rose-400" />
                   </button>
                 </div>
@@ -2306,14 +2552,20 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
         };
 
         return (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
+          <div 
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center px-0 py-6 z-50 animate-fade-in"
+            onClick={dismissHistory}
+          >
+            <div 
+              className="bg-slate-900 border-y border-slate-800 rounded-none w-full max-w-sm overflow-hidden shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
               <div className="p-4 border-b border-slate-850 bg-slate-950/40 flex justify-between items-center">
                 <div className="flex items-center gap-1.5">
                   <History className="w-4 h-4 text-cyan-400" />
                   <h3 className="font-extrabold text-xs text-white uppercase tracking-wider">Lifting History</h3>
                 </div>
-                <button onClick={() => setHistoryExerciseName(null)} className="text-slate-400 hover:text-white text-xs font-bold font-sans">CLOSE</button>
+                <button onClick={dismissHistory} className="text-slate-400 hover:text-white text-xs font-bold font-sans">CLOSE</button>
               </div>
               <div className="p-4 space-y-3">
                 <p className="text-xs text-slate-300 font-semibold">
@@ -2325,7 +2577,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
                     No historical records found!
                   </div>
                 ) : (
-                  <div className="bg-slate-950 rounded-xl border border-slate-850 overflow-hidden max-h-60 overflow-y-auto">
+                  <div className="bg-slate-950 rounded-xl border border-slate-850 overflow-hidden min-h-[280px] max-h-[380px] overflow-y-auto">
                     {history.map((item, idx) => {
                       const weekStyle = getWeekStyle(item.week, item.day);
                       const isCurrentEditRow = editLogId && item.logId === editLogId;
@@ -2342,10 +2594,37 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
                         borderClass = 'border-l-2 border-cyan-400';
                       }
 
+                      // Check if this is the final set of a workout
+                      const nextItem = history[idx + 1];
+                      const isLastSetOfWorkout = nextItem && item.logId !== nextItem.logId;
+
+                      const maxEst1RMInHistory = (() => {
+                        const ests = history.map(h => {
+                          if (h.modality === 'timed') return 0;
+                          const w = h.weight || 0;
+                          const r = h.reps || 0;
+                          if (w <= 0 || r <= 0) return 0;
+                          const est = r === 1 ? w : w * (1 + r / 30);
+                          return Math.round(est * 10) / 10;
+                        });
+                        return Math.max(...ests, 0);
+                      })();
+
+                      const isPRSet = (() => {
+                        if (item.modality === 'timed') return false;
+                        const w = item.weight || 0;
+                        const r = item.reps || 0;
+                        if (w <= 0 || r <= 0) return false;
+                        const est = r === 1 ? w : w * (1 + r / 30);
+                        const roundedEst = Math.round(est * 10) / 10;
+                        return maxEst1RMInHistory > 0 && Math.abs(roundedEst - maxEst1RMInHistory) < 0.05;
+                      })();
+
                       return (
                         <div
                           key={idx}
                           className={`p-2.5 flex items-center justify-between text-[11px] font-mono transition border-b border-slate-850/30 last:border-b-0 ${bgClass} ${borderClass}`}
+                          style={isLastSetOfWorkout ? { borderBottom: '2.5px solid var(--theme-accent)' } : undefined}
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <div className="flex flex-col items-start shrink-0">
@@ -2378,7 +2657,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
                             })()}
                           </div>
                           <div className="flex items-center gap-1.5 text-slate-200 shrink-0 text-right">
-                            <span className="text-slate-400 font-bold">Set {item.setNumber} -</span>
+                            <span className="text-slate-400 font-bold">
+                              Set {item.setNumber}
+                              {item.isWarmup && <span className="text-amber-500 font-black ml-0.5" title="Warmup Set">⌇⌇⌇</span>}
+                              {item.isDropSet && <span className="text-rose-500 font-black ml-0.5 animate-pulse" title="Drop Set">↓</span>}
+                              {' '}-
+                            </span>
                             {item.modality === 'timed' ? (
                               <span className="font-extrabold text-white">{item.weight} secs</span>
                             ) : (
@@ -2390,8 +2674,21 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
                                 <span className="font-extrabold text-indigo-400">{item.reps} reps</span>
                               </>
                             )}
+                            {isPRSet && (
+                              <span className={`inline-flex items-center gap-0.5 text-[8px] font-extrabold px-1 py-0.5 rounded uppercase tracking-tight animate-pulse shrink-0 ${
+                                themeId === 'amber'
+                                  ? 'text-[#B56D3E] bg-[#B56D3E]/10 border border-[#B56D3E]/20'
+                                  : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+                              }`} title="Personal Record!">
+                                <Award className={`w-2.5 h-2.5 shrink-0 ${themeId === 'amber' ? 'text-[#B56D3E]' : 'text-amber-400'}`} /> PR
+                              </span>
+                            )}
                             {item.rpe && (
-                              <span className="text-cyan-400 bg-cyan-950/40 px-1 py-0.5 rounded text-[10px] font-bold border border-cyan-500/15">@{item.rpe}</span>
+                              <span className={`px-1 py-0.5 rounded text-[10px] font-bold ${
+                                themeId === 'amber'
+                                  ? 'text-cyan-400 bg-cyan-400/10 border border-cyan-400/20'
+                                  : 'text-cyan-400 bg-cyan-950/40 border border-cyan-500/15'
+                              }`}>@{item.rpe}</span>
                             )}
                           </div>
                         </div>
@@ -2447,45 +2744,56 @@ export function WorkoutLogger({ initialParams, onClose, onSave }: WorkoutLoggerP
 
       {/* Program Completed Congratulatory Modal */}
       {showCompletionModal && (
-        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[60] flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-300">
-          <div className="w-full max-w-sm bg-slate-900 border-2 border-indigo-500 p-6 shadow-2xl space-y-6 flex flex-col items-center">
-            <div className="w-16 h-16 bg-indigo-500/10 border-2 border-indigo-500 text-indigo-400 rounded-full flex items-center justify-center animate-bounce">
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[60] flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-300">
+          <div className="w-full max-w-sm bg-[var(--theme-card)] border-2 border-[var(--theme-accent)] p-6 shadow-2xl space-y-6 flex flex-col items-center">
+            <div className="w-16 h-16 bg-[var(--theme-accent)]/10 border-2 border-[var(--theme-accent)] text-[var(--theme-accent)] rounded-full flex items-center justify-center animate-bounce">
               <Award className="w-8 h-8" />
             </div>
             
             <div className="space-y-2">
-              <h3 className="text-xl font-black text-white uppercase tracking-wider">
+              <h3 className="text-xl font-black text-[var(--theme-text-primary)] uppercase tracking-wider">
                 Program Completed!
               </h3>
-              <p className="text-xs text-indigo-400 font-mono tracking-widest font-bold uppercase">
+              <p className="text-xs text-[var(--theme-accent)] font-mono tracking-widest font-bold uppercase">
                 {programName}
               </p>
-              <p className="text-xs text-slate-300 leading-relaxed pt-2">
+              <p className="text-xs text-[var(--theme-text-secondary)] leading-relaxed pt-2">
                 Outstanding effort! You have successfully completed the final programmed session of your training plan.
               </p>
             </div>
 
-            <div className="w-full bg-slate-950/60 p-4 border border-slate-850 space-y-2 text-left font-mono">
-              <div className="flex justify-between text-[11px] text-slate-400 font-bold">
+            <div className="w-full bg-[var(--theme-bg)]/60 p-4 border border-[var(--theme-border)] space-y-2 text-left font-mono">
+              <div className="flex justify-between text-[11px] text-[var(--theme-text-muted)] font-bold">
                 <span>DURATION:</span>
-                <span className="text-white font-black">{weekNum} WEEKS</span>
+                <span className="text-[var(--theme-text-primary)] font-black">{weekNum} WEEKS</span>
               </div>
-              <div className="flex justify-between text-[11px] text-slate-400 font-bold">
+              <div className="flex justify-between text-[11px] text-[var(--theme-text-muted)] font-bold">
                 <span>TOTAL EXERCISES:</span>
-                <span className="text-white font-black">{exercises.length}</span>
+                <span className="text-[var(--theme-text-primary)] font-black">{exercises.length}</span>
               </div>
-              <div className="flex justify-between text-[11px] text-slate-400 font-bold">
+              <div className="flex justify-between text-[11px] text-[var(--theme-text-muted)] font-bold">
                 <span>STATUS:</span>
-                <span className="text-emerald-400 font-black">FINISHED SUCCESSFULLY</span>
+                <span className="text-[var(--theme-success)] font-black">FINISHED SUCCESSFULLY</span>
               </div>
             </div>
 
-            <button
-              onClick={onSave}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-extrabold text-sm py-3 px-4 rounded-none transition uppercase tracking-wider cursor-pointer"
-            >
-              Back to Home
-            </button>
+            <div className="w-full space-y-2.5">
+              <button
+                onClick={() => onSave('analytics', { programId })}
+                style={{ backgroundColor: 'var(--theme-accent)', color: 'white' }}
+                className="w-full hover:opacity-90 active:opacity-80 text-white font-extrabold text-sm py-3 px-4 rounded-none transition uppercase tracking-wider cursor-pointer flex items-center justify-center gap-2 shadow-md font-sans"
+              >
+                <Award className="w-4 h-4" />
+                View Report Card
+              </button>
+              <button
+                onClick={() => onSave()}
+                style={{ borderColor: 'var(--theme-border)', color: 'var(--theme-text-secondary)' }}
+                className="w-full bg-transparent border hover:bg-[var(--theme-bg)] text-xs py-2.5 px-4 rounded-none transition uppercase tracking-wider cursor-pointer font-sans font-bold"
+              >
+                Back to Home
+              </button>
+            </div>
           </div>
         </div>
       )}

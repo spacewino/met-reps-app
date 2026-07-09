@@ -6,6 +6,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Search, X, Dumbbell, Sparkles, Check, Plus, Pencil } from 'lucide-react';
 import libraryData from '../lib/defaultExerciseLibrary.json';
+import { storage } from '../lib/storage';
+import { useModalHistory } from '../lib/useModalHistory';
 
 interface ExerciseSelectorModalProps {
   isOpen: boolean;
@@ -108,6 +110,10 @@ const migrateExerciseDetails = (
 };
 
 export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel }: ExerciseSelectorModalProps) {
+  const { dismiss, dismissWithoutCallback } = useModalHistory(isOpen, onClose, 'exercise-selector-modal');
+
+  const themeId = storage.getTheme();
+  const isAmber = themeId === 'amber';
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   
@@ -266,7 +272,10 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-start justify-center p-0 sm:p-4 md:pt-8">
+    <div 
+      className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-start justify-center p-0 sm:p-4 md:pt-8"
+      onClick={dismiss}
+    >
       <div 
         className="bg-slate-900 border border-slate-800 rounded-none w-full max-w-md md:max-w-xl overflow-hidden flex flex-col h-[90vh] md:h-[80vh] shadow-2xl shadow-indigo-950/30 animate-in slide-in-from-top-5 duration-200"
         onClick={e => e.stopPropagation()}
@@ -274,8 +283,8 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
         {/* Header */}
         <div className="p-4 border-b border-slate-850 flex items-center justify-between shrink-0 bg-slate-900 font-sans">
           <div>
-            <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
-              <Dumbbell className="w-4 h-4 text-indigo-400" />
+            <h3 className="text-[18px] font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+              <Dumbbell className="w-5 h-5 text-indigo-400" />
               {isCustomMode ? (editingExercise ? 'Edit Custom Exercise' : 'New Custom Exercise') : 'Exercise Library'}
             </h3>
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest font-mono">
@@ -287,7 +296,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
               setIsCustomMode(false);
               setCustomName('');
               setEditingExercise(null);
-            } : onClose}
+            } : dismiss}
             className="p-2 hover:bg-slate-800 rounded-none text-slate-400 hover:text-white transition border border-slate-800 bg-slate-950 text-xs font-black uppercase tracking-wider"
             title={isCustomMode ? "Back to library" : "Close"}
           >
@@ -325,7 +334,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
 
         {/* Muscle Categories Pills */}
         {!isCustomMode && (
-          <div className="px-3 py-2 border-b-2 border-indigo-500/40 shrink-0 flex flex-wrap gap-1.5 bg-slate-950/10 max-h-[85px] overflow-y-auto scrollbar-thin">
+          <div className="px-3 py-2 border-b-2 border-indigo-500/40 shrink-0 flex flex-wrap gap-1.5 bg-slate-950/10 max-h-[115px] overflow-y-auto scrollbar-thin">
             {categories.map(cat => {
               const isSelected = selectedCategory === cat;
               return (
@@ -334,7 +343,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
                   onClick={() => setSelectedCategory(cat)}
                   className={`px-2 py-1 rounded-none text-[9px] font-black uppercase tracking-wider transition shrink-0 border ${
                     isSelected
-                      ? 'bg-indigo-600 border-indigo-500 text-white shadow-sm shadow-indigo-950/30'
+                      ? 'bg-indigo-600 border-indigo-500 text-[#FBFAF8] shadow-sm shadow-indigo-950/30'
                       : 'bg-slate-950 border-slate-850 text-slate-400 hover:text-slate-200 hover:border-slate-800'
                   }`}
                 >
@@ -515,7 +524,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
                   setEditingExercise(null);
                   setIsCustomMode(false);
                 }}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs py-3.5 rounded-none transition cursor-pointer uppercase tracking-wider"
+                className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-[#FBFAF8] font-black text-xs py-3.5 rounded-none transition cursor-pointer uppercase tracking-wider"
               >
                 {editingExercise ? 'Save Changes' : 'Add & Select'}
               </button>
@@ -617,12 +626,13 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
                 type="button"
                 disabled={checkedExercises.length === 0}
                 onClick={() => {
+                  dismissWithoutCallback();
                   onSelect(checkedExercises);
                   onClose();
                 }}
                 className={`px-4 py-2.5 rounded-none text-xs font-black uppercase tracking-wider transition flex items-center gap-1.5 ${
                   checkedExercises.length > 0
-                    ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-950/50 cursor-pointer'
+                    ? 'bg-indigo-600 hover:bg-indigo-500 text-[#FBFAF8] shadow-md shadow-indigo-950/50 cursor-pointer'
                     : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                 }`}
               >

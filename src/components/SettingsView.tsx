@@ -61,8 +61,8 @@ export const THEME_PRESETS = [
     accentCyan: '#C58A2B',
     success: '#5C8A55',
     label: 'Desert Leather',
-    swatch1: '#252320',
-    swatch2: '#B56D3E',
+    swatch1: '#B56D3E',
+    swatch2: '#FBFAF8',
   },
 ];
 
@@ -81,6 +81,7 @@ export function SettingsView({
   themeId,
   onThemeChange,
 }: SettingsViewProps) {
+  const isDesert = themeId === 'amber';
   const [activeProgId, setActiveProgId] = useState(storage.getCurrentProgramId() || '');
   const [isProgramDropdownOpen, setIsProgramDropdownOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -530,7 +531,7 @@ export function SettingsView({
                 onClick={() => handleUnitChange(u)}
                 className={`flex-1 py-3 rounded-none text-xs font-black border transition uppercase tracking-wider ${
                   isActive
-                    ? 'bg-indigo-600 border-indigo-500 text-white shadow-md'
+                    ? `bg-indigo-600 border-indigo-500 shadow-md ${isDesert ? 'text-[#FBFAF8]' : 'text-white'}`
                     : 'bg-slate-950 border-slate-850 text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -612,7 +613,9 @@ export function SettingsView({
         <button
           type="button"
           onClick={() => setShowDataMgmtPopup(true)}
-          className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs py-3.5 px-4 rounded-none transition flex items-center justify-center gap-2 shadow uppercase tracking-widest cursor-pointer"
+          className={`w-full bg-indigo-600 hover:bg-indigo-500 font-black text-xs py-3.5 px-4 rounded-none transition flex items-center justify-center gap-2 shadow uppercase tracking-widest cursor-pointer ${
+            isDesert ? 'text-[#FBFAF8]' : 'text-white'
+          }`}
         >
           App Data Management
         </button>

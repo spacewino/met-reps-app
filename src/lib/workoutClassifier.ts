@@ -30,6 +30,7 @@ export type ClassifiedWorkout = {
   performanceIndex: number;
   stats: {
     totalVolume: number;
+    workingVolume: number;
     avgRpe: number;
     hardSets: number;
     looseRate: number;
@@ -135,6 +136,7 @@ export function classifyWorkout(
 
   // Set-level & Session-level accumulator variables
   let totalVolumeLoad = 0;
+  let workingVolumeLoad = 0;
   let totalSetsCount = 0;
   let hardSetsCount = 0;
   let looseSetsCount = 0;
@@ -167,13 +169,14 @@ export function classifyWorkout(
     // Get rolling baseline e1RM for this exercise
     let exerciseRollingBaseline = getRollingBaselineE1RM(ex.name, priorLogs, userBodyweight);
     
-    // Find current session top set e1RM to use as fallback baseline if no history
+    // Find current session top set e1RM to use as fallback baseline if no history (excluding warmups)
     let currentSessionTopE1RM = 0;
     ex.sets.forEach(set => {
       const reps = set.reps || 0;
       const rpe = set.rpe || 8;
       const weight = set.weight || 0;
       if (reps <= 0) return;
+      if (set.isWarmup) return;
       const effW = getEffectiveWeight(weight, modality, userBodyweight);
       const e1rm = calculateE1RMForSet(effW, reps, rpe);
       if (e1rm > currentSessionTopE1RM) currentSessionTopE1RM = e1rm;
@@ -205,31 +208,37 @@ export function classifyWorkout(
       if (form === 'strict') strictSetsCount++;
       if (form === 'loose') looseSetsCount++;
 
-      if (set.rpe) {
-        totalRpeSum += set.rpe;
-        setsWithRpeCount++;
+      const isWarmup = !!set.isWarmup;
+
+      if (!isWarmup) {
+        workingVolumeLoad += setVol;
+
+        if (set.rpe) {
+          totalRpeSum += set.rpe;
+          setsWithRpeCount++;
+        }
+
+        const isHard = rpe >= 7;
+        if (isHard) hardSetsCount++;
+
+        const isHighConfidence = reps >= 1 && reps <= 12 && rpe >= 7 && form !== 'loose';
+
+        allSetsDetails.push({
+          reps,
+          rpe,
+          weight,
+          effectiveWeight: effW,
+          e1RM,
+          isHighConfidence,
+          relativeIntensity,
+          performanceRatio,
+          isHard,
+          form
+        });
+
+        if (performanceRatio > maxExPerfRatio) maxExPerfRatio = performanceRatio;
+        if (relativeIntensity > maxExRelIntensity) maxExRelIntensity = relativeIntensity;
       }
-
-      const isHard = rpe >= 7;
-      if (isHard) hardSetsCount++;
-
-      const isHighConfidence = reps >= 1 && reps <= 12 && rpe >= 7 && form !== 'loose';
-
-      allSetsDetails.push({
-        reps,
-        rpe,
-        weight,
-        effectiveWeight: effW,
-        e1RM,
-        isHighConfidence,
-        relativeIntensity,
-        performanceRatio,
-        isHard,
-        form
-      });
-
-      if (performanceRatio > maxExPerfRatio) maxExPerfRatio = performanceRatio;
-      if (relativeIntensity > maxExRelIntensity) maxExRelIntensity = relativeIntensity;
     });
 
     if (hasPriorHistory && maxExPerfRatio > 0) {
@@ -454,6 +463,7 @@ export function classifyWorkout(
     performanceIndex: Math.round(sessionPerformanceIndex * 100),
     stats: {
       totalVolume: Math.round(totalVolumeLoad),
+      workingVolume: Math.round(workingVolumeLoad),
       avgRpe: Math.round(sessionAvgRpe * 10) / 10,
       hardSets: hardSetsCount,
       looseRate: Math.round(looseFormRate * 100)

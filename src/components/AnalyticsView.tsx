@@ -356,9 +356,14 @@ function getProgramReportCard(program: Program, logs: WorkoutLog[]) {
 
 interface AnalyticsViewProps {
   workoutLogs: WorkoutLog[];
+  initialProgramId?: string | null;
 }
 
-export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
+export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewProps) {
+  const themeId = useMemo(() => storage.getTheme(), []);
+  const isDesert = themeId === 'amber';
+  const isFeralas = themeId === 'onyx';
+
   const [selectedExercise, setSelectedExercise] = useState<string>('Back Squat (High Bar)');
   const [prSearch, setPrSearch] = useState<string>('');
   const [selectedPrMuscle, setSelectedPrMuscle] = useState<string>('All');
@@ -370,12 +375,36 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
   const [selectedReportProgram, setSelectedReportProgram] = useState<Program | null>(null);
   const [reportChartExercise, setReportChartExercise] = useState<string>('Overall');
 
+  // Pre-select program from initialProgramId prop
+  useEffect(() => {
+    if (initialProgramId) {
+      const allProgs = storage.getPrograms();
+      const match = allProgs.find(p => p.id === initialProgramId);
+      if (match) {
+        setSelectedReportProgram(match);
+      }
+    }
+  }, [initialProgramId]);
+
+  // Active chart tooltip states for mobile/desktop tapping/hovering
+  const [activeTrendDotIdx, setActiveTrendDotIdx] = useState<number | null>(null);
+  const [activeReportDotIdx, setActiveReportDotIdx] = useState<number | null>(null);
+
   // Scroll to top when report card is loaded
   useEffect(() => {
     if (selectedReportProgram) {
       window.scrollTo(0, 0);
     }
   }, [selectedReportProgram]);
+
+  // Reset active tooltips when selected items change
+  useEffect(() => {
+    setActiveTrendDotIdx(null);
+  }, [selectedExercise]);
+
+  useEffect(() => {
+    setActiveReportDotIdx(null);
+  }, [selectedReportProgram, reportChartExercise]);
 
   const exerciseDropdownRef = useRef<HTMLDivElement>(null);
   const muscleDropdownRef = useRef<HTMLDivElement>(null);
@@ -1179,15 +1208,43 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
                     <span className="text-emerald-400 font-semibold">Algorithmic Target (Projected)</span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <span className="w-3 h-0.5 bg-indigo-400 inline-block"></span>
-                    <span className="text-indigo-400 font-semibold">Your Progress (Actual)</span>
+                    <span className={`w-3 h-0.5 inline-block ${isFeralas ? '' : 'bg-indigo-400'}`} style={isFeralas ? { backgroundColor: '#E05A47' } : undefined}></span>
+                    <span className={`font-semibold ${isFeralas ? '' : 'text-indigo-400'}`} style={isFeralas ? { color: '#E05A47' } : undefined}>Your Progress (Actual)</span>
                   </div>
                 </div>
                 <div className="text-slate-500 font-mono">Unit: {reportChartData.unit}</div>
               </div>
 
               {/* SVG Chart */}
-              <div className="w-full overflow-hidden">
+              <div className="w-full overflow-hidden relative">
+                {activeReportDotIdx !== null && pointsWithCoords[activeReportDotIdx] && (
+                  <div className="absolute top-1 left-1 right-1 border p-2 shadow-xl flex items-center justify-between text-xs font-sans z-10 rounded-none animate-in fade-in slide-in-from-top-1 duration-150 bg-[var(--theme-card)] border-[var(--theme-border)]">
+                    <div className="flex flex-col text-left">
+                      <span className="text-[9px] text-[var(--theme-text-muted)] font-bold uppercase tracking-wider">Week</span>
+                      <span className="font-extrabold text-[var(--theme-text-primary)] text-xs">{pointsWithCoords[activeReportDotIdx].week}</span>
+                    </div>
+                    <div className="flex flex-col text-right col-span-2">
+                      <span className="text-[9px] text-[var(--theme-success)] font-bold uppercase tracking-wider">Target (Proj.)</span>
+                      <span className="font-mono font-black text-[var(--theme-success)] text-xs">
+                        {pointsWithCoords[activeReportDotIdx].projected}{reportChartData.unit}
+                      </span>
+                    </div>
+                    <div className="flex flex-col text-right">
+                      <span className={`text-[9px] font-bold uppercase tracking-wider ${isFeralas ? '' : 'text-[var(--theme-accent)]'}`} style={isFeralas ? { color: '#E05A47' } : undefined}>Progress (Actual)</span>
+                      <span className={`font-mono font-black text-xs ${isFeralas ? '' : 'text-[var(--theme-accent)]'}`} style={isFeralas ? { color: '#E05A47' } : undefined}>
+                        {pointsWithCoords[activeReportDotIdx].actual !== null 
+                          ? `${pointsWithCoords[activeReportDotIdx].actual}${reportChartData.unit}`
+                          : 'No log yet'}
+                      </span>
+                    </div>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setActiveReportDotIdx(null); }}
+                      className="text-[var(--theme-text-muted)] hover:text-[var(--theme-text-primary)] p-1 ml-1 cursor-pointer font-bold text-sm"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                )}
                 <svg viewBox="0 0 500 220" className="w-full h-auto overflow-visible select-none">
                   {/* Grid lines */}
                   {Array.from({ length: 4 }).map((_, i) => {
@@ -1219,35 +1276,44 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
                         <path
                           d={actPath}
                           fill="none"
-                          className="stroke-indigo-400"
+                          className={isFeralas ? "" : "stroke-indigo-400"}
+                          style={isFeralas ? { stroke: '#E05A47' } : undefined}
                           strokeWidth="3"
                         />
                       )}
 
                       {/* Data Points */}
                       {pointsWithCoords.map((p, idx) => (
-                        <g key={idx}>
+                        <g 
+                          key={idx}
+                          className="group cursor-pointer"
+                          onMouseEnter={() => setActiveReportDotIdx(idx)}
+                          onMouseLeave={() => setActiveReportDotIdx(null)}
+                          onClick={() => setActiveReportDotIdx(idx)}
+                        >
+                          {/* Invisible larger touch target for mobile friendliness */}
+                          <circle cx={p.x} cy={p.yProj} r="18" className="fill-transparent stroke-transparent" />
                           <circle
                             cx={p.x}
                             cy={p.yProj}
-                            r="3"
-                            className="fill-slate-900 stroke-emerald-400"
-                            strokeWidth="1.5"
+                            r={activeReportDotIdx === idx ? "5" : "3"}
+                            className={`fill-slate-900 stroke-emerald-400 transition-all duration-150 ${activeReportDotIdx === idx ? 'stroke-cyan-400 stroke-2' : 'stroke-[1.5]'}`}
                           />
                           {p.yAct !== null && (
                             <>
                               <circle
                                 cx={p.x}
                                 cy={p.yAct}
-                                r="4"
-                                className="fill-indigo-500 stroke-slate-900"
+                                r={activeReportDotIdx === idx ? "6" : "4"}
+                                className={isFeralas ? "stroke-slate-900 transition-all duration-150" : `fill-indigo-500 stroke-slate-900 transition-all duration-150 ${activeReportDotIdx === idx ? 'fill-cyan-400 stroke-slate-900' : ''}`}
+                                style={isFeralas ? { fill: activeReportDotIdx === idx ? '#F59E0B' : '#E05A47' } : undefined}
                                 strokeWidth="2"
                               />
                               <text
                                 x={p.x}
                                 y={p.yAct - 8}
                                 textAnchor="middle"
-                                className="fill-white text-[8px] font-mono font-black"
+                                className={`fill-white text-[8px] font-mono font-black transition-all duration-150 ${activeReportDotIdx === idx ? (isFeralas ? 'fill-[#F59E0B] scale-110 text-[9px]' : 'fill-cyan-300 scale-110 text-[9px]') : ''}`}
                               >
                                 {p.actual}{reportChartData.unit === '%' ? '%' : ''}
                               </text>
@@ -1294,10 +1360,10 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
     <div className="space-y-6 pb-20">
       {/* Header Bar */}
       <div className="flex items-center gap-2 border-b border-slate-850 pb-3 px-4">
-        <Dumbbell className="w-5 h-5 text-indigo-400" />
+        <Dumbbell className="w-6 h-6 text-indigo-400" />
         <div>
-          <h2 className="font-extrabold text-sm text-white uppercase tracking-wide">PERFORMANCE TRENDS</h2>
-          <p className="text-[10px] text-indigo-400 font-mono uppercase tracking-widest">Progress and analytics for weighted exercises</p>
+          <h2 className="font-extrabold text-[22px] sm:text-[24px] text-white uppercase tracking-wide leading-none">PERFORMANCE TRENDS</h2>
+          <p className="text-[10px] text-indigo-400 font-mono uppercase tracking-widest mt-1">Progress and analytics for weighted exercises</p>
         </div>
       </div>
 
@@ -1305,7 +1371,7 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
       <div className="w-full bg-slate-900 border-y border-x-0 border-slate-800 p-4 shadow-sm rounded-none">
         <div className="border-b border-slate-850 pb-3 mb-4 space-y-3">
           <div>
-            <h2 className="font-extrabold text-xs text-slate-300 uppercase tracking-wide">Strength Progression</h2>
+            <h2 className="font-extrabold text-[18px] text-slate-300 uppercase tracking-wide">Strength Progression</h2>
             <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">Standardised Est. 1RM (Epley formula)</p>
           </div>
           
@@ -1358,6 +1424,32 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
               </div>
             )}
             <div className="relative overflow-hidden rounded-none border border-slate-850 bg-slate-950/75 p-2">
+              {activeTrendDotIdx !== null && svgPaths.dots[activeTrendDotIdx] && (
+                <div className="absolute top-1 left-1 right-1 border p-2 shadow-xl flex items-center justify-between text-xs font-sans z-10 rounded-none animate-in fade-in slide-in-from-top-1 duration-150 bg-[var(--theme-card)] border-[var(--theme-border)]">
+                  <div className="flex flex-col text-left">
+                    <span className="text-[9px] text-[var(--theme-text-muted)] font-bold uppercase tracking-wider">Date</span>
+                    <span className="font-extrabold text-[var(--theme-text-primary)] text-xs">{svgPaths.dots[activeTrendDotIdx].date}</span>
+                  </div>
+                  <div className="flex flex-col text-right">
+                    <span className="text-[9px] text-[var(--theme-accent)] font-bold uppercase tracking-wider">Est. 1RM</span>
+                    <span className="font-mono font-black text-[var(--theme-accent)] text-xs">
+                      {svgPaths.dots[activeTrendDotIdx].val} {storage.getWeightUnit()}
+                    </span>
+                  </div>
+                  <div className="flex flex-col text-right">
+                    <span className={`text-[9px] font-bold uppercase tracking-wider ${isDesert ? 'text-[#9B1C1C]' : 'text-[var(--theme-accent-cyan)]'}`}>Logged Max</span>
+                    <span className={`font-mono font-black text-xs ${isDesert ? 'text-[#E05A47]' : 'text-[var(--theme-accent-cyan)]'}`}>
+                      {svgPaths.dots[activeTrendDotIdx].rawWeight} {storage.getWeightUnit()}
+                    </span>
+                  </div>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); setActiveTrendDotIdx(null); }}
+                    className="text-[var(--theme-text-muted)] hover:text-[var(--theme-text-primary)] p-1 ml-1 cursor-pointer font-bold text-sm"
+                  >
+                    &times;
+                  </button>
+                </div>
+              )}
               <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full h-auto">
                 {/* Horizontal reference lines */}
                 <line x1={padding} y1={chartHeight / 2} stroke="var(--theme-border, #1E293B)" strokeDasharray="3 3" />
@@ -1367,17 +1459,30 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
                 
                 {/* Dots along path */}
                 {svgPaths.dots.map((dot, idx) => (
-                  <g key={idx} className="group cursor-pointer">
+                  <g 
+                    key={idx} 
+                    className="group cursor-pointer"
+                    onMouseEnter={() => setActiveTrendDotIdx(idx)}
+                    onMouseLeave={() => setActiveTrendDotIdx(null)}
+                    onClick={() => setActiveTrendDotIdx(idx)}
+                  >
                     <title>
-                      {`Date: ${dot.date}\nStandardised Est. 1RM: ${dot.val} kg\nLogged Max Weight: ${dot.rawWeight} kg`}
+                      {`Date: ${dot.date}\nStandardised Est. 1RM: ${dot.val} ${storage.getWeightUnit()}\nLogged Max Weight: ${dot.rawWeight} ${storage.getWeightUnit()}`}
                     </title>
-                    <circle cx={dot.x} cy={dot.y} r="5" className="fill-slate-950 stroke-indigo-400 stroke-[2.5]" />
+                    {/* Invisible larger touch target for mobile friendliness */}
+                    <circle cx={dot.x} cy={dot.y} r="18" className="fill-transparent stroke-transparent" />
+                    <circle 
+                      cx={dot.x} 
+                      cy={dot.y} 
+                      r={activeTrendDotIdx === idx ? "7" : "5"} 
+                      className={`fill-slate-950 stroke-indigo-400 transition-all duration-150 ${activeTrendDotIdx === idx ? 'stroke-cyan-400 stroke-[3.5]' : 'stroke-[2.5]'}`} 
+                    />
                     {/* Text above active dots - increased font size and brightness for maximum clarity */}
-                    <text x={dot.x} y={dot.y - 12} className="fill-slate-100 text-[14px] font-mono font-black animate-pulse" textAnchor="middle">
-                      {dot.val}kg
+                    <text x={dot.x} y={dot.y - 12} className={`fill-slate-100 text-[14px] font-mono font-black animate-pulse transition-all duration-150 ${activeTrendDotIdx === idx ? 'fill-cyan-300 scale-110 text-[15px]' : ''}`} textAnchor="middle">
+                      {dot.val}{storage.getWeightUnit()}
                     </text>
                     {/* Date label at bottom of chart */}
-                    <text x={dot.x} y={chartHeight - 4} className="fill-slate-400 text-[8px] font-bold" textAnchor="middle">
+                    <text x={dot.x} y={chartHeight - 4} className={`fill-slate-400 text-[8px] font-bold transition-all duration-150 ${activeTrendDotIdx === idx ? 'fill-slate-200 text-[9px]' : ''}`} textAnchor="middle">
                       {dot.date}
                     </text>
                   </g>
@@ -1524,7 +1629,7 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
       <div className="w-full bg-slate-900 border-y border-x-0 border-slate-800 p-4 shadow-sm rounded-none">
         <div className="border-b border-slate-850 pb-3 mb-4">
           <div>
-            <h2 className="font-extrabold text-xs text-slate-300 uppercase tracking-wide">Program Report Cards</h2>
+            <h2 className="font-extrabold text-[18px] text-slate-300 uppercase tracking-wide">Program Report Cards</h2>
             <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">Performance Grading, Algorithmic Projections & Recovery Analysis</p>
           </div>
         </div>
@@ -1536,7 +1641,7 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
         ) : (
           <div className="space-y-3">
             <p className="text-[11px] text-slate-400 font-sans leading-relaxed">
-              Tapping an active program displays an **Interim Midterm Report**, while a fully completed program issues your **Final Report Card** based on progression math and recovery factors.
+              Tapping an active program displays an <strong className="font-extrabold text-slate-200">Interim Midterm Report</strong>, while a fully completed program issues your <strong className="font-extrabold text-slate-200">Final Report Card</strong> based on progression math and recovery factors.
             </p>
             
             <div className="grid grid-cols-1 gap-2.5">
@@ -1620,7 +1725,7 @@ export function AnalyticsView({ workoutLogs }: AnalyticsViewProps) {
       <div className="w-full bg-slate-900 border-y border-x-0 border-slate-800 p-4 shadow-sm rounded-none">
         <div className="border-b border-slate-850 pb-3 mb-4 space-y-3">
           <div>
-            <h2 className="font-extrabold text-xs text-slate-300 uppercase tracking-wide">Personal Records</h2>
+            <h2 className="font-extrabold text-[18px] text-slate-300 uppercase tracking-wide">Personal Records</h2>
             <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">All-time peak lift performance & recovery tracking</p>
           </div>
           

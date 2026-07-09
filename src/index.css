@@ -37,3 +37,18 @@
   -ms-overflow-style: none;  /* IE and Edge */
   scrollbar-width: none;  /* Firefox */
 }
+
+/* Center text inside time/date inputs, particularly for iOS Safari */
+input[type="time"] {
+  text-align: center !important;
+  text-align-last: center !important;
+}
+input[type="time"]::-webkit-date-and-time-value {
+  text-align: center !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 100% !important;
+  min-height: 1.5em;
+}
+

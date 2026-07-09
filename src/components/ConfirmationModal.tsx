@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { AlertTriangle, Check, X } from 'lucide-react';
+import { useModalHistory } from '../lib/useModalHistory';
 
 interface ConfirmationModalProps {
   visible: boolean;
@@ -31,12 +32,19 @@ export function ConfirmationModal({
   onCancel,
   dismissOnBackdropPress = true,
 }: ConfirmationModalProps) {
+  const { dismiss, dismissWithoutCallback } = useModalHistory(visible, onCancel, 'confirmation-modal');
+
   if (!visible) return null;
+
+  const handleConfirm = async () => {
+    dismissWithoutCallback();
+    await onConfirm();
+  };
 
   return (
     <div 
       className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
-      onClick={dismissOnBackdropPress ? onCancel : undefined}
+      onClick={dismissOnBackdropPress ? dismiss : undefined}
     >
       <div 
         className="bg-slate-900 border border-slate-800 rounded-none w-full max-w-sm overflow-hidden flex flex-col shadow-2xl shadow-indigo-950/40 animate-in fade-in zoom-in-95 duration-150"
@@ -68,14 +76,14 @@ export function ConfirmationModal({
         {/* Footer Actions */}
         <div className="bg-slate-950/40 px-4 py-3 border-t border-slate-850 flex gap-2 justify-end">
           <button
-            onClick={onCancel}
+            onClick={dismiss}
             disabled={isProcessing}
             className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-slate-300 hover:text-white border border-slate-850 font-black text-xs uppercase tracking-wider rounded-none transition"
           >
             {cancelLabel}
           </button>
           <button
-            onClick={onConfirm}
+            onClick={handleConfirm}
             disabled={isProcessing}
             className={`px-4 py-2.5 text-white font-black text-xs uppercase tracking-wider rounded-none transition flex items-center gap-1.5 shadow ${
               confirmVariant === 'danger'

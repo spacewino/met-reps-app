@@ -4,37 +4,36 @@
  */
 
 import React from 'react';
-import { Info, X, Milestone, Dumbbell, ShieldCheck, Mail } from 'lucide-react';
+import { Info, Milestone, Dumbbell, ShieldCheck, Mail, ArrowLeft, BarChart3, CircleSlash } from 'lucide-react';
+import { storage } from '../lib/storage';
 
 interface InfoViewProps {
   onClose: () => void;
 }
 
 export function InfoView({ onClose }: InfoViewProps) {
+  const themeId = React.useMemo(() => storage.getTheme(), []);
+  const isDesert = themeId === 'amber';
+
   return (
     <div className="space-y-6 pb-20">
       {/* Sticky Header */}
-      <div className="sticky top-[-16px] -mt-4 pt-3 pb-2.5 bg-slate-950 z-30 flex items-center justify-between border-b border-slate-850 px-4 shadow-md">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 bg-slate-900 rounded-none border border-slate-800 text-slate-400 flex items-center justify-center">
-            <Info className="w-4 h-4 text-indigo-400" />
-          </div>
-          <div>
-            <h2 className="font-extrabold text-sm text-white uppercase tracking-wide leading-none">
-              App Information
-            </h2>
-            <p className="text-[10px] text-indigo-400 font-mono uppercase tracking-widest mt-1">
-              Guide & philosophy
-            </p>
-          </div>
-        </div>
+      <div className="sticky top-[-16px] -mt-4 pt-3 pb-2.5 bg-slate-950 z-30 flex items-center gap-3 border-b border-slate-850 px-4 shadow-md">
         <button
           onClick={onClose}
-          className="p-1.5 text-slate-500 hover:text-white hover:bg-slate-800 transition rounded-none flex items-center justify-center"
-          title="Return to Home"
+          className="p-2 bg-slate-900 hover:bg-slate-800 rounded-none text-slate-400 hover:text-white border border-slate-800 transition"
         >
-          <X className="w-4 h-4" />
+          <ArrowLeft className="w-4 h-4" />
         </button>
+        <div>
+          <h2 className="font-extrabold text-sm text-white uppercase tracking-wide flex items-center gap-1.5 font-sans">
+            <Info className="w-4.5 h-4.5 text-indigo-400" />
+            APP INFORMATION
+          </h2>
+          <p className="text-[10px] text-indigo-400 font-mono uppercase tracking-widest">
+            Guide & philosophy
+          </p>
+        </div>
       </div>
 
       <div className="px-4 space-y-6">
@@ -43,11 +42,11 @@ export function InfoView({ onClose }: InfoViewProps) {
           <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-full blur-xl pointer-events-none" />
           <div className="text-indigo-400">
             <h3 className="font-extrabold text-sm uppercase tracking-wider font-sans">
-              Welcome to Metereps
+              Welcome to Metreps
             </h3>
           </div>
           <p className="text-[14px] leading-relaxed text-slate-300">
-            Metereps is a powerful workout tracker designed to help you plan your training, log your progress, and analyse your lifting data. Whether you're following a structured program or creating your own, Metereps makes it easy to record your workouts while correlating lifestyle factors to provide deeper insights and help optimise your results.
+            Metreps is a powerful workout tracker designed to help you plan your training, log your progress, and analyse your lifting data. Born as a personal passion project backed by over 25 years of strength training experience, its ultimate goal is to help you 'min/max' results in the gym through precise analysis of all performance and recovery metrics.
           </p>
         </div>
 
@@ -115,20 +114,20 @@ export function InfoView({ onClose }: InfoViewProps) {
             {/* Philosophy A */}
             <div className="p-4 border border-slate-850 bg-slate-900/20 space-y-1.5">
               <div className="flex items-center gap-2">
-                <Milestone className="w-4 h-4 text-cyan-400 shrink-0" />
+                <BarChart3 className="w-4 h-4 text-cyan-400 shrink-0" />
                 <h4 className="font-extrabold text-[13px] text-slate-100 uppercase tracking-wider font-mono">
                   Data-Driven Progress
                 </h4>
               </div>
               <p className="text-[13px] text-slate-400 leading-relaxed">
-                We believe in the joy of mathematical progression. MetReps leverages standard lifting formulas (Epley estimated 1RM, work volume index, and execution quality ratings) to give intermediate to advanced gym lovers a precise roadmap for hitting new milestones.
+                Built around the joy of mathematical progression, Metreps leverages exercise science-based algorithms and standard lifting formulas (Epley estimated 1RM, work volume index, and execution quality ratings) to give intermediate to advanced gym lovers a precise roadmap for hitting new milestones.
               </p>
             </div>
 
             {/* Philosophy B */}
             <div className="p-4 border border-slate-850 bg-slate-900/20 space-y-1.5">
               <div className="flex items-center gap-2">
-                <Dumbbell className="w-4 h-4 text-emerald-400 shrink-0" />
+                <CircleSlash className="w-4 h-4 text-emerald-400 shrink-0" />
                 <h4 className="font-extrabold text-[13px] text-slate-100 uppercase tracking-wider font-mono">
                   No F*** subscriptions!
                 </h4>
@@ -158,11 +157,11 @@ export function InfoView({ onClose }: InfoViewProps) {
           <div className="bg-slate-900 border border-slate-800 p-4 space-y-3 font-mono text-[12px] text-slate-400">
             <div className="flex justify-between items-center border-b border-slate-850 pb-2">
               <span className="font-bold text-slate-300">Ver:</span>
-              <span className="text-indigo-400 font-extrabold">0.9</span>
+              <span className="text-indigo-400 font-extrabold">1.0</span>
             </div>
             <div className="flex justify-between items-center border-b border-slate-850 pb-2">
               <span className="font-bold text-slate-300">Author:</span>
-              <span className="text-white font-extrabold">Phil F</span>
+              <span className="text-white font-extrabold">Fil Filidei</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="font-bold text-slate-300">Support / Feedback:</span>
@@ -175,14 +174,6 @@ export function InfoView({ onClose }: InfoViewProps) {
               </a>
             </div>
           </div>
-
-          <button
-            onClick={onClose}
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs uppercase tracking-widest transition shadow-md flex items-center justify-center gap-2"
-          >
-            <X className="w-4 h-4" />
-            Understood & Close
-          </button>
         </div>
       </div>
     </div>

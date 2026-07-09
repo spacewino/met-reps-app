@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Dumbbell, Feather, Settings, ChevronLeft, ChevronRight, CheckCircle2, Play, Calendar as CalendarIcon, Info, Pencil } from 'lucide-react';
+import { Dumbbell, Feather, Settings, ChevronLeft, ChevronRight, CheckCircle2, Play, Calendar as CalendarIcon, Info, Pencil, Repeat } from 'lucide-react';
 import { Program, WorkoutLog } from '../types';
 import { storage } from '../lib/storage';
 import { getLocalDateString, getTodayLocalDateString, parseLocalDate } from '../lib/dateUtils';
@@ -25,6 +25,8 @@ export function HomeView({
   setSelectedDate,
   onNavigate,
 }: HomeViewProps) {
+  const themeId = storage.getTheme();
+  const isAmber = themeId === 'amber';
   const [displayedMonth, setDisplayedMonth] = useState(new Date());
 
   // Week helper calculations
@@ -247,9 +249,11 @@ export function HomeView({
                 onClick={() => setSelectedDate(dateStr)}
                 className={`p-2 rounded-none flex flex-col items-center justify-between transition min-h-[52px] border relative ${
                   isSelected
-                    ? 'bg-indigo-600 text-white border-indigo-500'
+                    ? `bg-indigo-600 ${isAmber ? 'text-[#FBFAF8]' : 'text-white'} border-indigo-500`
                     : isToday
-                    ? 'bg-slate-800/80 text-white border-indigo-500/40'
+                    ? isAmber
+                      ? 'bg-[#252320]/80 text-[#FBFAF8] border-[#B56D3E]'
+                      : 'bg-slate-800/80 text-white border-indigo-500/40'
                     : 'bg-slate-950/40 hover:bg-slate-800/30 text-slate-300 border-transparent'
                 } ${!isCurrentMonth ? 'opacity-30' : ''}`}
               >
@@ -353,7 +357,15 @@ export function HomeView({
                     "{log.notes}"
                   </p>
                 )}
-                <div className="flex justify-end mt-2 pt-1.5 border-t border-slate-800/30">
+                <div className="flex justify-between items-center mt-2 pt-1.5 border-t border-slate-800/30">
+                  <button
+                    onClick={() => onNavigate('logger', { redoFromLogId: log.id })}
+                    className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-slate-800 rounded-none border border-slate-800 bg-slate-900/60 transition flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider cursor-pointer"
+                    title="Redo Same Workout Today"
+                  >
+                    <Repeat className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Redo Workout Today</span>
+                  </button>
                   <button
                     onClick={() => onNavigate('logger', { editLogId: log.id })}
                     className="p-1.5 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-none border border-slate-800 bg-slate-900/60 transition flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider cursor-pointer"
@@ -459,7 +471,7 @@ export function HomeView({
                         date: getTodayLocalDateString(),
                       });
                     }}
-                    className="w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-extrabold text-sm py-3 px-3 rounded-none transition flex items-center justify-center gap-1.5 shadow"
+                    className={`w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 ${isAmber ? 'text-[#FBFAF8]' : 'text-white'} font-extrabold text-sm py-3 px-3 rounded-none transition flex items-center justify-center gap-1.5 shadow`}
                   >
                     <Play className="w-4 h-4 fill-current" />
                     Start this workout

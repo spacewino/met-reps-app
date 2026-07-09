@@ -457,6 +457,33 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
   } | null>(null);
   const userBodyweight = storage.getBodyweight();
 
+  // PR Spotlights standardisation map
+  const prMap = React.useMemo(() => {
+    const map: Record<string, number> = {};
+    workoutLogs.forEach(log => {
+      log.exercises.forEach(ex => {
+        const isWeighted = !ex.modality || ex.modality === 'weighted';
+        const isBw = ex.modality === 'bodyweight';
+        const isAssisted = ex.modality === 'assisted';
+        if (isWeighted || isBw || isAssisted) {
+          ex.sets.forEach(s => {
+            const w = s.weight || 0;
+            const r = s.reps || 0;
+            if (w > 0 && r > 0) {
+              const est = r === 1 ? w : w * (1 + r / 30);
+              const roundedEst = Math.round(est * 10) / 10;
+              const existing = map[ex.name];
+              if (!existing || roundedEst > existing) {
+                map[ex.name] = roundedEst;
+              }
+            }
+          });
+        }
+      });
+    });
+    return map;
+  }, [workoutLogs]);
+
   const toggleExpand = (id: string) => {
     setExpandedLogId(prev => (prev === id ? null : id));
   };
@@ -746,11 +773,12 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                       </p>
                       
                       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] font-mono text-slate-400 pt-2 border-t border-slate-850/20">
+                        <div>Working Volume: <strong className="text-cyan-400">{stats.workingVolume ?? stats.totalVolume} {log.unit.toUpperCase()}</strong></div>
                         <div>Total Volume: <strong className="text-slate-200">{stats.totalVolume} {log.unit.toUpperCase()}</strong></div>
                         <div>Average RPE: <strong className="text-slate-200">{stats.avgRpe}</strong></div>
                         <div>Hard Sets: <strong className="text-slate-200">{stats.hardSets}</strong></div>
                         <div>Form Breakdown: <strong className="text-slate-200">{stats.looseRate}% loose</strong></div>
-                        <div className="col-span-2">Fatigue Score: <strong className="text-slate-200">{fatigueScore}/10</strong></div>
+                        <div>Fatigue Score: <strong className="text-slate-200">{fatigueScore}/10</strong></div>
                       </div>
                     </div>
 
@@ -793,34 +821,65 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                           </h4>
 
                           <div className="space-y-1.5 pl-2.5">
-                            {ex.sets.map((set, sIdx) => (
-                              <div
-                                key={sIdx}
-                                className="text-xs text-slate-400 flex items-center justify-between font-mono py-0.5"
-                              >
-                                <span>
-                                  Set {set.setNumber}:{' '}
-                                  {ex.modality === 'bodyweight' ? (
-                                    <>
-                                      <strong className="text-indigo-400 font-black">Bodyweight ({set.weight && set.weight !== 0 ? `${set.weight} ${log.unit.toUpperCase()}` : 'BW'})</strong> x{' '}
-                                      <strong className="text-slate-200 font-black">{set.reps || 0}</strong> reps
-                                    </>
-                                  ) : ex.modality === 'timed' ? (
-                                    <>
-                                      <strong className="text-slate-200 font-black">{set.weight || 0}</strong> secs
-                                    </>
-                                  ) : ex.modality === 'assisted' ? (
-                                    <>
-                                      <strong className="text-slate-200 font-black">{set.weight || 0}</strong> {log.unit} assist x{' '}
-                                      <strong className="text-slate-200 font-black">{set.reps || 0}</strong> reps
-                                    </>
-                                  ) : (
-                                    <>
-                                      <strong className="text-slate-200 font-black">{set.weight || 0}</strong> {log.unit} x{' '}
-                                      <strong className="text-slate-200 font-black">{set.reps || 0}</strong> reps
-                                    </>
-                                  )}
-                                </span>
+                            {ex.sets.map((set, sIdx) => {
+                              const isPR = (() => {
+                                const isWeighted = !ex.modality || ex.modality === 'weighted';
+                                const isBw = ex.modality === 'bodyweight';
+                                const isAssisted = ex.modality === 'assisted';
+                                if (!isWeighted && !isBw && !isAssisted) return false;
+                                const w = set.weight || 0;
+                                const r = set.reps || 0;
+                                if (w <= 0 || r <= 0) return false;
+                                const est = r === 1 ? w : w * (1 + r / 30);
+                                const roundedEst = Math.round(est * 10) / 10;
+                                const prVal = prMap[ex.name];
+                                return prVal && Math.abs(roundedEst - prVal) < 0.05;
+                              })();
+
+                              return (
+                                <div
+                                  key={sIdx}
+                                  className="text-xs text-slate-400 flex items-center justify-between font-mono py-0.5"
+                                >
+                                  <span>
+                                    Set {set.setNumber}
+                                    {set.isWarmup && (
+                                      <span className="text-amber-500 font-extrabold ml-1" title="Warmup Set">⌇⌇⌇</span>
+                                    )}
+                                    {set.isDropSet && (
+                                      <span className="text-rose-500 font-extrabold ml-1 animate-pulse" title="Drop Set">↓</span>
+                                    )}
+                                    :{' '}
+                                    {ex.modality === 'bodyweight' ? (
+                                      <>
+                                        <strong className="text-indigo-400 font-black">Bodyweight ({set.weight && set.weight !== 0 ? `${set.weight} ${log.unit.toUpperCase()}` : 'BW'})</strong> x{' '}
+                                        <strong className="text-slate-200 font-black">{set.reps || 0}</strong> reps
+                                      </>
+                                    ) : ex.modality === 'timed' ? (
+                                      <>
+                                        <strong className="text-slate-200 font-black">{set.weight || 0}</strong> secs
+                                      </>
+                                    ) : ex.modality === 'assisted' ? (
+                                      <>
+                                        <strong className="text-slate-200 font-black">{set.weight || 0}</strong> {log.unit} assist x{' '}
+                                        <strong className="text-slate-200 font-black">{set.reps || 0}</strong> reps
+                                      </>
+                                    ) : (
+                                      <>
+                                        <strong className="text-slate-200 font-black">{set.weight || 0}</strong> {log.unit} x{' '}
+                                        <strong className="text-slate-200 font-black">{set.reps || 0}</strong> reps
+                                      </>
+                                    )}
+                                    {isPR && (
+                                      <span className={`inline-flex items-center gap-0.5 text-[8px] font-extrabold px-1 py-0.5 rounded uppercase tracking-tight animate-pulse shrink-0 ml-1.5 ${
+                                        themeId === 'amber'
+                                          ? 'text-[#B56D3E] bg-[#B56D3E]/10 border border-[#B56D3E]/20'
+                                          : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+                                      }`} title="Personal Record!">
+                                        <Award className={`w-2.5 h-2.5 shrink-0 ${themeId === 'amber' ? 'text-[#B56D3E]' : 'text-amber-400'}`} /> PR
+                                      </span>
+                                    )}
+                                  </span>
                                 <div className="flex gap-2">
                                   <span className="text-[10px] text-slate-400 font-bold bg-slate-900 px-1.5 py-0.2 rounded-none border border-slate-850/40">RPE {set.rpe || '—'}</span>
                                   {set.form && (
@@ -828,7 +887,8 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                                   )}
                                 </div>
                               </div>
-                            ))}
+                            );
+                          })}
                           </div>
                         </div>
                       ))}
