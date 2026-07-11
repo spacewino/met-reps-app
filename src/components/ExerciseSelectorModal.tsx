@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Search, X, Dumbbell, Sparkles, Check, Plus, Pencil } from 'lucide-react';
+import { Search, X, Dumbbell, Sparkles, Check, Plus, Pencil, Trash2 } from 'lucide-react';
 import libraryData from '../lib/defaultExerciseLibrary.json';
 import { storage } from '../lib/storage';
 import { useModalHistory } from '../lib/useModalHistory';
@@ -12,8 +12,9 @@ import { useModalHistory } from '../lib/useModalHistory';
 interface ExerciseSelectorModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelect: (selected: { name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded' }[]) => void;
+  onSelect?: (selected: { name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded' }[]) => void;
   confirmLabel?: string;
+  isManagementOnly?: boolean;
 }
 
 const getDefaultModality = (name: string): 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded' => {
@@ -208,7 +209,7 @@ const migrateExerciseDetails = (
   }
 };
 
-export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel }: ExerciseSelectorModalProps) {
+export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel, isManagementOnly = false }: ExerciseSelectorModalProps) {
   const { dismiss, dismissWithoutCallback } = useModalHistory(isOpen, onClose, 'exercise-selector-modal');
 
   const themeId = storage.getTheme();
@@ -356,6 +357,19 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
     });
   };
 
+  const handleDeleteCustom = (name: string) => {
+    if (confirm(`Are you sure you want to delete custom exercise "${name}"?`)) {
+      const updatedCustoms = customExercises.filter(c => c.name.toLowerCase() !== name.toLowerCase());
+      setCustomExercises(updatedCustoms);
+      try {
+        localStorage.setItem('metreps_custom_exercises', JSON.stringify(updatedCustoms));
+      } catch (e) {
+        console.error(e);
+      }
+      setCheckedExercises(prev => prev.filter(item => item.name.toLowerCase() !== name.toLowerCase()));
+    }
+  };
+
   const handleStartEdit = (ex: { name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded' }) => {
     setEditingExercise({
       originalName: ex.name,
@@ -387,7 +401,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
               {isCustomMode ? (editingExercise ? 'Edit Custom Exercise' : 'New Custom Exercise') : 'Exercise Library'}
             </h3>
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest font-mono">
-              {isCustomMode ? 'Define exercise parameters' : 'Browse & Select Exercises'}
+              {isCustomMode ? 'Define exercise parameters' : isManagementOnly ? 'Add, edit, or customize exercises' : 'Browse & Select Exercises'}
             </p>
           </div>
           <button
@@ -638,24 +652,31 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
             ) : (
               filteredExercises.map((ex, idx) => {
                 const isChecked = checkedExercises.some(item => item.name === ex.name);
+                const isCustom = customExercises.some(c => c.name.toLowerCase() === ex.name.toLowerCase());
                 return (
                   <div
                     key={idx}
                     className={`w-full p-3.5 flex items-center justify-between gap-2 border-y border-x-0 ${
-                      isChecked
+                      !isManagementOnly && isChecked
                         ? 'bg-indigo-950/20 border-indigo-500/50 hover:bg-indigo-950/30'
                         : 'bg-slate-900 border-slate-850 hover:bg-slate-850/50 hover:border-slate-800'
                     }`}
                   >
                     <button
                       type="button"
-                      onClick={() => handleToggleChecked(ex.name, ex.category, ex.modality)}
+                      onClick={() => {
+                        if (isManagementOnly) {
+                          handleStartEdit(ex);
+                        } else {
+                          handleToggleChecked(ex.name, ex.category, ex.modality);
+                        }
+                      }}
                       className="flex-1 text-left focus:outline-none cursor-pointer"
                     >
                       <div>
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <h4 className={`text-xs font-black uppercase tracking-wide transition ${
-                            isChecked ? 'text-indigo-300' : 'text-slate-200 group-hover:text-white'
+                            !isManagementOnly && isChecked ? 'text-indigo-300' : 'text-slate-200 group-hover:text-white'
                           }`}>
                             {ex.name}
                           </h4>
@@ -672,6 +693,20 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
                     </button>
 
                     <div className="flex items-center gap-1.5">
+                      {isCustom && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteCustom(ex.name);
+                          }}
+                          className="p-2 rounded-none border border-slate-800 bg-slate-950 text-slate-500 hover:text-rose-400 hover:border-rose-500/30 transition cursor-pointer"
+                          title="Delete Custom Exercise"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={(e) => {
@@ -684,17 +719,19 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleToggleChecked(ex.name, ex.category, ex.modality)}
-                        className={`p-2 rounded-none border transition cursor-pointer ${
-                          isChecked
-                            ? 'bg-indigo-600 border-indigo-500 text-white'
-                            : 'bg-slate-950 border-slate-850 text-transparent hover:text-slate-600'
-                        }`}
-                      >
-                        <Check className="w-4 h-4" />
-                      </button>
+                      {!isManagementOnly && (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleChecked(ex.name, ex.category, ex.modality)}
+                          className={`p-2 rounded-none border transition cursor-pointer ${
+                            isChecked
+                              ? 'bg-indigo-600 border-indigo-500 text-white'
+                              : 'bg-slate-950 border-slate-850 text-transparent hover:text-slate-600'
+                          }`}
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -714,27 +751,42 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
               <button
                 type="button"
                 onClick={() => setIsCustomMode(true)}
-                className="text-xs text-indigo-400 hover:text-indigo-300 font-black uppercase tracking-wider flex items-center gap-1.5 transition py-2 px-4 bg-slate-950/40 rounded-none border border-slate-850"
+                className="text-xs text-indigo-400 hover:text-indigo-300 font-black uppercase tracking-wider flex items-center gap-1.5 transition py-2 px-4 bg-slate-950/40 rounded-none border border-slate-850 cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" /> Custom
               </button>
               
-              <button
-                type="button"
-                disabled={checkedExercises.length === 0}
-                onClick={() => {
-                  dismissWithoutCallback();
-                  onSelect(checkedExercises);
-                  onClose();
-                }}
-                className={`px-4 py-2.5 rounded-none text-xs font-black uppercase tracking-wider transition flex items-center gap-1.5 ${
-                  checkedExercises.length > 0
-                    ? 'bg-indigo-600 hover:bg-indigo-500 text-[#FBFAF8] shadow-md shadow-indigo-950/50 cursor-pointer'
-                    : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                }`}
-              >
-                {confirmLabel ? `${confirmLabel} (${checkedExercises.length})` : `Add to Workout (${checkedExercises.length})`}
-              </button>
+              {isManagementOnly ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    dismissWithoutCallback();
+                    onClose();
+                  }}
+                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-none text-xs font-black uppercase tracking-wider transition cursor-pointer shadow shadow-indigo-950/50 font-sans font-black"
+                >
+                  Done
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={checkedExercises.length === 0}
+                  onClick={() => {
+                    dismissWithoutCallback();
+                    if (onSelect) {
+                      onSelect(checkedExercises);
+                    }
+                    onClose();
+                  }}
+                  className={`px-4 py-2.5 rounded-none text-xs font-black uppercase tracking-wider transition flex items-center gap-1.5 ${
+                    checkedExercises.length > 0
+                      ? 'bg-indigo-600 hover:bg-indigo-500 text-[#FBFAF8] shadow-md shadow-indigo-950/50 cursor-pointer'
+                      : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                  }`}
+                >
+                  {confirmLabel ? `${confirmLabel} (${checkedExercises.length})` : `Add to Workout (${checkedExercises.length})`}
+                </button>
+              )}
             </>
           )}
         </div>

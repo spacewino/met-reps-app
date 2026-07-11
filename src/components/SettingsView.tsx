@@ -4,10 +4,11 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { Settings, FileJson, Download, Upload, Trash2, ArrowLeft, RefreshCw, Check, AlertTriangle, Sparkles, X } from 'lucide-react';
+import { Settings, FileJson, Download, Upload, Trash2, ArrowLeft, RefreshCw, Check, AlertTriangle, Sparkles, X, Dumbbell } from 'lucide-react';
 import { Program, WorkoutLog } from '../types';
 import { storage } from '../lib/storage';
 import { ConfirmationModal } from './ConfirmationModal';
+import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 
 export const THEME_PRESETS = [
   {
@@ -94,6 +95,7 @@ export function SettingsView({
     return bw !== null ? String(bw) : '';
   });
   const [showDataMgmtPopup, setShowDataMgmtPopup] = useState(false);
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
 
   const programs = storage.getPrograms();
 
@@ -697,8 +699,29 @@ export function SettingsView({
               </button>
             </div>
 
-            {/* App Data Option Container */}
+            {/* Exercise Library Option Container */}
             <div className="space-y-3">
+              <h4 className="text-xs font-black text-slate-300 uppercase tracking-widest">
+                Exercise Library
+              </h4>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                You can view and edit exercises in the library from the option below.
+              </p>
+              
+              <div className="flex flex-col gap-2 pt-1">
+                {/* Button: Edit Exercise Library */}
+                <button
+                  type="button"
+                  onClick={() => setIsLibraryOpen(true)}
+                  className="w-full bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 font-extrabold text-xs py-3.5 px-3 rounded-none transition flex items-center justify-center gap-1.5 uppercase tracking-wider cursor-pointer"
+                >
+                  <Dumbbell className="w-4 h-4 text-indigo-400" /> Edit Exercise Library
+                </button>
+              </div>
+            </div>
+
+            {/* App Data Option Container */}
+            <div className="space-y-3 pt-4 border-t border-slate-850">
               <h4 className="text-xs font-black text-slate-300 uppercase tracking-widest">
                 App Data
               </h4>
@@ -824,6 +847,15 @@ export function SettingsView({
           }
           setAlertMsg(null);
         }}
+      />
+
+      <ExerciseSelectorModal
+        isOpen={isLibraryOpen}
+        onClose={() => {
+          setIsLibraryOpen(false);
+          onRefresh(); // Refresh parent view in case of any updates
+        }}
+        isManagementOnly={true}
       />
     </div>
   );

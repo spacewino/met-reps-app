@@ -1638,8 +1638,8 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
             </div>
           </div>
         ) : (
-          <div className="p-4 bg-slate-950/40 rounded-none text-center border border-slate-950 text-[11px] text-slate-500 leading-relaxed font-sans">
-            Not enough {selectedExercise} sessions logged with mixed recovery data to compute correlations. Make sure to input **Sleep** and **Calories** when saving your workouts!
+          <div className="p-4 bg-slate-950/40 rounded-none text-center border border-slate-850 text-[11px] text-slate-500 leading-relaxed font-sans">
+            Not enough {selectedExercise} sessions logged with mixed recovery data to compute correlations. Make sure to input <strong className="font-extrabold text-slate-300">Sleep</strong> and <strong className="font-extrabold text-slate-300">Calories</strong> when saving your workouts!
           </div>
         )}
       </div>
