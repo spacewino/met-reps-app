@@ -12,16 +12,115 @@ import { useModalHistory } from '../lib/useModalHistory';
 interface ExerciseSelectorModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelect: (selected: { name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' }[]) => void;
+  onSelect: (selected: { name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded' }[]) => void;
   confirmLabel?: string;
 }
+
+const getDefaultModality = (name: string): 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded' => {
+  const norm = name.trim().toLowerCase();
+
+  // 1. Explicitly weighted overrides
+  if (norm.includes('weighted')) {
+    return 'weighted';
+  }
+
+  // 2. Assisted
+  if (norm.includes('assisted') || norm.includes('(assisted)')) {
+    return 'assisted';
+  }
+
+  // 3. Distance Loaded (Loaded Carry / Push / Pull)
+  if (
+    norm.includes("farmer's carry") ||
+    norm.includes("farmer's walk") ||
+    norm.includes("farmer’s carry") ||
+    norm.includes("farmer’s walk") ||
+    norm.includes("sled pull") ||
+    norm.includes("sled push") ||
+    norm.includes("yoke walk") ||
+    norm.includes("sandbag carry")
+  ) {
+    return 'distance_loaded';
+  }
+
+  // 4. Distance (Unloaded cardio / conditioning)
+  if (
+    norm.includes('treadmill') ||
+    norm.includes('running') ||
+    norm.includes('rowing machine') ||
+    norm.includes('stationary bike') ||
+    norm.includes('cycling') ||
+    norm.includes('jogging')
+  ) {
+    return 'distance';
+  }
+
+  // 5. Timed (Duration)
+  if (
+    norm.includes('plank') ||
+    norm.includes('hollow body hold') ||
+    norm.includes('l-sit') ||
+    norm.includes('wall sit') ||
+    norm.includes('battle ropes') ||
+    norm.includes('handstand hold')
+  ) {
+    return 'timed';
+  }
+
+  // 6. Bodyweight
+  if (
+    norm === 'push-ups' ||
+    norm === 'push-up' ||
+    norm.includes('push-up') ||
+    norm === 'pull-up (wide grip)' ||
+    norm === 'pull-ups' ||
+    norm === 'pull-up' ||
+    norm.includes('pull-up') ||
+    norm === 'chin-up (underhand)' ||
+    norm === 'chin-ups' ||
+    norm === 'chin-up' ||
+    norm.includes('chin-up') ||
+    norm.includes('neutral-grip pull-up') ||
+    norm === 'dips (parallel bar)' ||
+    norm === 'bench dips' ||
+    norm === 'dips (chest lean)' ||
+    norm === 'dips' ||
+    norm.includes('dips') ||
+    norm === 'crunches' ||
+    norm === 'bicycle crunch' ||
+    norm === 'reverse crunch' ||
+    norm === 'hanging leg raise' ||
+    norm === 'captain\'s chair leg raise' ||
+    norm === 'lying leg raise' ||
+    norm === 'toes-to-bar' ||
+    norm === 'ab wheel rollout' ||
+    norm === 'dead bug' ||
+    norm === 'russian twist' ||
+    norm === 'bird dog' ||
+    norm === 'sissy squat' ||
+    norm === 'pistol squat' ||
+    norm === 'nordic hamstring curl' ||
+    norm === '45° back extension (hip hinge)' ||
+    norm === 'single-leg calf raise' ||
+    norm === 'tibialis raise' ||
+    norm === 'glute bridge' ||
+    norm === 'burpees' ||
+    norm === 'air squat' ||
+    norm === 'inverted row' ||
+    norm === 'bodyweight squat'
+  ) {
+    return 'bodyweight';
+  }
+
+  return 'weighted';
+};
 
 const typedLibrary = libraryData as Record<string, string[]>;
 
 const migrateExerciseDetails = (
   oldName: string,
   newName: string,
-  newModality: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed',
+  newModality: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded',
   newCategory: string
 ) => {
   const oldNameNorm = oldName.trim().toLowerCase();
@@ -118,7 +217,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   
   // Selection state
-  const [checkedExercises, setCheckedExercises] = useState<{ name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' }[]>(() => {
+  const [checkedExercises, setCheckedExercises] = useState<{ name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded' }[]>(() => {
     try {
       const saved = localStorage.getItem('metreps_checked_exercises');
       return saved ? JSON.parse(saved) : [];
@@ -150,11 +249,11 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
   const [isCustomMode, setIsCustomMode] = useState(false);
   const [customName, setCustomName] = useState('');
   const [customCategory, setCustomCategory] = useState('Quads');
-  const [customModality, setCustomModality] = useState<'weighted' | 'bodyweight' | 'assisted' | 'timed'>('weighted');
+  const [customModality, setCustomModality] = useState<'weighted' | 'bodyweight' | 'assisted' | 'timed' | 'distance_loaded' | 'distance'>('weighted');
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
 
   // Editing state
-  const [editingExercise, setEditingExercise] = useState<{ originalName: string; originalCategory: string; name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' } | null>(null);
+  const [editingExercise, setEditingExercise] = useState<{ originalName: string; originalCategory: string; name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded' } | null>(null);
 
   // Hidden defaults state
   const [hiddenDefaults, setHiddenDefaults] = useState<string[]>(() => {
@@ -167,7 +266,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
   });
 
   // Load custom exercises from localStorage
-  const [customExercises, setCustomExercises] = useState<{ name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' }[]>(() => {
+  const [customExercises, setCustomExercises] = useState<{ name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded' }[]>(() => {
     try {
       const saved = localStorage.getItem('metreps_custom_exercises');
       return saved ? JSON.parse(saved) : [];
@@ -211,7 +310,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
   }, [customExercises]);
 
   const filteredExercises = useMemo(() => {
-    const results: { name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' }[] = [];
+    const results: { name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded' }[] = [];
 
     // Add custom exercises first
     customExercises.forEach(ex => {
@@ -236,7 +335,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
         const isHidden = hiddenDefaults.includes(ex.toLowerCase());
 
         if (matchesSearch && matchesCategory && !alreadyAdded && !isHidden) {
-          results.push({ name: ex, category, modality: 'weighted' });
+          results.push({ name: ex, category, modality: getDefaultModality(ex) });
         }
       });
     });
@@ -246,7 +345,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
 
   if (!isOpen) return null;
 
-  const handleToggleChecked = (name: string, category: string, modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed') => {
+  const handleToggleChecked = (name: string, category: string, modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded') => {
     setCheckedExercises(prev => {
       const isAlreadyChecked = prev.some(item => item.name === name);
       if (isAlreadyChecked) {
@@ -257,7 +356,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
     });
   };
 
-  const handleStartEdit = (ex: { name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' }) => {
+  const handleStartEdit = (ex: { name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded' }) => {
     setEditingExercise({
       originalName: ex.name,
       originalCategory: ex.category,
@@ -300,11 +399,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
             className="p-2 hover:bg-slate-800 rounded-none text-slate-400 hover:text-white transition border border-slate-800 bg-slate-950 text-xs font-black uppercase tracking-wider"
             title={isCustomMode ? "Back to library" : "Close"}
           >
-            {isCustomMode ? (
-              <span className="px-1 text-[10px]">Back</span>
-            ) : (
-              <X className="w-4 h-4" />
-            )}
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -369,7 +464,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
             </div>
             
             <div className="space-y-1.5 relative">
-              <label className="text-[10px] text-indigo-400 font-black uppercase tracking-wider">Muscle Group</label>
+              <label className="text-[10px] text-indigo-400 font-black uppercase tracking-wider">PRIMARY MUSCLE GROUP</label>
               <button
                 type="button"
                 onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
@@ -411,7 +506,9 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
                   { value: 'weighted', label: 'Weight', desc: 'Weight + Reps' },
                   { value: 'bodyweight', label: 'Bodyweight', desc: 'Reps Only' },
                   { value: 'assisted', label: 'Assist', desc: 'Assist Weight + Reps' },
-                  { value: 'timed', label: 'Duration', desc: 'Time (Secs) + Reps' }
+                  { value: 'timed', label: 'Duration', desc: 'Time (Secs)' },
+                  { value: 'distance_loaded', label: 'Loaded Dist', desc: 'Weight + Meters' },
+                  { value: 'distance', label: 'Distance', desc: 'Meters + Time (Secs)' }
                 ].map(mod => {
                   const isSelected = customModality === mod.value;
                   return (
@@ -453,7 +550,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel 
                     return;
                   }
                   const formattedName = customName.trim();
-                  const newEx: { name: string; category: string; modality: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' } = { 
+                  const newEx: { name: string; category: string; modality: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded' } = { 
                     name: formattedName, 
                     category: customCategory,
                     modality: customModality

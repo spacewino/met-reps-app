@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { Settings, FileJson, Download, Upload, Trash2, ArrowLeft, RefreshCw, Check, AlertTriangle, Sparkles } from 'lucide-react';
+import { Settings, FileJson, Download, Upload, Trash2, ArrowLeft, RefreshCw, Check, AlertTriangle, Sparkles, X } from 'lucide-react';
 import { Program, WorkoutLog } from '../types';
 import { storage } from '../lib/storage';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -374,6 +374,27 @@ export function SettingsView({
         programList: storage.getPrograms(),
         currentProgramId: storage.getCurrentProgramId(),
         workoutLogs: storage.getWorkoutLogs(),
+        customExercises: (() => {
+          try {
+            const raw = localStorage.getItem('metreps_custom_exercises');
+            return raw ? JSON.parse(raw) : null;
+          } catch { return null; }
+        })(),
+        preferredWeightUnit: localStorage.getItem('preferredWeightUnit'),
+        userBodyweight: localStorage.getItem('userBodyweight'),
+        theme: localStorage.getItem('metreps_theme'),
+        checkedExercises: (() => {
+          try {
+            const raw = localStorage.getItem('metreps_checked_exercises');
+            return raw ? JSON.parse(raw) : null;
+          } catch { return null; }
+        })(),
+        hiddenDefaults: (() => {
+          try {
+            const raw = localStorage.getItem('metreps_hidden_defaults');
+            return raw ? JSON.parse(raw) : null;
+          } catch { return null; }
+        })(),
       };
       const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(data, null, 2))}`;
       const downloadAnchor = document.createElement('a');
@@ -402,7 +423,7 @@ export function SettingsView({
         let logsAdded = 0;
         let programsAdded = 0;
 
-        if (parsed.programList || parsed.workoutLogs) {
+        if (parsed.programList || parsed.workoutLogs || parsed.customExercises) {
           if (parsed.programList && Array.isArray(parsed.programList)) {
             parsed.programList.forEach((p: Program) => {
               if (p.id) storage.saveProgram(p);
@@ -417,6 +438,24 @@ export function SettingsView({
           }
           if (parsed.currentProgramId) {
             storage.setCurrentProgramId(parsed.currentProgramId);
+          }
+          if (parsed.customExercises && Array.isArray(parsed.customExercises)) {
+            localStorage.setItem('metreps_custom_exercises', JSON.stringify(parsed.customExercises));
+          }
+          if (parsed.preferredWeightUnit) {
+            localStorage.setItem('preferredWeightUnit', parsed.preferredWeightUnit);
+          }
+          if (parsed.userBodyweight) {
+            localStorage.setItem('userBodyweight', parsed.userBodyweight);
+          }
+          if (parsed.theme) {
+            localStorage.setItem('metreps_theme', parsed.theme);
+          }
+          if (parsed.checkedExercises) {
+            localStorage.setItem('metreps_checked_exercises', JSON.stringify(parsed.checkedExercises));
+          }
+          if (parsed.hiddenDefaults) {
+            localStorage.setItem('metreps_hidden_defaults', JSON.stringify(parsed.hiddenDefaults));
           }
         } else if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].exercisesByDay) {
           parsed.forEach((p: Program) => {
@@ -467,13 +506,33 @@ export function SettingsView({
   };
 
   const handleFactoryResetConfirm = () => {
+    const currentLogs = localStorage.getItem('workoutLogs');
+    const preferredUnit = localStorage.getItem('preferredWeightUnit');
+    const userBodyweight = localStorage.getItem('userBodyweight');
+    const theme = localStorage.getItem('metreps_theme');
+    const checkedEx = localStorage.getItem('metreps_checked_exercises');
+    const hiddenDefs = localStorage.getItem('metreps_hidden_defaults');
+    const customEx = localStorage.getItem('metreps_custom_exercises');
+
     localStorage.clear();
+
+    if (currentLogs) localStorage.setItem('workoutLogs', currentLogs);
+    if (preferredUnit) localStorage.setItem('preferredWeightUnit', preferredUnit);
+    if (userBodyweight) localStorage.setItem('userBodyweight', userBodyweight);
+    if (theme) localStorage.setItem('metreps_theme', theme);
+    if (checkedEx) localStorage.setItem('metreps_checked_exercises', checkedEx);
+    if (hiddenDefs) localStorage.setItem('metreps_hidden_defaults', hiddenDefs);
+    if (customEx) localStorage.setItem('metreps_custom_exercises', customEx);
+    
+    // Seed programList to empty array to ensure clean template reload state
+    localStorage.setItem('programList', '[]');
+
     onRefresh();
     setShowResetConfirm(false);
     setShowDataMgmtPopup(false);
     setAlertMsg({
-      title: 'Factory Reset Complete',
-      message: 'MetReps has been reset to default template state (includes sample program and historic logs).',
+      title: 'Templates Restored',
+      message: 'Default templates have been restored. Your logged workout history, custom exercises, and settings have been safely preserved!',
     });
   };
 
@@ -631,9 +690,10 @@ export function SettingsView({
               </h3>
               <button
                 onClick={() => setShowDataMgmtPopup(false)}
-                className="text-slate-400 hover:text-white transition text-xs font-bold font-mono border border-slate-800 bg-slate-900 px-2.5 py-1"
+                className="p-2 hover:bg-slate-800 rounded-none text-slate-400 hover:text-white transition border border-slate-800 bg-slate-900 cursor-pointer"
+                title="Close"
               >
-                CLOSE
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -662,7 +722,7 @@ export function SettingsView({
                   onClick={() => fileInputRef.current?.click()}
                   className="w-full bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 font-extrabold text-xs py-3.5 px-3 rounded-none transition flex items-center justify-center gap-1.5 uppercase tracking-wider cursor-pointer"
                 >
-                  <Upload className="w-4 h-4 text-indigo-400" /> Upload Saved Data
+                  <Upload className="w-4 h-4 text-indigo-400" /> Load Saved Logs
                 </button>
                 <input
                   type="file"
@@ -672,7 +732,7 @@ export function SettingsView({
                   className="hidden"
                 />
 
-                {/* Button 3: Restore default templates */}
+                {/* Button 3: Restore Default Templates */}
                 <button
                   type="button"
                   onClick={handleFactoryReset}
@@ -720,15 +780,7 @@ export function SettingsView({
               </div>
             </div>
 
-            <div className="pt-3 border-t border-slate-850">
-              <button
-                type="button"
-                onClick={() => setShowDataMgmtPopup(false)}
-                className="w-full py-3 bg-slate-900 hover:bg-slate-850 text-white border border-slate-800 font-extrabold text-xs uppercase tracking-widest transition"
-              >
-                Understood & Close
-              </button>
-            </div>
+
           </div>
         </div>
       )}
@@ -736,9 +788,9 @@ export function SettingsView({
       <ConfirmationModal
         visible={showResetConfirm}
         title="Restore Default Templates"
-        message="Warning, this will delete all your custom programs"
-        confirmLabel="Erase & Restore"
-        cancelLabel="Keep Current Data"
+        message="This will restore the original default program templates. Your logged workout history, custom exercises, and settings will be safely PRESERVED. Are you sure you want to proceed?"
+        confirmLabel="Restore Templates"
+        cancelLabel="Keep Current"
         confirmVariant="danger"
         onConfirm={handleFactoryResetConfirm}
         onCancel={() => setShowResetConfirm(false)}

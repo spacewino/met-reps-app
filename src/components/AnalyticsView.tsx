@@ -7,6 +7,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { LineChart, TrendingUp, Sparkles, Coffee, Droplet, Flame, Brain, Award, AlertCircle, Dumbbell, Target, Info, X, ArrowLeft } from 'lucide-react';
 import { WorkoutLog, SetEntry, Program, HydrationLevel, mapLitersToHydration, mapHydrationToLiters } from '../types';
 import { storage } from '../lib/storage';
+import { useModalHistory } from '../lib/useModalHistory';
 
 function getProgramReportCard(program: Program, logs: WorkoutLog[]) {
   const progLogs = logs.filter(l => l.programId === program.id);
@@ -37,10 +38,14 @@ function getProgramReportCard(program: Program, logs: WorkoutLog[]) {
 
   // Find all exercises programmed
   const programmedExerciseNames = new Set<string>();
-  Object.values(program.exercisesByDay).forEach(exercises => {
-    exercises.forEach(ex => {
-      programmedExerciseNames.add(ex.name);
-    });
+  Object.keys(program.exercisesByDay).forEach(key => {
+    const d = Number(key);
+    if (d <= program.daysPerWeek) {
+      const exercises = program.exercisesByDay[d] || [];
+      exercises.forEach(ex => {
+        programmedExerciseNames.add(ex.name);
+      });
+    }
   });
 
   // For each exercise, calculate baseline and latest/best E1RM
@@ -61,11 +66,15 @@ function getProgramReportCard(program: Program, logs: WorkoutLog[]) {
 
     // Find muscleGroup
     let muscleGroup = 'General';
-    for (const dayExs of Object.values(program.exercisesByDay)) {
-      const match = dayExs.find(e => e.name.toLowerCase() === exName.toLowerCase());
-      if (match) {
-        muscleGroup = match.muscleGroup || 'General';
-        break;
+    for (const key of Object.keys(program.exercisesByDay)) {
+      const d = Number(key);
+      if (d <= program.daysPerWeek) {
+        const dayExs = program.exercisesByDay[d] || [];
+        const match = dayExs.find(e => e.name.toLowerCase() === exName.toLowerCase());
+        if (match) {
+          muscleGroup = match.muscleGroup || 'General';
+          break;
+        }
       }
     }
 
@@ -374,6 +383,12 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
   // Report Card state
   const [selectedReportProgram, setSelectedReportProgram] = useState<Program | null>(null);
   const [reportChartExercise, setReportChartExercise] = useState<string>('Overall');
+
+  const { dismiss: dismissReportCard } = useModalHistory(
+    selectedReportProgram !== null,
+    () => setSelectedReportProgram(null),
+    'program-report-card'
+  );
 
   // Pre-select program from initialProgramId prop
   useEffect(() => {
@@ -850,8 +865,12 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
   const reportExercises = useMemo(() => {
     if (!selectedReportProgram) return [];
     const list = new Set<string>();
-    Object.values(selectedReportProgram.exercisesByDay).forEach(exs => {
-      exs.forEach(ex => list.add(ex.name));
+    Object.keys(selectedReportProgram.exercisesByDay).forEach(key => {
+      const d = Number(key);
+      if (d <= selectedReportProgram.daysPerWeek) {
+        const exs = selectedReportProgram.exercisesByDay[d] || [];
+        exs.forEach(ex => list.add(ex.name));
+      }
     });
     return ['Overall', ...Array.from(list)];
   }, [selectedReportProgram]);
@@ -1078,7 +1097,7 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
         {/* Header Bar with Back Button */}
         <div className="sticky top-[-16px] -mt-4 pt-3 pb-2.5 bg-slate-950 z-30 flex items-center gap-3 border-b border-slate-850 px-4 shadow-md">
           <button
-            onClick={() => setSelectedReportProgram(null)}
+            onClick={dismissReportCard}
             className="p-2 bg-slate-900 hover:bg-slate-800 rounded-none text-slate-400 hover:text-white border border-slate-800 transition cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -1346,7 +1365,7 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
         <div className="px-4">
           <button
             type="button"
-            onClick={() => setSelectedReportProgram(null)}
+            onClick={dismissReportCard}
             className="w-full bg-slate-900 hover:bg-slate-800 text-slate-300 font-extrabold text-xs py-4 px-4 border border-slate-800 transition uppercase tracking-widest cursor-pointer"
           >
             Back to Trends

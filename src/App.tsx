@@ -95,6 +95,20 @@ export default function App() {
   // Back button physical popstate interceptor
   const { dismiss: dismissNoProgramPopup } = useModalHistory(showNoProgramPopup, () => setShowNoProgramPopup(false), 'no-program-popup');
 
+  // Back button physical popstate interceptor for Settings view
+  const { dismiss: dismissSettingsView } = useModalHistory(
+    currentView === 'settings',
+    () => handleNavigate('home', null),
+    'settings-view'
+  );
+
+  // Back button physical popstate interceptor for Info view
+  const { dismiss: dismissInfoView } = useModalHistory(
+    currentView === 'info',
+    () => handleNavigate('home', null),
+    'info-view'
+  );
+
   // Unsaved changes failsafe states
   const [isBuilderDirty, setIsBuilderDirty] = useState<boolean>(false);
   const [pendingNavigation, setPendingNavigation] = useState<{ view: string; params: any } | null>(null);
@@ -132,6 +146,7 @@ export default function App() {
     const totalWeeks = currentProgram.programDuration === '∞' ? 12 : Number(currentProgram.programDuration);
     const dayIndexes = Object.keys(currentProgram.exercisesByDay)
       .map(Number)
+      .filter(d => d <= currentProgram.daysPerWeek)
       .sort((a, b) => a - b);
       
     const progTime = new Date(currentProgram.createdAt).getTime();
@@ -335,6 +350,7 @@ export default function App() {
             {currentView === 'logger' && (
               <WorkoutLogger
                 initialParams={viewParams}
+                themeId={themeId}
                 onClose={() => {
                   handleNavigate('home', null);
                 }}
@@ -359,14 +375,14 @@ export default function App() {
               <SettingsView
                 currentProgram={currentProgram}
                 onRefresh={loadData}
-                onClose={() => handleNavigate('home', null)}
+                onClose={dismissSettingsView}
                 themeId={themeId}
                 onThemeChange={handleThemeChange}
               />
             )}
 
             {currentView === 'info' && (
-              <InfoView onClose={() => handleNavigate('home', null)} />
+              <InfoView onClose={dismissInfoView} />
             )}
           </div>
 

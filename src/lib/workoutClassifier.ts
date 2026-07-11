@@ -213,6 +213,20 @@ export function classifyWorkout(
       if (!isWarmup) {
         workingVolumeLoad += setVol;
 
+        // Include drop subsets in working and total volume load if this is a working drop set
+        if (set.isDropSet && set.dropSubSets && set.dropSubSets.length > 0) {
+          set.dropSubSets.forEach(sub => {
+            const subReps = sub.reps || 0;
+            const subWeight = sub.weight || 0;
+            if (subReps > 0) {
+              const subEffW = getEffectiveWeight(subWeight, modality, userBodyweight);
+              const subVol = subEffW * subReps;
+              totalVolumeLoad += subVol;
+              workingVolumeLoad += subVol;
+            }
+          });
+        }
+
         if (set.rpe) {
           totalRpeSum += set.rpe;
           setsWithRpeCount++;

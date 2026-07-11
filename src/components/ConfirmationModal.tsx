@@ -18,6 +18,7 @@ interface ConfirmationModalProps {
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
   dismissOnBackdropPress?: boolean;
+  showCancel?: boolean;
 }
 
 export function ConfirmationModal({
@@ -31,6 +32,7 @@ export function ConfirmationModal({
   onConfirm,
   onCancel,
   dismissOnBackdropPress = true,
+  showCancel = true,
 }: ConfirmationModalProps) {
   const { dismiss, dismissWithoutCallback } = useModalHistory(visible, onCancel, 'confirmation-modal');
 
@@ -75,13 +77,15 @@ export function ConfirmationModal({
 
         {/* Footer Actions */}
         <div className="bg-slate-950/40 px-4 py-3 border-t border-slate-850 flex gap-2 justify-end">
-          <button
-            onClick={dismiss}
-            disabled={isProcessing}
-            className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-slate-300 hover:text-white border border-slate-850 font-black text-xs uppercase tracking-wider rounded-none transition"
-          >
-            {cancelLabel}
-          </button>
+          {showCancel && (
+            <button
+              onClick={dismiss}
+              disabled={isProcessing}
+              className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-slate-300 hover:text-white border border-slate-850 font-black text-xs uppercase tracking-wider rounded-none transition"
+            >
+              {cancelLabel}
+            </button>
+          )}
           <button
             onClick={handleConfirm}
             disabled={isProcessing}

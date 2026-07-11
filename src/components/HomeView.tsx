@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Dumbbell, Feather, Settings, ChevronLeft, ChevronRight, CheckCircle2, Play, Calendar as CalendarIcon, Info, Pencil, Repeat } from 'lucide-react';
+import { Dumbbell, Feather, Settings, ChevronLeft, ChevronRight, CheckCircle2, Play, Calendar as CalendarIcon, Info, Pencil, Repeat, Check } from 'lucide-react';
 import { Program, WorkoutLog } from '../types';
 import { storage } from '../lib/storage';
 import { getLocalDateString, getTodayLocalDateString, parseLocalDate } from '../lib/dateUtils';
@@ -147,6 +147,16 @@ export function HomeView({
 
   const getWeekAndDayForDate = (dateKey: string) => {
     if (!currentProgram) return { week: '1', day: '1' };
+    
+    // Check if we have a generated planned session for this specific date
+    const planned = plannedByDate?.[dateKey];
+    if (planned) {
+      return { 
+        week: String(planned.week || '1'), 
+        day: String(planned.dayIndex) 
+      };
+    }
+
     const start = new Date(currentProgram.createdAt);
     const target = parseLocalDate(dateKey);
     const weeksSinceStart = Math.floor((mondayOf(target).getTime() - mondayOf(start).getTime()) / (7 * 24 * 60 * 60 * 1000));
@@ -269,14 +279,16 @@ export function HomeView({
                       {completedCount > 3 && <span className="text-[7px] text-emerald-400 font-bold font-mono">+</span>}
                     </div>
                   ) : completedCount === 1 ? (
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    <Check size={14} strokeWidth={3.5} className="text-emerald-400" />
                   ) : planned ? (
                     planned.status === 'completed' ? (
-                      planned.completedDate && planned.completedDate < dateStr ? (
-                        /* Completed Early! Show orange dot */
-                        <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shadow-[0_0_4px_rgba(245,158,11,0.5)]" title="Completed Early" />
+                      planned.completedDate && planned.completedDate !== dateStr ? (
+                        /* Completed on a different day (early or late)! Show orange check */
+                        <span title={`Completed ${planned.completedDate < dateStr ? 'early' : 'late'} on ${planned.completedDate}`}>
+                          <Check size={14} strokeWidth={3.5} className="text-amber-500" />
+                        </span>
                       ) : (
-                        /* Completed Late / On-Time but not on this actual day: show nothing */
+                        /* Completed on this day: already handled by completedCount === 1 (green check) */
                         <div className="w-1.5 h-1.5" />
                       )
                     ) : (

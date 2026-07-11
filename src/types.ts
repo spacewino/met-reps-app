@@ -34,12 +34,13 @@ export type SetEntry = {
   comment?: string | null;
   isDropSet?: boolean | null;
   isWarmup?: boolean | null;
+  dropSubSets?: { weight?: number | null; reps?: number | null }[] | null;
 };
 
 export type ExerciseEntry = {
   name: string;
   muscleGroup: string;
-  modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed';
+  modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded';
   sets: SetEntry[];
   isSuperset?: boolean | null;
   isMainMovement?: boolean | null;
@@ -88,6 +89,7 @@ export type PlannedSession = {
   date: string; // YYYY-MM-DD
   programId: string;
   dayIndex: number;
+  week?: number;
   status: 'planned' | 'completed';
   completedDate?: string | null;
 };

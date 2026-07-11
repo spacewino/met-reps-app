@@ -56,6 +56,7 @@
     "Dumbbell Skull Crushers",
     "Close-Grip Bench Press",
     "Dips (Parallel Bar)",
+    "Dips (Assisted)",
     "Bench Dips",
     "Diamond Push-Ups",
     "Dumbbell Kickback",
@@ -86,7 +87,10 @@
   ],
   "Back": [
     "Pull-Up (Wide Grip)",
+    "Pull-Up (Weighted)",
+    "Pull-Up (Assisted)",
     "Chin-Up (Underhand)",
+    "Chin-Up (Assisted)",
     "Neutral-Grip Pull-Up",
     "Lat Pulldown (Wide)",
     "Close-Grip Pulldown",
@@ -139,7 +143,8 @@
     "Sissy Squat",
     "Leg Extension",
     "Cyclist Squat (Heels Elevated)",
-    "Pistol Squat"
+    "Pistol Squat",
+    "Pistol Squat (Assisted)"
   ],
   "Hamstrings": [
     "Deadlift (Conventional)",
@@ -178,5 +183,16 @@
     "Wrist Curl",
     "Reverse Wrist Curl",
     "Farmer’s Carry"
+  ],
+  "Conditioning": [
+    "Sled Push",
+    "Sled Pull",
+    "Farmer's Carry",
+    "Treadmill Run",
+    "Rowing Machine",
+    "Stationary Bike",
+    "Jump Rope",
+    "Burpees",
+    "Battle Ropes"
   ]
 }

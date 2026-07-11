@@ -202,8 +202,9 @@ export const storage = {
   },
 
   getPlannedSessions: (programId: string): Record<string, PlannedSession> => {
+    const saved = storage.getPrograms().find(p => p.id === programId);
     const prebuilt = PREBUILT_TEMPLATES.find(p => p.id === programId);
-    const program = prebuilt || storage.getPrograms().find(p => p.id === programId);
+    const program = saved || prebuilt;
     if (!program) return {};
 
     const map: Record<string, PlannedSession> = {};
@@ -242,6 +243,7 @@ export const storage = {
           date: dateStr,
           programId,
           dayIndex: dayIdx,
+          week: w,
           status: completedLog ? 'completed' : 'planned',
           completedDate: completedLog ? completedLog.date : null,
         };
@@ -258,7 +260,10 @@ export const storage = {
     const totalWeeks = Number(program.programDuration);
     if (isNaN(totalWeeks)) return false;
     
-    const dayIndexes = Object.keys(program.exercisesByDay).map(Number).sort((a, b) => a - b);
+    const dayIndexes = Object.keys(program.exercisesByDay)
+      .map(Number)
+      .filter(d => d <= program.daysPerWeek)
+      .sort((a, b) => a - b);
     if (dayIndexes.length === 0) return false;
     
     const lastDay = dayIndexes[dayIndexes.length - 1];

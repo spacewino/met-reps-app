@@ -151,6 +151,9 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
 
   // Unenroll state
   const [showUnenrollConfirm, setShowUnenrollConfirm] = useState(false);
+  const [pendingSwitchProgram, setPendingSwitchProgram] = useState<any | null>(null);
+  const [showCommencedModal, setShowCommencedModal] = useState(false);
+  const [commencedProgramName, setCommencedProgramName] = useState('');
 
   const executeSaveProgram = (updatedProgram: Program) => {
     // If there is another saved program with the same name (but different ID), delete it first to avoid duplicate names and clear its references
@@ -204,7 +207,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     if (onDirtyChange) {
       onDirtyChange(false);
     }
-    onSave();
+    setCommencedProgramName(updatedProgram.name);
+    setShowCommencedModal(true);
   };
 
   const openSelectorFor = (dayIdx: number, exIdx: number | null) => {
@@ -212,7 +216,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     setIsSelectorOpen(true);
   };
 
-  const handleSelectExercise = (selectedList: { name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' }[]) => {
+  const handleSelectExercise = (selectedList: { name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded' }[]) => {
     if (selectedList.length === 0) return;
     if (selectorTarget) {
       const { dayIdx, exIdx } = selectorTarget;
@@ -387,32 +391,28 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     const progDuration = prog.programDuration === '∞' ? 8 : Number(prog.programDuration);
     const progWeekdays = prog.assignedWeekdays ? JSON.parse(JSON.stringify(prog.assignedWeekdays)) : getDefaultWeekdays(prog.daysPerWeek);
 
-    if (prog.id === currentProgramId) {
-      setEditingProgramId(prog.id);
-      setName(prog.name);
-      setOriginalName(prog.name);
-      setDaysPerWeek(prog.daysPerWeek);
-      setDurationWeeks(progDuration);
-      setExercisesByDay(JSON.parse(JSON.stringify(prog.exercisesByDay)));
-      setAssignedWeekdays(progWeekdays);
-      setObjective(progObjective);
-      setAlgorithmId(progAlgorithm);
-      setActiveTabDay(1);
+    setEditingProgramId(prog.id);
+    setName(prog.name);
+    setOriginalName(prog.name);
+    setDaysPerWeek(prog.daysPerWeek);
+    setDurationWeeks(progDuration);
+    setExercisesByDay(JSON.parse(JSON.stringify(prog.exercisesByDay)));
+    setAssignedWeekdays(progWeekdays);
+    setObjective(progObjective);
+    setAlgorithmId(progAlgorithm);
+    setActiveTabDay(1);
 
-      // Update snapshot
-      setSnapshot({
-        id: prog.id,
-        name: prog.name,
-        daysPerWeek: prog.daysPerWeek,
-        durationWeeks: progDuration,
-        objective: progObjective,
-        algorithmId: progAlgorithm,
-        exercisesByDay: JSON.parse(JSON.stringify(prog.exercisesByDay)),
-        assignedWeekdays: progWeekdays
-      });
-      return;
-    }
-    setSwapTarget(prog);
+    // Update snapshot
+    setSnapshot({
+      id: prog.id,
+      name: prog.name,
+      daysPerWeek: prog.daysPerWeek,
+      durationWeeks: progDuration,
+      objective: progObjective,
+      algorithmId: progAlgorithm,
+      exercisesByDay: JSON.parse(JSON.stringify(prog.exercisesByDay)),
+      assignedWeekdays: progWeekdays
+    });
   };
 
   const handleConfirmSwap = () => {
@@ -459,6 +459,47 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     setEditingProgramId(null);
     setShowUnenrollConfirm(false);
     onSave();
+  };
+
+  const saveOrConfirm = (updatedProgram: Program) => {
+    const hasNameChanged = originalName !== '' && updatedProgram.name.trim().toLowerCase() !== originalName.trim().toLowerCase();
+
+    // Determine if we should show overwrite confirmation
+    const nameChanged = updatedProgram.name !== snapshot.name;
+    const daysChanged = updatedProgram.daysPerWeek !== snapshot.daysPerWeek;
+    const durationChanged = updatedProgram.programDuration !== snapshot.durationWeeks;
+    const objectiveChanged = updatedProgram.objective !== snapshot.objective;
+    const algorithmChanged = updatedProgram.algorithmId !== snapshot.algorithmId;
+    const exercisesChanged = JSON.stringify(updatedProgram.exercisesByDay) !== JSON.stringify(snapshot.exercisesByDay);
+    const weekdaysChanged = JSON.stringify(updatedProgram.assignedWeekdays) !== JSON.stringify(snapshot.assignedWeekdays);
+
+    const isDirty = nameChanged || daysChanged || durationChanged || objectiveChanged || algorithmChanged || exercisesChanged || weekdaysChanged;
+
+    const isEditingCustomProgram = editingProgramId !== null && !editingProgramId.startsWith('prog-tpl-');
+    const isSavingSameName = isEditingCustomProgram && originalName !== 'My Custom Strength Program' && !hasNameChanged && isDirty;
+    
+    const nameMatchesAnother = savedPrograms.some(
+      p => p.name.trim().toLowerCase() === updatedProgram.name.trim().toLowerCase() && p.id !== updatedProgram.id
+    );
+
+    if (isSavingSameName || nameMatchesAnother) {
+      setPendingSaveProgram(updatedProgram);
+      setShowOverwriteConfirm(true);
+    } else {
+      executeSaveProgram(updatedProgram);
+    }
+  };
+
+  const handleConfirmSwitch = () => {
+    if (!pendingSwitchProgram) return;
+
+    // Unenroll current active program
+    storage.setCurrentProgramId(null);
+    setCurrentProgramId(null);
+
+    const progToSave = pendingSwitchProgram;
+    setPendingSwitchProgram(null);
+    saveOrConfirm(progToSave);
   };
 
   const enrolledProgramName = React.useMemo(() => {
@@ -598,18 +639,13 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       algorithmId: algorithmId,
     };
 
-    // Determine if we should show overwrite confirmation
-    const isSavingSameName = editingProgramId !== null && originalName !== 'My Custom Strength Program' && !hasNameChanged;
-    const nameMatchesAnother = savedPrograms.some(
-      p => p.name.trim().toLowerCase() === name.trim().toLowerCase() && p.id !== editingProgramId
-    );
-
-    if (isSavingSameName || nameMatchesAnother) {
-      setPendingSaveProgram(updatedProgram);
-      setShowOverwriteConfirm(true);
-    } else {
-      executeSaveProgram(updatedProgram);
+    // If enrolled in an active program, and this program is NOT that active program
+    if (currentProgramId !== null && targetId !== currentProgramId) {
+      setPendingSwitchProgram(updatedProgram);
+      return;
     }
+
+    saveOrConfirm(updatedProgram);
   };
 
   return (
@@ -663,7 +699,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
         </p>
         <div className="flex flex-wrap gap-2 pt-1">
           {PREBUILT_TEMPLATES.map((tpl) => {
-            const isCurrent = currentProgramId === tpl.id;
+            const isCurrent = editingProgramId === tpl.id;
             return (
               <button
                 key={`prebuilt-${tpl.id}`}
@@ -680,7 +716,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
             );
           })}
           {savedPrograms.filter(p => !p.id.startsWith('prog-tpl-')).map((prog) => {
-            const isCurrent = currentProgramId === prog.id;
+            const isCurrent = editingProgramId === prog.id;
             return (
               <button
                 key={`saved-${prog.id}`}
@@ -1195,6 +1231,34 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
         confirmVariant="danger"
         onConfirm={handleConfirmUnenroll}
         onCancel={() => setShowUnenrollConfirm(false)}
+      />
+
+      <ConfirmationModal
+        visible={pendingSwitchProgram !== null}
+        title="Switch Active Program?"
+        message={`You are currently enrolled in an active program ('${enrolledProgramName || 'your active program'}'). Saving and commencing '${pendingSwitchProgram?.name || 'this program'}' will unenrol you from your current active program and replace future scheduled workouts on your calendar (your completed history is 100% safe). Would you like to unenrol and switch?`}
+        confirmLabel="Unenrol & Switch"
+        cancelLabel="Keep Current Program"
+        confirmVariant="danger"
+        onConfirm={handleConfirmSwitch}
+        onCancel={() => setPendingSwitchProgram(null)}
+      />
+
+      <ConfirmationModal
+        visible={showCommencedModal}
+        title="Program Commenced!"
+        message={`"${commencedProgramName}" is now active! We've successfully scheduled your workouts on your training calendar.`}
+        confirmLabel="Let's Train!"
+        showCancel={false}
+        confirmVariant="primary"
+        onConfirm={() => {
+          setShowCommencedModal(false);
+          onSave();
+        }}
+        onCancel={() => {
+          setShowCommencedModal(false);
+          onSave();
+        }}
       />
     </div>
   );

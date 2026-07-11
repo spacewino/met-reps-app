@@ -4,12 +4,13 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Calendar, Trash2, Dumbbell, Clock, ChevronDown, ChevronUp, MessageSquare, Coffee, Droplet, Flame, Award, Info, X, Pencil } from 'lucide-react';
+import { Calendar, Trash2, Dumbbell, Clock, ChevronDown, ChevronUp, MessageSquare, Coffee, Droplet, Flame, Award, Info, X, Pencil, ArrowLeft } from 'lucide-react';
 import { WorkoutLog, mapLitersToHydration } from '../types';
 import { storage } from '../lib/storage';
 import { ConfirmationModal } from './ConfirmationModal';
 import { classifyWorkout } from '../lib/workoutClassifier';
 import { parseLocalDate } from '../lib/dateUtils';
+import { useModalHistory } from '../lib/useModalHistory';
 
 // Format date to: TUE 9 JUN 26 format
 const formatDateWithTwoDigitYear = (dateStr: string) => {
@@ -164,7 +165,7 @@ function calculateWorkoutGrade(log: WorkoutLog, allLogs: WorkoutLog[], userBodyw
         const w = set.weight || 0;
         const r = set.reps || 0;
 
-        if (modality === 'bodyweight') {
+        if (modality === 'bodyweight' || modality === 'distance' || modality === 'distance_loaded') {
           if (r > logMax) logMax = r;
         } else if (modality === 'timed') {
           if (w > logMax) logMax = w;
@@ -214,7 +215,7 @@ function calculateWorkoutGrade(log: WorkoutLog, allLogs: WorkoutLog[], userBodyw
         rpeCount++;
       }
 
-      if (modality === 'bodyweight') {
+      if (modality === 'bodyweight' || modality === 'distance' || modality === 'distance_loaded') {
         if (r > sessionMax) sessionMax = r;
       } else if (modality === 'timed') {
         if (w > sessionMax) sessionMax = w;
@@ -445,8 +446,14 @@ interface LogsHistoryViewProps {
 
 export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }: LogsHistoryViewProps) {
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [expandedDropSets, setExpandedDropSets] = useState<Record<string, boolean>>({});
   const [deleteLogId, setDeleteLogId] = useState<string | null>(null);
   const [showGradeInfo, setShowGradeInfo] = useState(false);
+  const { dismiss: dismissGradeInfo } = useModalHistory(
+    showGradeInfo,
+    () => setShowGradeInfo(false),
+    'training-classification-system'
+  );
   const [activeTag, setActiveTag] = useState<{
     logId: string;
     tagId: string;
@@ -465,12 +472,19 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
         const isWeighted = !ex.modality || ex.modality === 'weighted';
         const isBw = ex.modality === 'bodyweight';
         const isAssisted = ex.modality === 'assisted';
-        if (isWeighted || isBw || isAssisted) {
+        const isDistanceLoaded = ex.modality === 'distance_loaded';
+        const isDistance = ex.modality === 'distance';
+        if (isWeighted || isBw || isAssisted || isDistanceLoaded || isDistance) {
           ex.sets.forEach(s => {
             const w = s.weight || 0;
             const r = s.reps || 0;
             if (w > 0 && r > 0) {
-              const est = r === 1 ? w : w * (1 + r / 30);
+              let est = 0;
+              if (isDistance) {
+                est = (r / w) * 100;
+              } else {
+                est = r === 1 ? w : w * (1 + r / 30);
+              }
               const roundedEst = Math.round(est * 10) / 10;
               const existing = map[ex.name];
               if (!existing || roundedEst > existing) {
@@ -826,69 +840,133 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                                 const isWeighted = !ex.modality || ex.modality === 'weighted';
                                 const isBw = ex.modality === 'bodyweight';
                                 const isAssisted = ex.modality === 'assisted';
-                                if (!isWeighted && !isBw && !isAssisted) return false;
+                                const isDistanceLoaded = ex.modality === 'distance_loaded';
+                                const isDistance = ex.modality === 'distance';
+                                if (!isWeighted && !isBw && !isAssisted && !isDistanceLoaded && !isDistance) return false;
                                 const w = set.weight || 0;
                                 const r = set.reps || 0;
                                 if (w <= 0 || r <= 0) return false;
-                                const est = r === 1 ? w : w * (1 + r / 30);
+                                let est = 0;
+                                if (isDistance) {
+                                  est = (r / w) * 100;
+                                } else {
+                                  est = r === 1 ? w : w * (1 + r / 30);
+                                }
                                 const roundedEst = Math.round(est * 10) / 10;
                                 const prVal = prMap[ex.name];
                                 return prVal && Math.abs(roundedEst - prVal) < 0.05;
                               })();
 
                               return (
-                                <div
-                                  key={sIdx}
-                                  className="text-xs text-slate-400 flex items-center justify-between font-mono py-0.5"
-                                >
-                                  <span>
-                                    Set {set.setNumber}
-                                    {set.isWarmup && (
-                                      <span className="text-amber-500 font-extrabold ml-1" title="Warmup Set">⌇⌇⌇</span>
-                                    )}
-                                    {set.isDropSet && (
-                                      <span className="text-rose-500 font-extrabold ml-1 animate-pulse" title="Drop Set">↓</span>
-                                    )}
-                                    :{' '}
-                                    {ex.modality === 'bodyweight' ? (
-                                      <>
-                                        <strong className="text-indigo-400 font-black">Bodyweight ({set.weight && set.weight !== 0 ? `${set.weight} ${log.unit.toUpperCase()}` : 'BW'})</strong> x{' '}
-                                        <strong className="text-slate-200 font-black">{set.reps || 0}</strong> reps
-                                      </>
-                                    ) : ex.modality === 'timed' ? (
-                                      <>
-                                        <strong className="text-slate-200 font-black">{set.weight || 0}</strong> secs
-                                      </>
-                                    ) : ex.modality === 'assisted' ? (
-                                      <>
-                                        <strong className="text-slate-200 font-black">{set.weight || 0}</strong> {log.unit} assist x{' '}
-                                        <strong className="text-slate-200 font-black">{set.reps || 0}</strong> reps
-                                      </>
-                                    ) : (
-                                      <>
-                                        <strong className="text-slate-200 font-black">{set.weight || 0}</strong> {log.unit} x{' '}
-                                        <strong className="text-slate-200 font-black">{set.reps || 0}</strong> reps
-                                      </>
-                                    )}
-                                    {isPR && (
-                                      <span className={`inline-flex items-center gap-0.5 text-[8px] font-extrabold px-1 py-0.5 rounded uppercase tracking-tight animate-pulse shrink-0 ml-1.5 ${
-                                        themeId === 'amber'
-                                          ? 'text-[#B56D3E] bg-[#B56D3E]/10 border border-[#B56D3E]/20'
-                                          : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
-                                      }`} title="Personal Record!">
-                                        <Award className={`w-2.5 h-2.5 shrink-0 ${themeId === 'amber' ? 'text-[#B56D3E]' : 'text-amber-400'}`} /> PR
-                                      </span>
-                                    )}
-                                  </span>
-                                <div className="flex gap-2">
-                                  <span className="text-[10px] text-slate-400 font-bold bg-slate-900 px-1.5 py-0.2 rounded-none border border-slate-850/40">RPE {set.rpe || '—'}</span>
-                                  {set.form && (
-                                    <span className="text-[10px] font-black text-indigo-400 capitalize">{set.form}</span>
+                                <div key={sIdx} className="space-y-1">
+                                  <div
+                                    className="text-xs text-slate-400 flex items-center justify-between font-mono py-0.5"
+                                  >
+                                    <span>
+                                      Set {set.setNumber}
+                                      {set.isWarmup && (
+                                        <span className="text-amber-500 font-extrabold ml-1" title="Warmup Set">⌇⌇⌇</span>
+                                      )}
+                                      {set.isDropSet && (
+                                        <span className={`${themeId === 'amber' ? 'text-fuchsia-600' : 'text-fuchsia-400'} font-extrabold ml-1 animate-pulse`} title="Drop Set">↓</span>
+                                      )}
+                                      :{' '}
+                                      {ex.modality === 'bodyweight' ? (
+                                        <>
+                                          <strong className="text-indigo-400 font-black">Bodyweight ({set.weight && set.weight !== 0 ? `${set.weight} ${log.unit.toUpperCase()}` : 'BW'})</strong> x{' '}
+                                          <strong className="text-slate-200 font-black">{set.reps || 0}</strong> reps
+                                        </>
+                                      ) : ex.modality === 'timed' ? (
+                                        <>
+                                          <strong className="text-slate-200 font-black">{set.weight || 0}</strong> secs
+                                        </>
+                                      ) : ex.modality === 'distance' ? (
+                                        <>
+                                          <strong className="text-slate-200 font-black">{set.reps || 0}</strong> meters in <strong className="text-slate-200 font-black">{set.weight || 0}</strong> secs
+                                        </>
+                                      ) : ex.modality === 'distance_loaded' ? (
+                                        <>
+                                          <strong className="text-slate-200 font-black">{set.weight || 0}</strong> {log.unit} x <strong className="text-slate-200 font-black">{set.reps || 0}</strong> meters
+                                        </>
+                                      ) : ex.modality === 'assisted' ? (
+                                        <>
+                                          <strong className="text-slate-200 font-black">{set.weight || 0}</strong> {log.unit} assist x{' '}
+                                          <strong className="text-slate-200 font-black">{set.reps || 0}</strong> reps
+                                        </>
+                                      ) : (
+                                        <>
+                                          <strong className="text-slate-200 font-black">{set.weight || 0}</strong> {log.unit} x{' '}
+                                          <strong className="text-slate-200 font-black">{set.reps || 0}</strong> reps
+                                        </>
+                                      )}
+                                      {isPR && (
+                                        <span className={`inline-flex items-center gap-0.5 text-[8px] font-extrabold px-1 py-0.5 rounded uppercase tracking-tight animate-pulse shrink-0 ml-1.5 ${
+                                          themeId === 'amber'
+                                            ? 'text-[#B56D3E] bg-[#B56D3E]/10 border border-[#B56D3E]/20'
+                                            : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+                                        }`} title="Personal Record!">
+                                          <Award className={`w-2.5 h-2.5 shrink-0 ${themeId === 'amber' ? 'text-[#B56D3E]' : 'text-amber-400'}`} /> PR
+                                        </span>
+                                      )}
+                                      {set.isDropSet && set.dropSubSets && set.dropSubSets.length > 0 && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const key = `${log.id}-${exIdx}-${sIdx}`;
+                                            setExpandedDropSets(prev => ({ ...prev, [key]: !prev[key] }));
+                                          }}
+                                          className={`ml-2 text-[9px] font-black px-1.5 py-0.5 rounded cursor-pointer transition flex items-center gap-1 inline-flex font-sans ${
+                                            themeId === 'amber'
+                                              ? 'text-fuchsia-700 bg-fuchsia-50/70 hover:bg-fuchsia-100 border border-fuchsia-200/50'
+                                              : 'text-fuchsia-400 hover:text-fuchsia-300 bg-fuchsia-950/40 hover:bg-fuchsia-950/60 border border-fuchsia-900/40'
+                                          }`}
+                                        >
+                                          <span>Drops ({set.dropSubSets.length})</span>
+                                          <span className="text-[8px]">{expandedDropSets[`${log.id}-${exIdx}-${sIdx}`] ? '▲' : '▼'}</span>
+                                        </button>
+                                      )}
+                                    </span>
+                                    <div className="flex gap-2">
+                                      <span className="text-[10px] text-slate-400 font-bold bg-slate-900 px-1.5 py-0.2 rounded-none border border-slate-850/40">RPE {set.rpe || '—'}</span>
+                                      {set.form && (
+                                        <span className="text-[10px] font-black text-indigo-400 capitalize">{set.form}</span>
+                                      )}
+                                    </div>
+                                  </div>
+ 
+                                  {/* Render Expanded Drop Sub-sets */}
+                                  {set.isDropSet && expandedDropSets[`${log.id}-${exIdx}-${sIdx}`] && set.dropSubSets && set.dropSubSets.length > 0 && (
+                                    <div className={`pl-4 pr-3 py-1.5 space-y-1 rounded-none mt-0.5 text-slate-400 text-xs w-full max-w-md border ${
+                                      themeId === 'amber'
+                                        ? 'bg-fuchsia-50/40 border-fuchsia-100/60'
+                                        : 'bg-fuchsia-950/5 border-fuchsia-950/15'
+                                    }`}>
+                                      {set.dropSubSets.map((sub, subIdx) => (
+                                        <div key={subIdx} className="flex justify-between items-center py-0.5 font-mono text-[11px]">
+                                          <span className="text-slate-500">└ Drop {subIdx + 1}:</span>
+                                          <span className={`font-bold ${themeId === 'amber' ? 'text-fuchsia-700' : 'text-fuchsia-400'}`}>
+                                            {ex.modality === 'bodyweight' ? (
+                                              <>BW ({sub.weight || 'BW'}) x {sub.reps || 0} reps</>
+                                            ) : ex.modality === 'timed' ? (
+                                              <>{sub.weight || 0} secs</>
+                                            ) : ex.modality === 'distance' ? (
+                                              <>{sub.reps || 0} meters in {sub.weight || 0} secs</>
+                                            ) : ex.modality === 'distance_loaded' ? (
+                                              <>{sub.weight || 0} {log.unit} x {sub.reps || 0} meters</>
+                                            ) : ex.modality === 'assisted' ? (
+                                              <>{sub.weight || 0} assist x {sub.reps || 0} reps</>
+                                            ) : (
+                                              <>{sub.weight || 0} {log.unit} x {sub.reps || 0} reps</>
+                                            )}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
                                   )}
                                 </div>
-                              </div>
-                            );
-                          })}
+                              );
+                            })}
                           </div>
                         </div>
                       ))}
@@ -979,37 +1057,36 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
       {showGradeInfo && (
         <div
           className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
-          onClick={() => setShowGradeInfo(false)}
+          onClick={dismissGradeInfo}
         >
           <div
             className="bg-slate-900 border border-slate-800 rounded-none w-full max-w-xl overflow-hidden flex flex-col shadow-2xl shadow-indigo-950/40 max-h-[85vh] animate-in fade-in zoom-in-95 duration-150 font-sans"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="p-5 bg-slate-950 border-b border-slate-850 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Award className="w-6 h-6 text-indigo-400 shrink-0" />
-                <div>
+            <div className="p-5 bg-slate-950 border-b border-slate-850 flex items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center">
                   <h3 className="text-sm sm:text-lg font-black text-white uppercase tracking-wider leading-snug">
                     Training Classification System
                   </h3>
-                  <p className="text-[10px] sm:text-xs text-indigo-400 font-mono uppercase tracking-widest leading-none mt-1">
-                    Rule-Based Athlete Physiology Engine
-                  </p>
                 </div>
+                <p className="text-[10px] sm:text-xs text-indigo-400 font-mono uppercase tracking-widest leading-none mt-1">
+                  Rule-Based Athlete Physiology Engine
+                </p>
               </div>
               <button
-                onClick={() => setShowGradeInfo(false)}
-                className="p-1.5 text-slate-500 hover:text-white hover:bg-slate-800 transition rounded-none"
+                onClick={dismissGradeInfo}
+                className="p-2 bg-slate-900 hover:bg-slate-800 rounded-none text-slate-400 hover:text-white border border-slate-800 transition cursor-pointer shrink-0"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Scrollable Content */}
             <div className="p-6 overflow-y-auto space-y-6 text-[14px] sm:text-[15px] text-slate-300 leading-relaxed scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
               <p>
-                Your workout grading is replaced with an advanced training classification engine. The app evaluates set-level and session-level metrics to assign a training Category and optional advisory Flags.
+                To help you understand how you trained, MetReps auto-labels each session with a <strong>Category</strong> (like Overload, Volume, or Recovery) and attaches <strong>Flags</strong> to call out important milestones, technique alerts, or fatigue levels.
               </p>
 
               {/* Performance Index Explanation */}
@@ -1021,6 +1098,17 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                 <p className="text-slate-400 text-xs">
                   Your Performance Index measures your actual capacity in today's session relative to your historical rolling baseline. 
                   A score of <strong>100%</strong> means you perfectly matched your current baseline strength. Scores <strong>&gt;100%</strong> indicate progressive overload or new peak achievements, while scores <strong>&lt;100%</strong> indicate fatigue-induced performance decline or intentional recovery work.
+                </p>
+              </div>
+
+              {/* Fatigue Score */}
+              <div className="space-y-2 bg-slate-950/50 p-4 border border-slate-850">
+                <h4 className="font-bold text-slate-100 flex items-center gap-2 uppercase text-xs sm:text-sm tracking-wide font-mono">
+                  <span className="w-2 h-2 rounded-full bg-cyan-400 shrink-0" />
+                  Fatigue Score (1 - 10)
+                </h4>
+                <p className="text-slate-400 text-xs">
+                  We calculate systemic fatigue by weighting post-workout Muscle Soreness (35%), Workout Quality/Motivation dropoffs (25%), Session Average working RPE (20%), Form Breakdown rate (10%), and Performance Index Drops (10%).
                 </p>
               </div>
 
@@ -1057,17 +1145,6 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                 </div>
               </div>
 
-              {/* Dynamic Fatigue Score */}
-              <div className="space-y-2 bg-slate-950/50 p-4 border border-slate-850">
-                <h4 className="font-bold text-slate-100 flex items-center gap-2 uppercase text-xs sm:text-sm tracking-wide font-mono">
-                  <span className="w-2 h-2 rounded-full bg-cyan-400 shrink-0" />
-                  Dynamic Fatigue Score (1 - 10)
-                </h4>
-                <p className="text-slate-400 text-xs">
-                  We calculate systemic fatigue by weighting post-workout Muscle Soreness (35%), Workout Quality/Motivation dropoffs (25%), Session Average working RPE (20%), Form Breakdown rate (10%), and Performance Index Drops (10%).
-                </p>
-              </div>
-
               {/* Training Flags */}
               <div className="space-y-3">
                 <h4 className="font-black text-white uppercase text-xs sm:text-sm tracking-wider font-mono">
@@ -1098,15 +1175,6 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
               </div>
             </div>
 
-            {/* Footer */}
-            <div className="bg-slate-950/40 px-5 py-4 border-t border-slate-850 flex justify-end">
-              <button
-                onClick={() => setShowGradeInfo(false)}
-                className="w-full sm:w-auto px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs sm:text-sm uppercase tracking-wider rounded-none transition shadow"
-              >
-                Understood
-              </button>
-            </div>
           </div>
         </div>
       )}
