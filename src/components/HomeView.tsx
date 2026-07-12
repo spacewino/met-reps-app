@@ -172,7 +172,7 @@ export function HomeView({
       {/* Banner Card */}
       <div className="sticky top-[-16px] -mt-4 pt-3 pb-2.5 bg-slate-900 border-b-2 border-indigo-500 w-full px-4 flex items-center justify-between shadow-lg rounded-none z-30">
         <div className="flex items-center gap-3">
-          <div className="p-1 bg-slate-950/40 rounded-none border border-slate-850 shrink-0 flex items-center justify-center">
+          <div className="shrink-0 flex items-center justify-center">
             <MetRepsLogo size={45} />
           </div>
           <div>

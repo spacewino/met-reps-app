@@ -6,140 +6,114 @@ interface MetRepsLogoProps {
 }
 
 export function MetRepsLogo({ className = '', size = 24 }: MetRepsLogoProps) {
-  // Return the pixel-perfect SVG representation of the MetReps custom icon.
-  // This features the high-fidelity squircle dark-blue background,
-  // the stylized "M" with rounded barbell plates on either side.
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 100 100"
+      viewBox="0 0 512 512"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={`${className} select-none`}
     >
       <defs>
-        {/* Deep, premium squircle background gradient */}
-        <linearGradient id="metreps-logo-bg-grad" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="#1e2555" /> {/* Premium dark steel blue */}
-          <stop offset="40%" stopColor="#14183d" />
-          <stop offset="100%" stopColor="#080a18" /> {/* Deepest space navy */}
+        {/* Left and Right Pill Gradient (Turquoise to deep blue-violet) */}
+        <linearGradient id="pill-outer-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="#00F5D4" />
+          <stop offset="50%" stopColor="#00B4D8" />
+          <stop offset="100%" stopColor="#6366F1" />
         </linearGradient>
 
-        {/* Outer squircle glossy accent ring */}
-        <linearGradient id="metreps-logo-border-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.15" />
-          <stop offset="100%" stopColor="#ffffff" stopOpacity="0.02" />
+        {/* Middle Pill Gradient (Medium sky-blue to deep blue-violet, slightly darker/deeper) */}
+        <linearGradient id="pill-mid-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="#00B4D8" />
+          <stop offset="50%" stopColor="#0077B6" />
+          <stop offset="100%" stopColor="#4F46E5" />
         </linearGradient>
+
+        {/* Sine Wave Gradient (Cyan to Blue glow) */}
+        <linearGradient id="wave-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#6366F1" />
+          <stop offset="25%" stopColor="#00F5D4" />
+          <stop offset="50%" stopColor="#00B4D8" />
+          <stop offset="75%" stopColor="#00F5D4" />
+          <stop offset="100%" stopColor="#6366F1" />
+        </linearGradient>
+
+        {/* Filter for wave drop shadow */}
+        <filter id="wave-shadow" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="8" stdDeviation="6" floodColor="#000000" floodOpacity="0.5" />
+        </filter>
+        
+        {/* Filter for pill glow */}
+        <filter id="pill-glow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="3" result="blur" />
+          <feComposite in="SourceGraphic" in2="blur" operator="over" />
+        </filter>
       </defs>
 
-      {/* Main squircle background container */}
-      <rect
-        x="2"
-        y="2"
-        width="96"
-        height="96"
-        rx="28"
-        fill="#14183d"
-        stroke="url(#metreps-logo-border-grad)"
-        strokeWidth="1.5"
-      />
+      {/* Scaled group to fill the SVG space completely without the background squircle */}
+      <g transform="translate(256, 256) scale(1.63) translate(-256, -256)">
+        {/* Group containing the vertical capsules */}
+        <g filter="url(#pill-glow)">
+          {/* Left Pill (Vertical Capsule) */}
+          <rect
+            x="120"
+            y="100"
+            width="84"
+            height="312"
+            rx="42"
+            fill="url(#pill-outer-grad)"
+          />
 
-      {/* Group containing the full custom emblem */}
-      <g>
-        {/* The Central Barbell Bar */}
-        <rect
-          x="9.7"
-          y="48.25"
-          width="80.6"
-          height="3.5"
-          rx="1.75"
-          fill="#ffffff"
-        />
+          {/* Right Pill (Vertical Capsule) */}
+          <rect
+            x="308"
+            y="100"
+            width="84"
+            height="312"
+            rx="42"
+            fill="url(#pill-outer-grad)"
+          />
 
-        {/* Left Side Plates (from outer to inner) */}
-        {/* Outermost Plate */}
-        <rect
-          x="8.5"
-          y="44"
-          width="2.4"
-          height="12"
-          rx="1.2"
-          fill="#ffffff"
-          stroke="#ffffff"
-          strokeWidth="0.5"
-          strokeLinejoin="round"
-        />
-        {/* Middle Plate */}
-        <rect
-          x="12.5"
-          y="36"
-          width="3.8"
-          height="28"
-          rx="1.9"
-          fill="#ffffff"
-          stroke="#ffffff"
-          strokeWidth="0.5"
-          strokeLinejoin="round"
-        />
-        {/* Innermost Plate */}
-        <rect
-          x="17.8"
-          y="29"
-          width="4.8"
-          height="42"
-          rx="2.4"
-          fill="#ffffff"
-          stroke="#ffffff"
-          strokeWidth="0.5"
-          strokeLinejoin="round"
-        />
+          {/* Middle Pill (Vertical Shorter Capsule) */}
+          <rect
+            x="214"
+            y="165"
+            width="84"
+            height="247"
+            rx="42"
+            fill="url(#pill-mid-grad)"
+          />
+        </g>
 
-        {/* Right Side Plates (from inner to outer) */}
-        {/* Innermost Plate */}
-        <rect
-          x="77.4"
-          y="29"
-          width="4.8"
-          height="42"
-          rx="2.4"
-          fill="#ffffff"
-          stroke="#ffffff"
-          strokeWidth="0.5"
-          strokeLinejoin="round"
-        />
-        {/* Middle Plate */}
-        <rect
-          x="83.7"
-          y="36"
-          width="3.8"
-          height="28"
-          rx="1.9"
-          fill="#ffffff"
-          stroke="#ffffff"
-          strokeWidth="0.5"
-          strokeLinejoin="round"
-        />
-        {/* Outermost Plate */}
-        <rect
-          x="89.1"
-          y="44"
-          width="2.4"
-          height="12"
-          rx="1.2"
-          fill="#ffffff"
-          stroke="#ffffff"
-          strokeWidth="0.5"
-          strokeLinejoin="round"
-        />
-
-        {/* High-Fidelity Stylized "M" Shape */}
+        {/* Wave Drop Shadow Path */}
         <path
-          d="M 25.5,30 H 32 L 50,42 L 68,30 H 74.5 V 70 H 68 V 48.5 L 50,60 L 32,48.5 V 70 H 25.5 Z"
-          fill="#ffffff"
+          d="M 112,245 Q 162,205 200,255 Q 256,310 312,255 Q 350,205 400,245"
+          fill="none"
+          stroke="#000000"
+          strokeWidth="24"
+          strokeLinecap="round"
+          opacity="0.4"
+          filter="url(#wave-shadow)"
+        />
+
+        {/* Main Sine Wave Path */}
+        <path
+          d="M 112,245 Q 162,205 200,255 Q 256,310 312,255 Q 350,205 400,245"
+          fill="none"
+          stroke="url(#wave-grad)"
+          strokeWidth="20"
+          strokeLinecap="round"
+        />
+
+        {/* Wave Inner Light Accent Path for 3D glass look */}
+        <path
+          d="M 112,245 Q 162,205 200,255 Q 256,310 312,255 Q 350,205 400,245"
+          fill="none"
           stroke="#ffffff"
-          strokeWidth="1.5"
-          strokeLinejoin="round"
+          strokeWidth="4"
+          strokeLinecap="round"
+          opacity="0.3"
         />
       </g>
     </svg>

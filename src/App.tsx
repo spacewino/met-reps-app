@@ -233,7 +233,7 @@ export default function App() {
         <div className="space-y-6">
           {/* Logo Brand */}
           <div className="flex items-center gap-3">
-            <div className="p-1.5 bg-slate-950/40 rounded-xl border border-slate-800 shrink-0">
+            <div className="shrink-0 flex items-center justify-center">
               <MetRepsLogo size={36} />
             </div>
             <div>

@@ -1,0 +1,2 @@
+Upload your custom MetReps logo as "logo.png" to this directory.
+The application will automatically detect and render your logo, falling back to the vector SVG if it is not present.
