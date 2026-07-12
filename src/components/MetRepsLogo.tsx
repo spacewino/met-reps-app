@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 
 interface MetRepsLogoProps {
   className?: string;
@@ -6,6 +6,11 @@ interface MetRepsLogoProps {
 }
 
 export function MetRepsLogo({ className = '', size = 24 }: MetRepsLogoProps) {
+  const uniqueId = useId().replace(/:/g, '-');
+  const outerGradId = `pill-outer-grad-${uniqueId}`;
+  const midGradId = `pill-mid-grad-${uniqueId}`;
+  const waveGradId = `wave-grad-${uniqueId}`;
+
   return (
     <svg
       width={size}
@@ -17,38 +22,27 @@ export function MetRepsLogo({ className = '', size = 24 }: MetRepsLogoProps) {
     >
       <defs>
         {/* Left and Right Pill Gradient (Turquoise to deep blue-violet) */}
-        <linearGradient id="pill-outer-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+        <linearGradient id={outerGradId} x1="0%" y1="0%" x2="0%" y2="100%">
           <stop offset="0%" stopColor="#00F5D4" />
           <stop offset="50%" stopColor="#00B4D8" />
           <stop offset="100%" stopColor="#6366F1" />
         </linearGradient>
 
         {/* Middle Pill Gradient (Medium sky-blue to deep blue-violet, slightly darker/deeper) */}
-        <linearGradient id="pill-mid-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+        <linearGradient id={midGradId} x1="0%" y1="0%" x2="0%" y2="100%">
           <stop offset="0%" stopColor="#00B4D8" />
           <stop offset="50%" stopColor="#0077B6" />
           <stop offset="100%" stopColor="#4F46E5" />
         </linearGradient>
 
         {/* Sine Wave Gradient (Cyan to Blue glow) */}
-        <linearGradient id="wave-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+        <linearGradient id={waveGradId} x1="0%" y1="0%" x2="100%" y2="0%">
           <stop offset="0%" stopColor="#6366F1" />
           <stop offset="25%" stopColor="#00F5D4" />
           <stop offset="50%" stopColor="#00B4D8" />
           <stop offset="75%" stopColor="#00F5D4" />
           <stop offset="100%" stopColor="#6366F1" />
         </linearGradient>
-
-        {/* Filter for wave drop shadow */}
-        <filter id="wave-shadow" x="-20%" y="-20%" width="140%" height="140%">
-          <feDropShadow dx="0" dy="8" stdDeviation="6" floodColor="#000000" floodOpacity="0.5" />
-        </filter>
-        
-        {/* Filter for pill glow */}
-        <filter id="pill-glow" x="-20%" y="-20%" width="140%" height="140%">
-          <feGaussianBlur stdDeviation="3" result="blur" />
-          <feComposite in="SourceGraphic" in2="blur" operator="over" />
-        </filter>
       </defs>
 
       {/* Scaled group to fill the SVG space completely without the background squircle */}
@@ -62,7 +56,7 @@ export function MetRepsLogo({ className = '', size = 24 }: MetRepsLogoProps) {
             width="84"
             height="312"
             rx="42"
-            fill="url(#pill-outer-grad)"
+            fill={`url(#${outerGradId})`}
           />
 
           {/* Right Pill (Vertical Capsule) */}
@@ -72,7 +66,7 @@ export function MetRepsLogo({ className = '', size = 24 }: MetRepsLogoProps) {
             width="84"
             height="312"
             rx="42"
-            fill="url(#pill-outer-grad)"
+            fill={`url(#${outerGradId})`}
           />
 
           {/* Middle Pill (Vertical Shorter Capsule) */}
@@ -82,7 +76,7 @@ export function MetRepsLogo({ className = '', size = 24 }: MetRepsLogoProps) {
             width="84"
             height="247"
             rx="42"
-            fill="url(#pill-mid-grad)"
+            fill={`url(#${midGradId})`}
           />
         </g>
 
@@ -100,7 +94,7 @@ export function MetRepsLogo({ className = '', size = 24 }: MetRepsLogoProps) {
         <path
           d="M 112,245 Q 162,205 200,255 Q 256,310 312,255 Q 350,205 400,245"
           fill="none"
-          stroke="url(#wave-grad)"
+          stroke={`url(#${waveGradId})`}
           strokeWidth="20"
           strokeLinecap="round"
         />
