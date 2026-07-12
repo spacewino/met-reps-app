@@ -30,42 +30,42 @@
   "screenshots": [
     {
       "src": "/screenshot-mobile-1.png",
-      "sizes": "768x1376",
+      "sizes": "941x1672",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "MetReps Workout Tracking Dashboard"
     },
     {
       "src": "/screenshot-mobile-2.png",
-      "sizes": "768x1376",
+      "sizes": "941x1672",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "MetReps Custom Workout Tracker"
     },
     {
       "src": "/screenshot-mobile-3.png",
-      "sizes": "768x1376",
+      "sizes": "941x1672",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "MetReps Active Workout Session"
     },
     {
       "src": "/screenshot-mobile-4.png",
-      "sizes": "768x1376",
+      "sizes": "941x1672",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "MetReps Workout Statistics and History"
     },
     {
       "src": "/screenshot-mobile-5.png",
-      "sizes": "768x1376",
+      "sizes": "941x1672",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "MetReps Exercise Database"
     },
     {
       "src": "/screenshot-mobile-6.png",
-      "sizes": "768x1376",
+      "sizes": "941x1672",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "MetReps Personalized Body Settings"
