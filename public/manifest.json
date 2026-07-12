@@ -30,59 +30,87 @@
   "screenshots": [
     {
       "src": "/screenshot-mobile-1.png",
-      "sizes": "1080x1920",
+      "sizes": "768x1376",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "MetReps Workout Tracking Dashboard"
     },
     {
       "src": "/screenshot-mobile-2.png",
-      "sizes": "1080x1920",
+      "sizes": "768x1376",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "MetReps Custom Workout Tracker"
     },
     {
       "src": "/screenshot-mobile-3.png",
-      "sizes": "1080x1920",
+      "sizes": "768x1376",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "MetReps Active Workout Session"
     },
     {
       "src": "/screenshot-mobile-4.png",
-      "sizes": "1080x1920",
+      "sizes": "768x1376",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "MetReps Workout Statistics and History"
     },
     {
+      "src": "/screenshot-mobile-5.png",
+      "sizes": "768x1376",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "MetReps Exercise Database"
+    },
+    {
+      "src": "/screenshot-mobile-6.png",
+      "sizes": "768x1376",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "MetReps Personalized Body Settings"
+    },
+    {
       "src": "/screenshot-desktop-1.png",
-      "sizes": "1920x1080",
+      "sizes": "1672x941",
       "type": "image/png",
       "form_factor": "wide",
       "label": "MetReps Main Desktop Dashboard"
     },
     {
       "src": "/screenshot-desktop-2.png",
-      "sizes": "1920x1080",
+      "sizes": "1672x941",
       "type": "image/png",
       "form_factor": "wide",
       "label": "MetReps Custom Workouts on Desktop"
     },
     {
       "src": "/screenshot-desktop-3.png",
-      "sizes": "1920x1080",
+      "sizes": "1672x941",
       "type": "image/png",
       "form_factor": "wide",
       "label": "MetReps Comprehensive Training Logs"
     },
     {
       "src": "/screenshot-desktop-4.png",
-      "sizes": "1920x1080",
+      "sizes": "1672x941",
       "type": "image/png",
       "form_factor": "wide",
       "label": "MetReps Settings and Configuration"
+    },
+    {
+      "src": "/screenshot-desktop-5.png",
+      "sizes": "1672x941",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "MetReps Advanced Intensity Analytics"
+    },
+    {
+      "src": "/screenshot-desktop-6.png",
+      "sizes": "1672x941",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "MetReps Workout Calendar and Routines"
     }
   ]
 }
