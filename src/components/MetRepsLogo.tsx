@@ -54,7 +54,7 @@ export function MetRepsLogo({ className = '', size = 24 }: MetRepsLogoProps) {
       {/* Scaled group to fill the SVG space completely without the background squircle */}
       <g transform="translate(256, 256) scale(1.63) translate(-256, -256)">
         {/* Group containing the vertical capsules */}
-        <g filter="url(#pill-glow)">
+        <g>
           {/* Left Pill (Vertical Capsule) */}
           <rect
             x="120"
@@ -86,15 +86,14 @@ export function MetRepsLogo({ className = '', size = 24 }: MetRepsLogoProps) {
           />
         </g>
 
-        {/* Wave Drop Shadow Path */}
+        {/* Wave Drop Shadow Path (No-filter safe offset) */}
         <path
-          d="M 112,245 Q 162,205 200,255 Q 256,310 312,255 Q 350,205 400,245"
+          d="M 112,251 Q 162,211 200,261 Q 256,316 312,261 Q 350,211 400,251"
           fill="none"
-          stroke="#000000"
-          strokeWidth="24"
+          stroke="#020617"
+          strokeWidth="20"
           strokeLinecap="round"
-          opacity="0.4"
-          filter="url(#wave-shadow)"
+          opacity="0.3"
         />
 
         {/* Main Sine Wave Path */}
