@@ -324,10 +324,11 @@ function getProgramReportCard(program: Program, logs: WorkoutLog[]) {
   }
 
   // 3. Hydration Feedback
-  if (avgHydration < 2.5) {
-    feedbacks.push(`Hydration averaged **${avgHydration.toFixed(1)} Liters** daily. Even mild dehydration (2% body mass drop) reduces plasma volume, raising your working RPE and accelerating motor-unit fatigue.`);
+  const avgHydrationLabel = mapLitersToHydration(avgHydration);
+  if (avgHydrationLabel === 'Dehydrated' || avgHydrationLabel === 'Under-hydrated') {
+    feedbacks.push(`Hydration averaged at a **${avgHydrationLabel}** level. Even mild dehydration (2% body mass drop) reduces plasma volume, raising your working RPE and accelerating motor-unit fatigue.`);
   } else {
-    feedbacks.push(`Solid fluid intake! Your **${avgHydration.toFixed(1)}L** average sustains cell volumization and intracellular pressure, crucial for maintaining leverage on heavy lifts.`);
+    feedbacks.push(`Solid fluid intake! Your **${avgHydrationLabel}** hydration level average sustains cell volumization and intracellular pressure, crucial for maintaining leverage on heavy lifts.`);
   }
 
   // 4. Caloric status or general advice
@@ -383,6 +384,7 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
   // Report Card state
   const [selectedReportProgram, setSelectedReportProgram] = useState<Program | null>(null);
   const [reportChartExercise, setReportChartExercise] = useState<string>('Overall');
+  const [isReportExerciseDropdownOpen, setIsReportExerciseDropdownOpen] = useState(false);
 
   const { dismiss: dismissReportCard } = useModalHistory(
     selectedReportProgram !== null,
@@ -409,6 +411,11 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
   useEffect(() => {
     if (selectedReportProgram) {
       window.scrollTo(0, 0);
+      // Also scroll the viewport wrapper in App.tsx to the top
+      const scrollContainers = document.querySelectorAll('.overflow-y-auto, .scrollbar-none');
+      scrollContainers.forEach(container => {
+        container.scrollTop = 0;
+      });
     }
   }, [selectedReportProgram]);
 
@@ -423,6 +430,7 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
 
   const exerciseDropdownRef = useRef<HTMLDivElement>(null);
   const muscleDropdownRef = useRef<HTMLDivElement>(null);
+  const reportExerciseDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClickOutside(event: PointerEvent | TouchEvent) {
@@ -431,6 +439,9 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
       }
       if (muscleDropdownRef.current && !muscleDropdownRef.current.contains(event.target as Node)) {
         setIsMuscleDropdownOpen(false);
+      }
+      if (reportExerciseDropdownRef.current && !reportExerciseDropdownRef.current.contains(event.target as Node)) {
+        setIsReportExerciseDropdownOpen(false);
       }
     }
     document.addEventListener('pointerdown', handleClickOutside);
@@ -1203,18 +1214,36 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
             <h4 className="font-extrabold text-xs text-white uppercase tracking-wider">Algorithmic Projection Mapping</h4>
 
             {/* Dropdown for chart filtering */}
-            <div className="relative w-full">
-              <select
-                value={reportChartExercise}
-                onChange={e => setReportChartExercise(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-850 rounded-none px-2 text-xs font-bold text-slate-300 focus:outline-none focus:border-indigo-500 h-8 flex items-center justify-between cursor-pointer hover:bg-slate-900 transition font-sans"
+            <div ref={reportExerciseDropdownRef} className="relative w-full z-20">
+              <button
+                type="button"
+                onClick={() => setIsReportExerciseDropdownOpen(!isReportExerciseDropdownOpen)}
+                className="w-full bg-slate-950 border border-slate-850 rounded-none px-3 text-xs font-bold text-slate-300 focus:outline-none focus:border-indigo-500 h-9 flex items-center justify-between cursor-pointer hover:bg-slate-900 transition font-sans"
               >
-                {reportExercises.map(exName => (
-                  <option key={exName} value={exName} className="bg-slate-950 text-slate-300">
-                    {exName === 'Overall' ? 'Overall Relative Progress' : exName}
-                  </option>
-                ))}
-              </select>
+                <span>{reportChartExercise === 'Overall' ? 'Overall Relative Progress' : reportChartExercise}</span>
+                <span className="text-[7px] text-slate-500">▼</span>
+              </button>
+              {isReportExerciseDropdownOpen && (
+                <div className="absolute left-0 right-0 top-10 bg-slate-950 border border-slate-800 rounded-none shadow-2xl z-50 overflow-y-auto max-h-60 py-1 font-sans">
+                  {reportExercises.map(exName => (
+                    <button
+                      key={exName}
+                      type="button"
+                      onClick={() => {
+                        setReportChartExercise(exName);
+                        setIsReportExerciseDropdownOpen(false);
+                      }}
+                      className={`w-full text-left px-4 py-2 text-xs font-bold border-y border-transparent cursor-pointer transition ${
+                        reportChartExercise === exName
+                          ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
+                          : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                      }`}
+                    >
+                      {exName === 'Overall' ? 'Overall Relative Progress' : exName}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
