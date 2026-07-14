@@ -461,8 +461,8 @@ export function classifyWorkout(
     flags.push('Deload Recommended');
   } else {
     // Deload Watch if fatigue is moderate or slight performance decline
-    const isWatchFatigue = fatigueScore >= 4.0 || soreness >= 5 || workoutQuality <= 6 || looseFormRate >= 0.15;
-    const isWatchPerformance = sessionPerformanceIndex < 0.99;
+    const isWatchFatigue = fatigueScore >= 5.0 || soreness >= 6 || workoutQuality <= 5 || looseFormRate >= 0.20;
+    const isWatchPerformance = sessionPerformanceIndex < 0.95;
     if (isWatchFatigue || isWatchPerformance) {
       flags.push('Deload Watch');
     }
