@@ -5,9 +5,9 @@
     ],
     "target": {
       "namespace": "android_app",
-      "package_name": "app.vercel.met_reps.twa",
+      "package_name": "com.metreps",
       "sha256_cert_fingerprints": [
-        "F0:5F:E8:BE:7E:B6:00:F1:B7:E0:0A:9E:11:01:CF:F8:AC:52:4D:C2:E1:97:A2:FD:3A:1E:BD:23:F0:06:52:00"
+        "85:1A:E4:AA:90:35:AE:DE:B0:84:1D:20:BB:33:D5:B2:E0:C2:63:E3:2D:AD:85:C2:C6:34:79:E5:73:52:4B:B9"
       ]
     }
   }
