@@ -256,7 +256,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       setSelectorTargetIdx(null);
     }
   };
-  const [duration, setDuration] = useState<number>(() => {
+  const [duration, setDuration] = useState<number | ''>(() => {
     try {
       const logs = storage.getWorkoutLogs();
       if (!logs || logs.length === 0) return 60;
@@ -328,13 +328,13 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const [notes, setNotes] = useState<string>('');
 
   // Wellness & Recovery Metrics
-  const [sleep, setSleep] = useState<number>(7.5);
+  const [sleep, setSleep] = useState<number | ''>(7.5);
   const [hydration, setHydration] = useState<HydrationLevel>('Adequate');
   const [isHydrationDropdownOpen, setIsHydrationDropdownOpen] = useState<boolean>(false);
-  const [calories, setCalories] = useState<number>(2500);
+  const [calories, setCalories] = useState<number | ''>(2500);
   const [protein, setProtein] = useState<number>(140);
   const [soreness, setSoreness] = useState<number>(3);
-  const [motivation, setMotivation] = useState<number>(4);
+  const [motivation, setMotivation] = useState<number>(5);
 
   // Easter Egg Rest Timer states
   const [restSeconds, setRestSeconds] = useState<number>(0);
@@ -428,11 +428,16 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const [swapMainTargetIdx, setSwapMainTargetIdx] = useState<number | null>(null);
   const [showNoMainMovementConfirm, setShowNoMainMovementConfirm] = useState(false);
 
+  const [showSorenessInfo, setShowSorenessInfo] = useState<boolean>(false);
+  const [showQualityInfo, setShowQualityInfo] = useState<boolean>(false);
+
   // Back button physical popstate interceptors
   const { dismiss: dismissSetAction } = useModalHistory(activeSetAction !== null, () => setActiveSetAction(null), 'set-options');
   const { dismiss: dismissExAction } = useModalHistory(activeExAction !== null, () => setActiveExAction(null), 'exercise-actions');
   const { dismiss: dismissHistory } = useModalHistory(historyExerciseName !== null, () => setHistoryExerciseName(null), 'exercise-history');
   const { dismiss: dismissCompletion } = useModalHistory(showCompletionModal, () => setShowCompletionModal(false), 'workout-completion');
+  const { dismiss: dismissSorenessInfo } = useModalHistory(showSorenessInfo, () => setShowSorenessInfo(false), 'soreness-info');
+  const { dismiss: dismissQualityInfo } = useModalHistory(showQualityInfo, () => setShowQualityInfo(false), 'quality-info');
 
   // Draft persistence states
   const [isDraftLoaded, setIsDraftLoaded] = useState(false);
@@ -480,7 +485,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       setCalories(existingLog.recovery?.nutritionCalories ?? 2500);
       setProtein(existingLog.recovery?.proteinGrams ?? 140);
       setSoreness(existingLog.recovery?.soreness ?? 3);
-      setMotivation(existingLog.recovery?.motivation ?? 4);
+      setMotivation(existingLog.recovery?.motivation ?? 5);
       if (existingLog.startTime) {
         setStartTime(existingLog.startTime);
       }
@@ -549,7 +554,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           setCalories(2500);
           setProtein(140);
           setSoreness(3);
-          setMotivation(4);
+          setMotivation(5);
           setCheckedSets({});
           setCollapsed({});
           setObjective('Off');
@@ -615,7 +620,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           setCalories(draft.calories ?? 2500);
           setProtein(draft.protein ?? 140);
           setSoreness(draft.soreness ?? 3);
-          setMotivation(draft.motivation ?? 4);
+          setMotivation(draft.motivation ?? 5);
           setCheckedSets(draft.checkedSets || {});
           setCollapsed(draft.collapsed || {});
           setObjective(draft.objective || 'Off');
@@ -916,7 +921,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     setCalories(2500);
     setProtein(140);
     setSoreness(3);
-    setMotivation(4);
+    setMotivation(5);
     setCheckedSets({});
     setCollapsed({});
 
@@ -1595,15 +1600,15 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       day: dayNum,
       exercises: processedExercises,
       unit: unit,
-      durationMinutes: duration,
+      durationMinutes: duration === '' ? 60 : Number(duration),
       notes: notes,
       objective: objective,
       startTime: startTime,
       recovery: {
-        sleepHours: sleep,
+        sleepHours: sleep === '' ? null : Number(sleep),
         hydrationLiters: mapHydrationToLiters(hydration),
         hydrationLevel: hydration,
-        nutritionCalories: calories,
+        nutritionCalories: calories === '' ? null : Number(calories),
         proteinGrams: protein,
         soreness: soreness,
         motivation: motivation,
@@ -2330,8 +2335,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             <div className="bg-slate-950 rounded-none border border-slate-850 flex items-center justify-between h-10 overflow-hidden">
               <input
                 type="number"
-                value={duration}
-                onChange={e => setDuration(Math.max(1, Number(e.target.value)))}
+                min="1"
+                value={duration ?? ''}
+                onChange={e => {
+                  const val = e.target.value;
+                  setDuration(val === '' ? '' : Math.max(1, Number(val)));
+                }}
                 className="bg-transparent font-black text-sm text-white flex-1 w-0 min-w-0 focus:outline-none font-mono text-center pl-3"
               />
               <span className="text-[9px] text-slate-500 font-black shrink-0 pr-2">MIN</span>
@@ -2365,9 +2374,13 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             <div className="bg-slate-950 px-2 py-2 rounded-none border border-slate-850 flex items-center justify-between gap-1 h-10">
               <input
                 type="number"
+                min="0"
                 step="0.5"
-                value={sleep}
-                onChange={e => setSleep(Math.max(0, Number(e.target.value)))}
+                value={sleep ?? ''}
+                onChange={e => {
+                  const val = e.target.value;
+                  setSleep(val === '' ? '' : Math.max(0, Number(val)));
+                }}
                 className="bg-transparent font-black text-sm text-white flex-1 w-0 min-w-0 focus:outline-none font-mono text-center"
               />
               <span className="text-[9px] text-slate-500 font-black shrink-0">HRS</span>
@@ -2428,8 +2441,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             <div className="bg-slate-950 px-2 py-2 rounded-none border border-slate-850 flex items-center justify-between gap-1 h-10">
               <input
                 type="number"
-                value={calories}
-                onChange={e => setCalories(Math.max(0, Number(e.target.value)))}
+                min="0"
+                value={calories ?? ''}
+                onChange={e => {
+                  const val = e.target.value;
+                  setCalories(val === '' ? '' : Math.max(0, Number(val)));
+                }}
                 className="bg-transparent font-black text-sm text-white flex-1 w-0 min-w-0 focus:outline-none font-mono text-center"
               />
               <span className="text-[9px] text-slate-500 font-black shrink-0">KCAL</span>
@@ -2442,7 +2459,17 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           {/* Soreness Rating */}
           <div className="space-y-1.5">
             <div className="flex justify-between items-center">
-              <span className="text-[14.5px] font-extrabold uppercase tracking-wider text-slate-300">Muscle Soreness (1-10)</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[14.5px] font-extrabold uppercase tracking-wider text-slate-300">Muscle Soreness (1-10)</span>
+                <button
+                  type="button"
+                  onClick={() => setShowSorenessInfo(true)}
+                  className="p-1 hover:bg-slate-800 text-slate-500 hover:text-indigo-400 rounded-full transition flex items-center justify-center cursor-pointer"
+                  title="Muscle soreness information"
+                >
+                  <Info className="w-3.5 h-3.5" />
+                </button>
+              </div>
               <span className="text-indigo-400 font-mono font-black text-[16px]">{soreness}/10</span>
             </div>
             <input
@@ -2458,7 +2485,17 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           {/* Quality Rating */}
           <div className="space-y-1.5">
             <div className="flex justify-between items-center">
-              <span className="text-[14.5px] font-extrabold uppercase tracking-wider text-slate-300">Workout Quality (1-10)</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[14.5px] font-extrabold uppercase tracking-wider text-slate-300">Workout Quality (1-10)</span>
+                <button
+                  type="button"
+                  onClick={() => setShowQualityInfo(true)}
+                  className="p-1 hover:bg-slate-800 text-slate-500 hover:text-cyan-400 rounded-full transition flex items-center justify-center cursor-pointer"
+                  title="Workout quality information"
+                >
+                  <Info className="w-3.5 h-3.5" />
+                </button>
+              </div>
               <span className="text-cyan-400 font-mono font-black text-[16px]">{motivation}/10</span>
             </div>
             <input
@@ -3063,6 +3100,149 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                 className="w-full bg-transparent border hover:bg-[var(--theme-bg)] text-xs py-2.5 px-4 rounded-none transition uppercase tracking-wider cursor-pointer font-sans font-bold"
               >
                 Back to Home
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Muscle Soreness Explanation Modal */}
+      {showSorenessInfo && (
+        <div
+          className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={dismissSorenessInfo}
+        >
+          <div
+            className="bg-slate-900 border border-slate-800 rounded-none w-full max-w-md overflow-hidden flex flex-col shadow-2xl shadow-indigo-950/40 max-h-[85vh] animate-in fade-in zoom-in-95 duration-150 font-sans"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-4 bg-slate-950 border-b border-slate-850 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-black text-white uppercase tracking-wider leading-snug flex items-center gap-2">
+                  <Info className="w-4 h-4 text-indigo-400 font-bold" /> Muscle Soreness Rating
+                </h3>
+                <p className="text-[10px] text-indigo-400 font-mono uppercase tracking-widest leading-none mt-1">
+                  Physiological Recovery & Safety Guard
+                </p>
+              </div>
+              <button
+                onClick={dismissSorenessInfo}
+                className="p-1.5 bg-slate-900 hover:bg-slate-800 rounded-none text-slate-400 hover:text-white border border-slate-800 transition cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 overflow-y-auto space-y-4 text-xs sm:text-sm text-slate-300 leading-relaxed scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
+              <p>
+                The <strong>Muscle Soreness (1-10)</strong> metric rates the level of localised muscular tightness, fatigue, or mild stiffness resulting from recovery.
+              </p>
+
+              <div className="space-y-2 bg-indigo-950/20 p-3 border border-indigo-900/30">
+                <h4 className="font-extrabold text-indigo-400 uppercase text-xs tracking-wider font-mono">
+                  Target Muscles Only
+                </h4>
+                <p className="text-slate-400 text-xs">
+                  Rate soreness based specifically on the muscles worked in previous training sessions (e.g., quadriceps soreness after heavy squatting). Do not include general joints or tendons here unless fatigue-related.
+                </p>
+              </div>
+
+              <div className="space-y-2 bg-rose-950/20 p-3 border border-rose-900/30">
+                <h4 className="font-extrabold text-rose-400 uppercase text-xs tracking-wider font-mono">
+                  ⚠️ Soreness vs. Pain
+                </h4>
+                <p className="text-slate-400 text-xs">
+                  Soreness is normal, but <strong>sharp joint pain, tendon irritation, or deep discomfort is NOT</strong>. If you feel actual physical injury or pain, cease your workout immediately and consult a medical professional.
+                </p>
+              </div>
+
+              <div className="space-y-1 bg-slate-950/30 p-3 border border-slate-850">
+                <h4 className="font-extrabold text-slate-400 uppercase text-xs tracking-wider font-mono">
+                  How it factors into the algorithm
+                </h4>
+                <p className="text-slate-400 text-xs leading-normal">
+                  Our progression engine cross-references this rating with other recovery signals to adjust your upcoming targets. Elevated soreness flags localised recovery deficits, prompting conservative target calculations to protect you from overtraining.
+                </p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-3 bg-slate-950 border-t border-slate-850 flex justify-end">
+              <button
+                onClick={dismissSorenessInfo}
+                className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2 px-4 rounded-none border border-slate-800 transition cursor-pointer"
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Workout Quality Explanation Modal */}
+      {showQualityInfo && (
+        <div
+          className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={dismissQualityInfo}
+        >
+          <div
+            className="bg-slate-900 border border-slate-800 rounded-none w-full max-w-md overflow-hidden flex flex-col shadow-2xl shadow-indigo-950/40 max-h-[85vh] animate-in fade-in zoom-in-95 duration-150 font-sans"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-4 bg-slate-950 border-b border-slate-850 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-black text-white uppercase tracking-wider leading-snug flex items-center gap-2">
+                  <Info className="w-4 h-4 text-cyan-400 font-bold" /> Workout Quality Rating
+                </h3>
+                <p className="text-[10px] text-cyan-400 font-mono uppercase tracking-widest leading-none mt-1">
+                  Subjective Performance & stimulative load
+                </p>
+              </div>
+              <button
+                onClick={dismissQualityInfo}
+                className="p-1.5 bg-slate-900 hover:bg-slate-800 rounded-none text-slate-400 hover:text-white border border-slate-800 transition cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 overflow-y-auto space-y-4 text-xs sm:text-sm text-slate-300 leading-relaxed scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
+              <p>
+                The <strong>Workout Quality (1-10)</strong> rating captures your subjective feedback on your mental focus, physical execution, and technical standard during today's workout.
+              </p>
+
+              <div className="space-y-2 bg-cyan-950/20 p-3 border border-cyan-900/30">
+                <h4 className="font-extrabold text-cyan-400 uppercase text-xs tracking-wider font-mono">
+                  Subjective Performance Factors
+                </h4>
+                <ul className="text-slate-400 text-xs list-disc pl-4 space-y-1">
+                  <li><strong>Mind-Muscle Connection</strong>: How well you felt the target muscles contracting.</li>
+                  <li><strong>Form Integrity</strong>: Your movement mechanics, stability, and lack of "cheating" reps.</li>
+                  <li><strong>Focus & Drive</strong>: Your mental focus, intensity, and general energy state during the training session.</li>
+                </ul>
+              </div>
+
+              <div className="space-y-1 bg-slate-950/30 p-3 border border-slate-850">
+                <h4 className="font-extrabold text-slate-400 uppercase text-xs tracking-wider font-mono">
+                  How it factors into the algorithm
+                </h4>
+                <p className="text-slate-400 text-xs leading-normal">
+                  Our progression engine pairs this rating with raw data points (weight, repetitions, and RPE) to evaluate today's workout. High quality and high performance validate and secure faster target progressions, while lower quality acts as an automated safety throttle, letting you build confidence and form mastery before stepping up in weight.
+                </p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-3 bg-slate-950 border-t border-slate-850 flex justify-end">
+              <button
+                onClick={dismissQualityInfo}
+                className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2 px-4 rounded-none border border-slate-800 transition cursor-pointer"
+              >
+                Got it
               </button>
             </div>
           </div>

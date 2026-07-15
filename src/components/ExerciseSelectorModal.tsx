@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Search, X, Dumbbell, Sparkles, Check, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Search, X, Dumbbell, HelpCircle, Check, Plus, Pencil, Trash2 } from 'lucide-react';
 import libraryData from '../lib/defaultExerciseLibrary.json';
 import { storage } from '../lib/storage';
 import { useModalHistory } from '../lib/useModalHistory';
@@ -644,10 +644,30 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
         ) : (
           <div ref={listRef} className="flex-1 overflow-y-auto space-y-1 bg-slate-950/20 scrollbar-none font-sans">
             {filteredExercises.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center space-y-2">
-                <Sparkles className="w-6 h-6 text-slate-700" />
-                <p className="text-xs text-slate-500 font-bold">No matching exercises found</p>
-                <p className="text-[10px] text-slate-600">Try checking spelling or create a custom entry.</p>
+              <div className="flex flex-col items-center justify-center py-12 px-6 text-center space-y-4">
+                <HelpCircle className="w-8 h-8 text-slate-700 animate-pulse" />
+                <div>
+                  <p className="text-xs text-slate-400 font-bold">No matching exercises found</p>
+                  <p className="text-[10px] text-slate-500 mt-1 max-w-[240px] mx-auto">
+                    {searchQuery ? `"${searchQuery}" is not in the library. You can create a custom exercise with this name instantly.` : 'Try checking spelling or create a custom entry.'}
+                  </p>
+                </div>
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomName(searchQuery);
+                      setIsCustomMode(true);
+                    }}
+                    className={`px-4 py-2.5 rounded-none text-xs font-black uppercase tracking-wider transition flex items-center gap-1.5 shadow cursor-pointer text-[#FBFAF8] ${
+                      isAmber 
+                        ? 'bg-amber-600 hover:bg-amber-500 border border-amber-700 shadow-amber-950/20' 
+                        : 'bg-indigo-600 hover:bg-indigo-500 border border-indigo-700 shadow-indigo-950/40'
+                    }`}
+                  >
+                    <Plus className="w-4 h-4 font-black" /> Create Custom: "{searchQuery}"
+                  </button>
+                )}
               </div>
             ) : (
               filteredExercises.map((ex, idx) => {
@@ -750,10 +770,17 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
             <>
               <button
                 type="button"
-                onClick={() => setIsCustomMode(true)}
-                className="text-xs text-indigo-400 hover:text-indigo-300 font-black uppercase tracking-wider flex items-center gap-1.5 transition py-2 px-4 bg-slate-950/40 rounded-none border border-slate-850 cursor-pointer"
+                onClick={() => {
+                  if (searchQuery) {
+                    setCustomName(searchQuery);
+                  }
+                  setIsCustomMode(true);
+                }}
+                className={`text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition py-2 px-4 bg-slate-950/40 rounded-none border border-slate-850 cursor-pointer ${
+                  isAmber ? 'text-amber-400 hover:text-amber-300' : 'text-indigo-400 hover:text-indigo-300'
+                }`}
               >
-                <Plus className="w-3.5 h-3.5" /> Custom
+                <Plus className="w-3.5 h-3.5" /> Add Custom Exercise
               </button>
               
               {isManagementOnly ? (

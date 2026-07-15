@@ -410,10 +410,10 @@ export default function App() {
                     ✕
                   </button>
                 </div>
-                <p className={`text-xs font-semibold leading-relaxed mb-3 ${
-                  themeId === 'amber' ? 'text-slate-800' : 'text-slate-300'
-                }`}>
-                  To begin your next programmed workout, create or load a program from the <strong className="text-indigo-400 font-bold">(+) Program</strong> menu.
+                <p className="text-xs font-semibold leading-relaxed mb-3 text-slate-300">
+                  To begin your next programmed workout, create or load a program from the <strong className={`${
+                    themeId === 'amber' ? 'text-amber-800' : 'text-indigo-400'
+                  } font-extrabold`}>(+) Program</strong> menu.
                 </p>
                 <div className="flex justify-end">
                   <button

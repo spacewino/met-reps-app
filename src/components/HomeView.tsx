@@ -4,11 +4,12 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Dumbbell, Feather, Settings, ChevronLeft, ChevronRight, CheckCircle2, Play, Calendar as CalendarIcon, Info, Pencil, Repeat, Check } from 'lucide-react';
+import { Dumbbell, Feather, Settings, ChevronLeft, ChevronRight, CheckCircle2, Play, Calendar as CalendarIcon, Info, Pencil, Repeat, Check, Plus, X } from 'lucide-react';
 import { Program, WorkoutLog } from '../types';
 import { storage } from '../lib/storage';
 import { getLocalDateString, getTodayLocalDateString, parseLocalDate } from '../lib/dateUtils';
 import { MetRepsLogo } from './MetRepsLogo';
+import { useModalHistory } from '../lib/useModalHistory';
 
 interface HomeViewProps {
   currentProgram: Program | null;
@@ -27,7 +28,54 @@ export function HomeView({
 }: HomeViewProps) {
   const themeId = storage.getTheme();
   const isAmber = themeId === 'amber';
+  const isTodaySelected = selectedDate === getTodayLocalDateString();
   const [displayedMonth, setDisplayedMonth] = useState(new Date());
+
+  // Conflict popup state
+  const [conflictingDraft, setConflictingDraft] = useState<any>(null);
+
+  const { dismiss: dismissConflictPopup } = useModalHistory(
+    conflictingDraft !== null,
+    () => setConflictingDraft(null),
+    'draft-conflict-popup'
+  );
+
+  const handleStartWorkout = (params: any) => {
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        let isSame = false;
+        
+        if (params.isOneOff) {
+          if (draft.isOneOff) {
+            isSame = true;
+          }
+        } else if (params.redoFromLogId || params.editLogId) {
+          isSame = false;
+        } else {
+          if (!draft.isOneOff &&
+              draft.programId === params.programId &&
+              String(draft.weekNum) === String(params.week) &&
+              String(draft.dayNum) === String(params.day)) {
+            isSame = true;
+          }
+        }
+
+        if (!isSame) {
+          setConflictingDraft({
+            draft,
+            targetParams: params
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('Error checking draft conflict:', e);
+    }
+
+    onNavigate('logger', params);
+  };
 
   // Week helper calculations
   const mondayOf = (date: Date): Date => {
@@ -179,13 +227,17 @@ export function HomeView({
             <h2 className="font-black text-xl text-white tracking-wide font-sans leading-none">MetReps</h2>
             {currentProgramInfo ? (
               <div className="mt-1.5 space-y-1">
-                <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold font-sans">
+                <p className="text-[10px] text-slate-300 uppercase tracking-widest font-extrabold font-sans">
                   Current Program:
                 </p>
-                <p className="text-xs sm:text-sm text-indigo-400 font-black leading-tight truncate max-w-[200px] xs:max-w-[240px] sm:max-w-xs md:max-w-none block" title={currentProgramInfo.name}>
+                <p className={`text-xs sm:text-sm font-black leading-tight truncate max-w-[200px] xs:max-w-[240px] sm:max-w-xs md:max-w-none block ${
+                  isAmber ? 'text-indigo-600' : 'text-indigo-400'
+                }`} title={currentProgramInfo.name}>
                   {currentProgramInfo.name}
                 </p>
-                <p className="text-[10px] text-indigo-400/90 font-bold uppercase tracking-widest font-mono">
+                <p className={`text-[10px] font-bold uppercase tracking-widest font-mono ${
+                  isAmber ? 'text-indigo-600/90' : 'text-indigo-400/90'
+                }`}>
                   {currentProgramInfo.weekDisplay}
                 </p>
               </div>
@@ -342,10 +394,10 @@ export function HomeView({
             {logsForSelected.map((log, lIdx) => (
               <div key={log.id} className="bg-slate-950/60 rounded-none p-3 border border-slate-800">
                 <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm font-bold text-indigo-400 font-mono">
+                  <span className={`text-sm font-bold font-mono ${isAmber ? 'text-indigo-600' : 'text-indigo-400'}`}>
                     {log.program || 'One Off'} • Week {log.week || '—'}, Day {log.day || '—'}
                   </span>
-                  <span className="text-[11px] text-slate-500 font-mono font-bold">
+                  <span className="text-[11px] text-slate-400 font-mono font-bold">
                     {log.durationMinutes ? `${log.durationMinutes} min` : ''}
                   </span>
                 </div>
@@ -355,10 +407,14 @@ export function HomeView({
                       <span className="flex items-center gap-1">
                         • {ex.name}
                         {ex.isMainMovement && (
-                          <sup className="text-[9px] text-indigo-400 font-black tracking-normal align-super bg-indigo-500/10 px-1 border border-indigo-500/20 rounded-sm">MM</sup>
+                          <sup className={`text-[9px] font-black tracking-normal align-super px-1 border rounded-sm ${
+                            isAmber 
+                              ? 'text-indigo-600 bg-indigo-500/5 border-indigo-600/20' 
+                              : 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20'
+                          }`}>MM</sup>
                         )}
                       </span>
-                      <span className="text-slate-500 font-mono text-[11px] bg-slate-900 px-1.5 py-0.5 rounded-none border border-slate-800">
+                      <span className="text-slate-400 font-mono text-[11px] bg-slate-900 px-1.5 py-0.5 rounded-none border border-slate-800">
                         {ex.sets.length} sets ({ex.muscleGroup})
                       </span>
                     </div>
@@ -371,7 +427,7 @@ export function HomeView({
                 )}
                 <div className="flex justify-between items-center mt-2 pt-1.5 border-t border-slate-800/30">
                   <button
-                    onClick={() => onNavigate('logger', { redoFromLogId: log.id })}
+                    onClick={() => handleStartWorkout({ redoFromLogId: log.id })}
                     className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-slate-800 rounded-none border border-slate-800 bg-slate-900/60 transition flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider cursor-pointer"
                     title="Redo Same Workout Today"
                   >
@@ -379,7 +435,7 @@ export function HomeView({
                     <span>Redo Workout Today</span>
                   </button>
                   <button
-                    onClick={() => onNavigate('logger', { editLogId: log.id })}
+                    onClick={() => handleStartWorkout({ editLogId: log.id })}
                     className="p-1.5 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-none border border-slate-800 bg-slate-900/60 transition flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider cursor-pointer"
                     title="Edit Completed Workout"
                   >
@@ -474,7 +530,7 @@ export function HomeView({
                   <button
                     onClick={() => {
                       const { week } = getWeekAndDayForDate(selectedDate);
-                      onNavigate('logger', {
+                      handleStartWorkout({
                         programId: currentProgram.id,
                         programName: currentProgram.name,
                         week,
@@ -499,7 +555,139 @@ export function HomeView({
             </p>
           )
         )}
+
+        {/* Log One-Off Workout Today Option - Only visible on today's agenda */}
+        {isTodaySelected && (
+          <div className="mt-4 border-t border-slate-850 pt-4">
+            <button
+              onClick={() => handleStartWorkout({ isOneOff: true })}
+              className={`w-full bg-slate-950 hover:bg-slate-850 active:bg-slate-900 text-indigo-400 hover:text-indigo-300 font-extrabold text-xs py-2.5 px-3 rounded-none transition flex items-center justify-center gap-1.5 border border-slate-800 shadow cursor-pointer`}
+            >
+              <Plus className="w-4 h-4" />
+              Log one-off workout today
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Draft Conflict Safety Warning Modal */}
+      {conflictingDraft && (
+        <div
+          className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150 font-sans text-left"
+          onClick={dismissConflictPopup}
+        >
+          <div
+            className={`w-full max-w-md overflow-hidden flex flex-col shadow-2xl rounded-none border transition-all duration-150 animate-in fade-in zoom-in-95 ${
+              isAmber 
+                ? 'bg-[#FAF5F0] border-amber-600/60 text-slate-900 shadow-amber-950/10' 
+                : 'bg-slate-900 border-slate-800 text-slate-100 shadow-indigo-950/40'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className={`p-4 border-b flex items-center justify-between gap-3 ${
+              isAmber ? 'bg-[#F2EAE1] border-amber-200/50' : 'bg-slate-950 border-slate-850'
+            }`}>
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-wider leading-snug flex items-center gap-2">
+                  <Info className={`w-4 h-4 font-bold ${isAmber ? 'text-amber-700' : 'text-indigo-400'}`} /> 
+                  Workout In Progress
+                </h3>
+                <p className={`text-[10px] font-mono uppercase tracking-widest leading-none mt-1 ${
+                  isAmber ? 'text-amber-700/80' : 'text-indigo-400'
+                }`}>
+                  Unsaved Draft Protection
+                </p>
+              </div>
+              <button
+                onClick={dismissConflictPopup}
+                className={`p-1.5 rounded-none border transition cursor-pointer shrink-0 text-slate-300 ${
+                  isAmber 
+                    ? 'bg-[#FDFCFB] hover:bg-amber-100/50 border-amber-200' 
+                    : 'bg-slate-900 hover:bg-slate-800 border-slate-800'
+                }`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 space-y-4 text-xs sm:text-sm leading-relaxed">
+              <p className="text-slate-300 font-semibold leading-relaxed">
+                You must finish and save your current workout in progress before commencing a new one today.
+              </p>
+
+              <div className={`p-3.5 border ${
+                isAmber 
+                  ? 'bg-amber-500/5 border-amber-200/60' 
+                  : 'bg-indigo-950/20 border-indigo-900/30'
+              }`}>
+                <h4 className={`font-extrabold uppercase text-xs tracking-wider font-mono mb-1 ${
+                  isAmber ? 'text-amber-800' : 'text-indigo-400'
+                }`}>
+                  Current Active Draft:
+                </h4>
+                <p className="text-xs text-slate-300">
+                  {conflictingDraft.draft.isOneOff ? (
+                    <span className="font-bold flex items-center gap-1">
+                      <Plus className="w-3.5 h-3.5 inline text-indigo-400" /> One-Off Workout
+                    </span>
+                  ) : (
+                    <span className="font-bold">
+                      {conflictingDraft.draft.programName || 'Programmed Workout'}
+                      <span className="block text-[11px] font-mono text-slate-400 mt-0.5">
+                        Week {conflictingDraft.draft.weekNum}, Day {conflictingDraft.draft.dayNum}
+                      </span>
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className={`p-3 border-t flex flex-col sm:flex-row gap-2 justify-end ${
+              isAmber ? 'bg-[#F2EAE1] border-amber-200/50' : 'bg-slate-950 border-slate-850'
+            }`}>
+              <button
+                onClick={dismissConflictPopup}
+                className={`font-extrabold text-xs py-2 px-4 rounded-none border transition cursor-pointer text-slate-300 ${
+                  isAmber 
+                    ? 'bg-[#FDFCFB] hover:bg-amber-100/50 border-amber-200' 
+                    : 'bg-slate-900 hover:bg-slate-800 border-slate-800'
+                }`}
+              >
+                Go Back
+              </button>
+              <button
+                onClick={() => {
+                  dismissConflictPopup();
+                  // Navigate directly to the draft
+                  const draft = conflictingDraft.draft;
+                  if (draft.isOneOff) {
+                    onNavigate('logger', { isOneOff: true });
+                  } else {
+                    onNavigate('logger', {
+                      programId: draft.programId,
+                      programName: draft.programName,
+                      week: String(draft.weekNum),
+                      day: String(draft.dayNum),
+                      scheduledDate: draft.scheduledDate,
+                      date: draft.dateStr || getTodayLocalDateString(),
+                    });
+                  }
+                }}
+                className={`font-extrabold text-xs py-2 px-4 rounded-none border transition cursor-pointer text-white shadow ${
+                  isAmber 
+                    ? 'bg-amber-600 hover:bg-amber-500 border-amber-700 shadow-amber-900/10' 
+                    : 'bg-indigo-600 hover:bg-indigo-500 border-indigo-700 shadow-indigo-900/20'
+                }`}
+              >
+                Resume Active Draft
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
