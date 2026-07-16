@@ -61,7 +61,24 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const programName = existingLog ? (existingLog.program || 'One Off') : (initialParams?.programName || 'One Off');
   const weekNum = existingLog ? (existingLog.week || '1') : (initialParams?.week || '1');
   const dayNum = existingLog ? (existingLog.day || '1') : (initialParams?.day || '1');
-  const dateStr = existingLog ? existingLog.date : (initialParams?.date || getTodayLocalDateString());
+  
+  const [workoutDate, setWorkoutDate] = useState<string>(() => {
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = isOneOff
+          ? draft.isOneOff === true
+          : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum));
+        if (matches && draft.dateStr) {
+          return draft.dateStr;
+        }
+      }
+    } catch (_) {}
+    return existingLog ? existingLog.date : (initialParams?.date || getTodayLocalDateString());
+  });
+  const dateStr = workoutDate;
+
   const scheduledDate = existingLog ? existingLog.scheduledDate : (initialParams?.scheduledDate || null);
 
   const activeProg = React.useMemo(() => {
@@ -1758,32 +1775,45 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           </div>
         </div>
 
-        {/* Row 1: Program Stage & Date */}
-        <div className="grid grid-cols-2 gap-4 p-4">
+        {/* Row 1: Program Stage, Date & Start Time */}
+        <div className="grid grid-cols-3 gap-3 p-4">
           <div>
-            <label className="block text-[12.5px] font-black text-slate-400 uppercase tracking-wider mb-1 font-mono">
-              Program Stage
+            <label className="block text-[11px] sm:text-[12.5px] font-black text-slate-400 uppercase tracking-wider mb-1 font-mono truncate">
+              Stage
             </label>
-            <div className="relative flex items-center justify-center bg-slate-950 rounded-none border border-slate-850 px-3 h-10 select-none">
-              <span className="text-[13px] font-black text-slate-300 uppercase font-mono tracking-wider">
+            <div className="relative flex items-center justify-center bg-slate-950 rounded-none border border-slate-850 px-2 h-10 select-none">
+              <span className="text-xs sm:text-[13px] font-black text-slate-300 uppercase font-mono tracking-wider truncate">
                 {isOneOff ? (
                   'ONE-OFF'
                 ) : (
-                  `WEEK ${weekNum} / ${totalWeeks || '8'}`
+                  `W${weekNum} / ${totalWeeks || '8'}`
                 )}
               </span>
             </div>
           </div>
 
           <div>
-            <label className="block text-[12.5px] font-black text-slate-400 uppercase tracking-wider mb-1 font-mono">
+            <label className="block text-[11px] sm:text-[12.5px] font-black text-slate-400 uppercase tracking-wider mb-1 font-mono truncate">
+              Date
+            </label>
+            <input
+              type="date"
+              value={workoutDate}
+              onChange={e => setWorkoutDate(e.target.value)}
+              className="w-full bg-slate-950 text-slate-300 rounded-none border border-slate-850 px-1 sm:px-2 h-10 text-center text-xs sm:text-[13px] font-black font-mono focus:outline-none focus:border-indigo-500/85 cursor-pointer"
+              style={{ textAlign: 'center' }}
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] sm:text-[12.5px] font-black text-slate-400 uppercase tracking-wider mb-1 font-mono truncate">
               Start Time
             </label>
             <input
               type="time"
               value={startTime}
               onChange={e => setStartTime(e.target.value)}
-              className="w-full bg-slate-950 text-slate-300 rounded-none border border-slate-850 px-2 h-10 text-center text-[13px] font-black font-mono focus:outline-none focus:border-indigo-500/85 cursor-pointer"
+              className="w-full bg-slate-950 text-slate-300 rounded-none border border-slate-850 px-1 sm:px-2 h-10 text-center text-xs sm:text-[13px] font-black font-mono focus:outline-none focus:border-indigo-500/85 cursor-pointer"
               style={{ textAlign: 'center' }}
             />
           </div>
