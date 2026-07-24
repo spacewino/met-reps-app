@@ -441,7 +441,37 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const [activeSetAction, setActiveSetAction] = useState<{ exIdx: number; setIdx: number } | null>(null);
   const [commentEditState, setCommentEditState] = useState<{ exIdx: number; setIdx: number; text: string } | null>(null);
   const [activeExAction, setActiveExAction] = useState<number | null>(null);
-  const [activeSelector, setActiveSelector] = useState<{ exIdx: number; setIdx: number; type: 'rpe' | 'form' } | null>(null);
+  const [activeSelector, setActiveSelector] = useState<{ exIdx: number; setIdx: number; type: 'rpe' | 'form'; direction?: 'up' | 'down' } | null>(null);
+
+  const toggleSelector = (e: React.MouseEvent<HTMLButtonElement>, exIdx: number, setIdx: number, type: 'rpe' | 'form') => {
+    e.stopPropagation();
+    if (activeSelector?.exIdx === exIdx && activeSelector?.setIdx === setIdx && activeSelector?.type === type) {
+      setActiveSelector(null);
+    } else {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const direction = rect.top < 230 ? 'down' : 'up';
+      setActiveSelector({ exIdx, setIdx, type, direction });
+    }
+  };
+
+  // Close popups on pointerdown outside without capturing scroll touch events
+  useEffect(() => {
+    if (!activeSelector && !isHydrationDropdownOpen) return;
+
+    const handlePointerDown = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && target.closest('.selector-popup-container')) {
+        return;
+      }
+      setActiveSelector(null);
+      setIsHydrationDropdownOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [activeSelector, isHydrationDropdownOpen]);
   const [swapMainTargetIdx, setSwapMainTargetIdx] = useState<number | null>(null);
   const [showNoMainMovementConfirm, setShowNoMainMovementConfirm] = useState(false);
 
@@ -2061,64 +2091,61 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                             <div className="relative">
                               <button
                                 type="button"
-                                onClick={() => setActiveSelector(activeSelector?.exIdx === exIdx && activeSelector?.setIdx === setIdx && activeSelector?.type === 'rpe' ? null : { exIdx, setIdx, type: 'rpe' })}
+                                onClick={(e) => toggleSelector(e, exIdx, setIdx, 'rpe')}
                                 className="bg-slate-950 text-sm font-black text-center text-slate-300 border border-slate-800 rounded-none h-10 w-full focus:outline-none focus:border-indigo-500 font-mono flex items-center justify-center cursor-pointer hover:bg-slate-900 transition"
                               >
                                 {set.rpe ?? 8}
                               </button>
                               {activeSelector?.exIdx === exIdx && activeSelector?.setIdx === setIdx && activeSelector?.type === 'rpe' && (
-                                <>
-                                  <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setActiveSelector(null); }} />
-                                  <div className="absolute left-1/2 -translate-x-1/2 bottom-11 bg-slate-950 border border-slate-800 rounded-none shadow-2xl z-50 overflow-hidden py-1 min-w-[75px] max-w-[85px]">
-                                    {(() => {
-                                      const currentRpe = set.rpe ?? 8;
-                                      const isHalf = currentRpe % 1 !== 0;
-                                      return (
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            const nextRpe = isHalf 
-                                              ? Math.floor(currentRpe) 
-                                              : Math.min(9.5, currentRpe + 0.5);
-                                            handleUpdateSet(exIdx, setIdx, 'rpe', nextRpe);
-                                          }}
-                                          className={`w-full text-center py-1.5 text-[9px] font-black tracking-wider uppercase border-b border-slate-850 cursor-pointer transition flex items-center justify-center gap-1 ${
-                                            isHalf 
-                                              ? 'bg-amber-500/20 text-amber-400 font-bold' 
-                                              : 'text-slate-500 hover:text-slate-300'
-                                          }`}
-                                        >
-                                          {isHalf && <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />}
-                                          +0.5 RPE
-                                        </button>
-                                      );
-                                    })()}
-                                    {[5, 6, 7, 8, 9, 10].map(val => {
-                                      const currentRpe = set.rpe ?? 8;
-                                      const isHalf = currentRpe % 1 !== 0;
-                                      const targetVal = isHalf && val !== 10 ? val + 0.5 : val;
-                                      const isSelected = currentRpe === targetVal;
-                                      return (
-                                        <button
-                                          key={val}
-                                          type="button"
-                                          onClick={() => {
-                                            handleUpdateSet(exIdx, setIdx, 'rpe', targetVal);
-                                            setActiveSelector(null);
-                                          }}
-                                          className={`w-full text-center py-2 text-sm font-mono font-black border-y border-transparent cursor-pointer transition ${
-                                            isSelected
-                                              ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30 font-extrabold'
-                                              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-                                          }`}
-                                        >
-                                          {targetVal}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </>
+                                <div className={`selector-popup-container absolute left-1/2 -translate-x-1/2 bg-slate-950 border border-slate-800 rounded-none shadow-2xl z-50 overflow-hidden py-1 min-w-[75px] max-w-[85px] ${activeSelector.direction === 'down' ? 'top-11' : 'bottom-11'}`}>
+                                  {(() => {
+                                    const currentRpe = set.rpe ?? 8;
+                                    const isHalf = currentRpe % 1 !== 0;
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const nextRpe = isHalf 
+                                            ? Math.floor(currentRpe) 
+                                            : Math.min(9.5, currentRpe + 0.5);
+                                          handleUpdateSet(exIdx, setIdx, 'rpe', nextRpe);
+                                        }}
+                                        className={`w-full text-center py-1.5 text-[9px] font-black tracking-wider uppercase border-b border-slate-850 cursor-pointer transition flex items-center justify-center gap-1 ${
+                                          isHalf 
+                                            ? 'bg-amber-500/20 text-amber-400 font-bold' 
+                                            : 'text-slate-500 hover:text-slate-300'
+                                        }`}
+                                      >
+                                        {isHalf && <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />}
+                                        +0.5 RPE
+                                      </button>
+                                    );
+                                  })()}
+                                  {[5, 6, 7, 8, 9, 10].map(val => {
+                                    const currentRpe = set.rpe ?? 8;
+                                    const isHalf = currentRpe % 1 !== 0;
+                                    const targetVal = isHalf && val !== 10 ? val + 0.5 : val;
+                                    const isSelected = currentRpe === targetVal;
+                                    return (
+                                      <button
+                                        key={val}
+                                        type="button"
+                                        onClick={() => {
+                                          handleUpdateSet(exIdx, setIdx, 'rpe', targetVal);
+                                          setActiveSelector(null);
+                                        }}
+                                        className={`w-full text-center py-2 text-sm font-mono font-black border-y border-transparent cursor-pointer transition ${
+                                          isSelected
+                                            ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30 font-extrabold'
+                                            : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                                        }`}
+                                      >
+                                        {targetVal}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                               )}
                             </div>
 
@@ -2126,34 +2153,31 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                             <div className="relative">
                               <button
                                 type="button"
-                                onClick={() => setActiveSelector(activeSelector?.exIdx === exIdx && activeSelector?.setIdx === setIdx && activeSelector?.type === 'form' ? null : { exIdx, setIdx, type: 'form' })}
+                                onClick={(e) => toggleSelector(e, exIdx, setIdx, 'form')}
                                 className="bg-slate-950 text-xs font-bold text-center text-slate-300 border border-slate-800 rounded-none h-10 w-full focus:outline-none focus:border-indigo-500 flex items-center justify-center cursor-pointer hover:bg-slate-900 transition capitalize truncate px-1"
                               >
                                 {set.form ?? 'standard'}
                               </button>
                               {activeSelector?.exIdx === exIdx && activeSelector?.setIdx === setIdx && activeSelector?.type === 'form' && (
-                                <>
-                                  <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setActiveSelector(null); }} />
-                                  <div className="absolute left-1/2 -translate-x-1/2 bottom-11 bg-slate-950 border border-slate-800 rounded-none shadow-2xl z-50 overflow-hidden py-1 min-w-[85px]">
-                                    {(['strict', 'standard', 'loose'] as const).map(val => (
-                                      <button
-                                        key={val}
-                                        type="button"
-                                        onClick={() => {
-                                          handleUpdateSet(exIdx, setIdx, 'form', val);
-                                          setActiveSelector(null);
-                                        }}
-                                        className={`w-full text-center py-2.5 text-xs font-bold border-y border-transparent cursor-pointer transition capitalize ${
-                                          (set.form ?? 'standard') === val
-                                            ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
-                                            : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-                                        }`}
-                                      >
-                                        {val}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </>
+                                <div className={`selector-popup-container absolute left-1/2 -translate-x-1/2 bg-slate-950 border border-slate-800 rounded-none shadow-2xl z-50 overflow-hidden py-1 min-w-[85px] ${activeSelector.direction === 'down' ? 'top-11' : 'bottom-11'}`}>
+                                  {(['strict', 'standard', 'loose'] as const).map(val => (
+                                    <button
+                                      key={val}
+                                      type="button"
+                                      onClick={() => {
+                                        handleUpdateSet(exIdx, setIdx, 'form', val);
+                                        setActiveSelector(null);
+                                      }}
+                                      className={`w-full text-center py-2.5 text-xs font-bold border-y border-transparent cursor-pointer transition capitalize ${
+                                        (set.form ?? 'standard') === val
+                                          ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
+                                          : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                                      }`}
+                                    >
+                                      {val}
+                                    </button>
+                                  ))}
+                                </div>
                               )}
                             </div>
 
@@ -2433,9 +2457,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                 <span className="text-[8px] text-slate-500 shrink-0 select-none absolute right-3">▼</span>
               </button>
               {isHydrationDropdownOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setIsHydrationDropdownOpen(false)} />
-                  <div className="absolute left-0 right-0 top-11 bg-slate-950 border border-slate-800 rounded-none shadow-2xl z-50 overflow-hidden py-1 font-sans">
+                <div className="selector-popup-container absolute left-0 right-0 top-11 bg-slate-950 border border-slate-800 rounded-none shadow-2xl z-50 overflow-hidden py-1 font-sans">
                     {(['Dehydrated', 'Under-hydrated', 'Adequate', 'Optimal'] as HydrationLevel[]).map(level => {
                       const isSelected = hydration === level;
                       return (
@@ -2457,7 +2479,6 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                       );
                     })}
                   </div>
-                </>
               )}
             </div>
           </div>
