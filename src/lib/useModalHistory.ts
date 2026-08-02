@@ -73,11 +73,6 @@ export function useModalHistory(isOpen: boolean, onClose: () => void, modalId: s
       if (window.__activeModals) {
         window.__activeModals = window.__activeModals.filter(r => r !== record);
       }
-      // If the top state in history is still this modal's state, pop it programmatically
-      if (typeof window !== 'undefined' && window.history.state?.modalId === modalId) {
-        window.__ignoreNextPop = true;
-        window.history.back();
-      }
     };
   }, [isOpen, modalId]);
 
