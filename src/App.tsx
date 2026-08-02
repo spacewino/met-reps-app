@@ -103,28 +103,37 @@ export default function App() {
     `subview-${currentView}`
   );
 
-  // Home screen back button exit confirmation interceptor
-  const [showExitConfirm, setShowExitConfirm] = useState<boolean>(false);
-
-  const handleExitApp = () => {
-    setShowExitConfirm(false);
-    try {
-      window.close();
-    } catch (_) {}
-  };
-
-  useModalHistory(
-    showExitConfirm,
-    handleExitApp,
-    'exit-confirm-modal'
-  );
+  // Home screen back button exit toast interceptor
+  const [showExitToast, setShowExitToast] = useState<boolean>(false);
+  const exitToastTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     initHomeGuard();
+
     window.__onHomeExitRequested = () => {
-      setShowExitConfirm(true);
+      if (showExitToast) {
+        // Second BACK press within 3.5s while toast is active -> Exit app!
+        if (exitToastTimerRef.current) {
+          clearTimeout(exitToastTimerRef.current);
+        }
+        setShowExitToast(false);
+        try {
+          window.close();
+        } catch (_) {}
+      } else {
+        // First BACK press on Home screen -> Show toast banner and re-push home guard for second press
+        setShowExitToast(true);
+        window.history.pushState({ __homeGuard: true }, '');
+
+        if (exitToastTimerRef.current) {
+          clearTimeout(exitToastTimerRef.current);
+        }
+        exitToastTimerRef.current = setTimeout(() => {
+          setShowExitToast(false);
+        }, 3500);
+      }
     };
-  }, []);
+  }, [showExitToast]);
 
   // Unsaved changes failsafe states
   const [isBuilderDirty, setIsBuilderDirty] = useState<boolean>(false);
@@ -485,21 +494,13 @@ export default function App() {
             onCancel={() => setPendingNavigation(null)}
           />
 
-          {/* Exit app confirmation modal on Home screen back press */}
-          <ConfirmationModal
-            visible={showExitConfirm}
-            disableHistory={true}
-            title="Exit MetReps?"
-            message="Are you sure you want to exit the app?"
-            confirmLabel="Exit MetReps"
-            cancelLabel="Cancel"
-            confirmVariant="danger"
-            onConfirm={handleExitApp}
-            onCancel={() => {
-              setShowExitConfirm(false);
-              initHomeGuard();
-            }}
-          />
+          {/* Toast notification when BACK is pressed on Home screen */}
+          {showExitToast && (
+            <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[100] px-4 py-2.5 bg-slate-900/95 border border-slate-700/80 text-slate-100 rounded-full text-xs font-semibold shadow-xl shadow-black/50 backdrop-blur-md flex items-center gap-2 animate-in fade-in slide-in-from-bottom-3 duration-200 pointer-events-none">
+              <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+              <span>Press BACK again to exit MetReps</span>
+            </div>
+          )}
 
           {/* Phone Navigation Bar Mockup */}
           <nav className="bg-slate-900/90 backdrop-blur-md border-t border-slate-850 py-1.5 px-1 h-16 shrink-0 flex items-center justify-around text-slate-400 z-40">
