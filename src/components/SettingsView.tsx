@@ -9,6 +9,7 @@ import { Program, WorkoutLog } from '../types';
 import { storage } from '../lib/storage';
 import { ConfirmationModal } from './ConfirmationModal';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
+import { useModalHistory } from '../lib/useModalHistory';
 
 export const THEME_PRESETS = [
   {
@@ -96,6 +97,12 @@ export function SettingsView({
   });
   const [showDataMgmtPopup, setShowDataMgmtPopup] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+
+  // Back button physical popstate interceptors
+  useModalHistory(showDataMgmtPopup, () => setShowDataMgmtPopup(false), 'settings-data-mgmt');
+  useModalHistory(isLibraryOpen, () => setIsLibraryOpen(false), 'settings-exercise-library');
+  useModalHistory(isProgramDropdownOpen, () => setIsProgramDropdownOpen(false), 'settings-program-dropdown');
+  useModalHistory(alertMsg !== null, () => setAlertMsg(null), 'settings-alert-modal');
 
   const programs = storage.getPrograms();
 

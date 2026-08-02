@@ -479,6 +479,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const [showQualityInfo, setShowQualityInfo] = useState<boolean>(false);
 
   // Back button physical popstate interceptors
+  useModalHistory(activeSelector !== null, () => setActiveSelector(null), 'rpe-form-selector');
+  useModalHistory(isHydrationDropdownOpen, () => setIsHydrationDropdownOpen(false), 'hydration-dropdown');
   const { dismiss: dismissSetAction } = useModalHistory(activeSetAction !== null, () => setActiveSetAction(null), 'set-options');
   const { dismiss: dismissExAction } = useModalHistory(activeExAction !== null, () => setActiveExAction(null), 'exercise-actions');
   const { dismiss: dismissHistory } = useModalHistory(historyExerciseName !== null, () => setHistoryExerciseName(null), 'exercise-history');
