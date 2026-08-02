@@ -23,8 +23,10 @@ declare global {
 // Ensures base app root and home guard history states are present
 export function initHomeGuard() {
   if (typeof window === 'undefined') return;
-  if (!window.history.state || !window.history.state.__homeGuard) {
+  if (!window.history.state || (!window.history.state.__appRoot && !window.history.state.__homeGuard)) {
     window.history.replaceState({ __appRoot: true }, '');
+    window.history.pushState({ __homeGuard: true }, '');
+  } else if (window.history.state.__appRoot) {
     window.history.pushState({ __homeGuard: true }, '');
   }
 }
@@ -51,8 +53,8 @@ if (typeof window !== 'undefined' && !window.__popstateListenerAdded) {
       }
     } else {
       // Stack is empty -> User is on Home screen and pressed physical BACK!
-      // Re-push __homeGuard immediately so pressing BACK again works if user cancels exit
-      window.history.pushState({ __homeGuard: true }, '');
+      // History has popped from __homeGuard to __appRoot.
+      // Trigger the Home Exit confirmation modal without adding redundant history steps.
       if (window.__onHomeExitRequested) {
         window.__onHomeExitRequested();
       }

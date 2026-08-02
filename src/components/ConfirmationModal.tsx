@@ -19,6 +19,7 @@ interface ConfirmationModalProps {
   onCancel: () => void;
   dismissOnBackdropPress?: boolean;
   showCancel?: boolean;
+  disableHistory?: boolean;
 }
 
 export function ConfirmationModal({
@@ -33,8 +34,9 @@ export function ConfirmationModal({
   onCancel,
   dismissOnBackdropPress = true,
   showCancel = true,
+  disableHistory = false,
 }: ConfirmationModalProps) {
-  const { dismiss, dismissWithoutCallback } = useModalHistory(visible, onCancel, 'confirmation-modal');
+  const { dismiss, dismissWithoutCallback } = useModalHistory(visible && !disableHistory, onCancel, 'confirmation-modal');
 
   if (!visible) return null;
 

@@ -18,7 +18,7 @@ import { LogsHistoryView } from './components/LogsHistoryView';
 import { SettingsView, THEME_PRESETS } from './components/SettingsView';
 import { MetRepsLogo } from './components/MetRepsLogo';
 import { InfoView } from './components/InfoView';
-import { useModalHistory } from './lib/useModalHistory';
+import { useModalHistory, initHomeGuard } from './lib/useModalHistory';
 import { ConfirmationModal } from './components/ConfirmationModal';
 
 export default function App() {
@@ -474,6 +474,7 @@ export default function App() {
           {/* Exit app confirmation modal on Home screen back press */}
           <ConfirmationModal
             visible={showExitConfirm}
+            disableHistory={true}
             title="Exit MetReps?"
             message="Are you sure you want to exit the app?"
             confirmLabel="Exit MetReps"
@@ -484,11 +485,12 @@ export default function App() {
               try {
                 window.close();
               } catch (_) {}
-              setTimeout(() => {
-                window.history.go(-2);
-              }, 100);
+              window.history.back();
             }}
-            onCancel={() => setShowExitConfirm(false)}
+            onCancel={() => {
+              setShowExitConfirm(false);
+              initHomeGuard();
+            }}
           />
 
           {/* Phone Navigation Bar Mockup */}
