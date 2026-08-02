@@ -1797,7 +1797,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                     onClick={() => setShowDiscardConfirm(true)}
                     className="text-[8px] font-mono font-bold text-rose-400 hover:text-rose-300 bg-rose-950/20 hover:bg-rose-950/40 border border-rose-500/15 px-1.5 py-0.5 rounded-none transition shrink-0 uppercase tracking-wider cursor-pointer"
                   >
-                    Reset Draft
+                    Cancel Workout
                   </button>
                 </div>
               )}
