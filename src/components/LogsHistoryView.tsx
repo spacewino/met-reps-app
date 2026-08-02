@@ -132,7 +132,21 @@ function getFlagStyles(flag: string, themeId?: string) {
     return 'text-emerald-100 border-emerald-500/50 bg-emerald-950/80 shadow-[0_0_10px_rgba(16,185,129,0.25)]';
   }
   
-  // Default/general flags like "High Fatigue"
+  if (flag === 'High Intensity') {
+    if (isDesert) {
+      return 'text-[#92400E] bg-[#FFFBEB] border-amber-300 shadow-sm';
+    }
+    return 'text-amber-200 border-amber-500/40 bg-amber-950/70 shadow-sm';
+  }
+
+  if (flag === 'High Fatigue') {
+    if (isDesert) {
+      return 'text-[#9B1C1C] bg-[#FDF2F2] border-red-300 shadow-sm';
+    }
+    return 'text-rose-200 border-rose-500/40 bg-rose-950/70 shadow-sm';
+  }
+
+  // Default/general flags
   if (isDesert) {
     return 'text-[#3730A3] bg-[#EEF2FF] border-indigo-300 shadow-sm';
   }
@@ -370,6 +384,12 @@ function getTagInfo(tagName: string): TagInfo {
       description: 'Applied when your top set estimated 1RM exceeds your historical 4-8 exposure rolling average baseline by 1.5%+.'
     };
   }
+  if (clean.includes('high intensity')) {
+    return {
+      title: 'High Intensity',
+      description: 'Applied when your session average RPE exceeds 8.2 or top working sets reach RPE 9+ (close proximity to failure).'
+    };
+  }
   if (clean.includes('technical breakdown')) {
     return {
       title: 'Technical Breakdown',
@@ -379,7 +399,7 @@ function getTagInfo(tagName: string): TagInfo {
   if (clean.includes('high fatigue')) {
     return {
       title: 'High Fatigue',
-      description: 'Applied when your session average RPE exceeds 8.5, soreness is 7+, or the fatigue score passes 6.5.'
+      description: 'Applied when systemic recovery markers indicate heavy stress (soreness 7/10+, poor sleep/motivation quality, or fatigue score >= 6.5).'
     };
   }
   if (clean.includes('deload recommended')) {
@@ -1166,12 +1186,16 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                     <span>Applied when your top set estimated 1RM exceeds your historical 4-8 exposure rolling average baseline by 1.5%+.</span>
                   </div>
                   <div className="flex items-start gap-2">
+                    <strong className="text-amber-300 shrink-0 uppercase font-mono w-40">High Intensity:</strong>
+                    <span>Applied when session average RPE exceeds 8.2 or top sets reach RPE 9+ (close proximity to failure).</span>
+                  </div>
+                  <div className="flex items-start gap-2">
                     <strong className="text-amber-400 shrink-0 uppercase font-mono w-40">Technical Breakdown:</strong>
                     <span>Applied when loose form is reported on 25%+ of your session working sets or on your highest-intensity set.</span>
                   </div>
                   <div className="flex items-start gap-2">
                     <strong className="text-rose-400 shrink-0 uppercase font-mono w-40">High Fatigue:</strong>
-                    <span>Applied when your session average RPE exceeds 8.5, soreness is 7+, or the fatigue score passes 6.5.</span>
+                    <span>Applied when systemic recovery markers indicate heavy stress (soreness 7/10+, low sleep/motivation quality, or fatigue score 6.5+).</span>
                   </div>
                   <div className="flex items-start gap-2">
                     <strong className="text-rose-500 shrink-0 uppercase font-mono w-40">Deload Recommended:</strong>

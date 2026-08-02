@@ -439,6 +439,13 @@ export function classifyWorkout(
     flags.push('PR / Progressive Overload');
   }
 
+  // High Intensity Flag
+  // Triggered when session average RPE >= 8.2 or top sets reach RPE 9+ (proximity to failure)
+  const hasTopSetRpe9 = allSetsDetails.some(set => set.rpe >= 9.0);
+  if (sessionAvgRpe >= 8.2 || hasTopSetRpe9) {
+    flags.push('High Intensity');
+  }
+
   // Technical Breakdown Flag
   // Loose form on 25%+ of sets or top set
   const hasLooseTopSet = allSetsDetails.some(set => set.relativeIntensity >= 0.90 && set.form === 'loose');
@@ -447,8 +454,9 @@ export function classifyWorkout(
   }
 
   // High Fatigue Flag
-  // Fatigue score >= 6.5, soreness >= 7, or session average RPE >= 8.5
-  if (fatigueScore >= 6.5 || soreness >= 7 || sessionAvgRpe >= 8.5) {
+  // Triggered by systemic recovery markers: Fatigue score >= 6.5, muscle soreness >= 7/10, or low quality + elevated soreness
+  const isHighSystemicFatigue = fatigueScore >= 6.5 || soreness >= 7 || (workoutQuality <= 4 && soreness >= 5);
+  if (isHighSystemicFatigue) {
     flags.push('High Fatigue');
   }
 
