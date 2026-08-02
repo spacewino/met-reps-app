@@ -105,16 +105,13 @@ export default function App() {
 
   // Home screen back button exit confirmation interceptor
   const [showExitConfirm, setShowExitConfirm] = useState<boolean>(false);
-  const [isExiting, setIsExiting] = useState<boolean>(false);
 
-  useEffect(() => {
-    window.__getCurrentView = () => currentView;
-    window.__onHomeExitRequested = () => {
-      if (!isExiting) {
-        setShowExitConfirm(true);
-      }
-    };
-  }, [currentView, isExiting]);
+  const isHomeView = currentView === 'home';
+  useModalHistory(
+    isHomeView && !showExitConfirm,
+    () => setShowExitConfirm(true),
+    'home-exit-guard'
+  );
 
   // Unsaved changes failsafe states
   const [isBuilderDirty, setIsBuilderDirty] = useState<boolean>(false);
@@ -484,14 +481,13 @@ export default function App() {
             cancelLabel="Cancel"
             confirmVariant="danger"
             onConfirm={() => {
-              setIsExiting(true);
               setShowExitConfirm(false);
               try {
                 window.close();
               } catch (_) {}
-              if (window.history.length > 1) {
-                window.history.back();
-              }
+              setTimeout(() => {
+                window.history.go(-2);
+              }, 100);
             }}
             onCancel={() => setShowExitConfirm(false)}
           />

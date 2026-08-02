@@ -8,63 +8,49 @@ import { useEffect, useRef } from 'react';
 export interface ModalRecord {
   id: string;
   onClose: () => void;
-  isPhysicalPop?: boolean;
+  poppedByBrowser?: boolean;
 }
 
 declare global {
   interface Window {
-    __modalHistoryStack?: ModalRecord[];
-    __popstateHandlerAdded?: boolean;
-    __isProgrammaticPop?: boolean;
-    __onHomeExitRequested?: () => void;
-    __getCurrentView?: () => string;
+    __activeModalStack?: ModalRecord[];
+    __popstateListenerAdded?: boolean;
+    __ignoreNextPopCount?: number;
   }
 }
 
-// Ensures the base home guard history state is present
-export function ensureHomeGuard() {
+// Ensures base app root history state is present
+function initRootHistory() {
   if (typeof window === 'undefined') return;
-  if (!window.history.state || window.history.state.__appRoot !== true) {
+  if (!window.history.state || !window.history.state.__appRoot) {
     window.history.replaceState({ __appRoot: true }, '');
-    window.history.pushState({ __homeGuard: true }, '');
   }
 }
 
 // Initialize popstate listener ONCE globally
-if (typeof window !== 'undefined' && !window.__popstateHandlerAdded) {
-  window.__modalHistoryStack = window.__modalHistoryStack || [];
-  ensureHomeGuard();
+if (typeof window !== 'undefined' && !window.__popstateListenerAdded) {
+  window.__activeModalStack = window.__activeModalStack || [];
+  initRootHistory();
 
   window.addEventListener('popstate', () => {
-    // If popstate was triggered programmatically by UI cleanup, ignore it
-    if (window.__isProgrammaticPop) {
-      window.__isProgrammaticPop = false;
+    // If popstate was triggered programmatically by UI button cleanup, skip handling
+    if (window.__ignoreNextPopCount && window.__ignoreNextPopCount > 0) {
+      window.__ignoreNextPopCount--;
       return;
     }
 
-    const stack = window.__modalHistoryStack || [];
-
+    const stack = window.__activeModalStack || [];
     if (stack.length > 0) {
-      // Pop the top modal or subview handler from the stack
+      // Pop the youngest modal/subview handler from top of stack
       const topRecord = stack.pop();
       if (topRecord) {
-        topRecord.isPhysicalPop = true;
+        topRecord.poppedByBrowser = true;
         topRecord.onClose();
-      }
-    } else {
-      // Stack is empty! We are at the root/home screen.
-      const currentView = window.__getCurrentView ? window.__getCurrentView() : 'home';
-      if (currentView === 'home') {
-        // Re-push home guard state so pressing back again doesn't exit app if user cancels
-        window.history.pushState({ __homeGuard: true }, '');
-        if (window.__onHomeExitRequested) {
-          window.__onHomeExitRequested();
-        }
       }
     }
   });
 
-  window.__popstateHandlerAdded = true;
+  window.__popstateListenerAdded = true;
 }
 
 /**
@@ -83,32 +69,32 @@ export function useModalHistory(isOpen: boolean, onClose: () => void, modalId: s
   useEffect(() => {
     if (!isOpen) return;
 
-    ensureHomeGuard();
+    initRootHistory();
 
-    // Push history state for this modal/subview
+    // Push a new history state for this modal/subview
     window.history.pushState({ modalId }, '');
 
     const record: ModalRecord = {
       id: modalId,
-      isPhysicalPop: false,
+      poppedByBrowser: false,
       onClose: () => {
         onCloseRef.current();
       }
     };
 
-    window.__modalHistoryStack = window.__modalHistoryStack || [];
-    window.__modalHistoryStack.push(record);
+    window.__activeModalStack = window.__activeModalStack || [];
+    window.__activeModalStack.push(record);
 
     return () => {
-      // Remove record from stack
-      if (window.__modalHistoryStack) {
-        window.__modalHistoryStack = window.__modalHistoryStack.filter(r => r !== record);
+      // Remove record from active stack
+      if (window.__activeModalStack) {
+        window.__activeModalStack = window.__activeModalStack.filter(r => r !== record);
       }
 
       // If closed programmatically in React UI (not via physical back button popstate),
       // pop the history entry we pushed when opening so history stays cleanly in sync
-      if (!record.isPhysicalPop) {
-        window.__isProgrammaticPop = true;
+      if (!record.poppedByBrowser) {
+        window.__ignoreNextPopCount = (window.__ignoreNextPopCount || 0) + 1;
         window.history.back();
       }
     };
@@ -121,7 +107,7 @@ export function useModalHistory(isOpen: boolean, onClose: () => void, modalId: s
   };
 
   const dismissWithoutCallback = () => {
-    // Unmount cleanup handles history pop cleanly
+    // Component unmount cleanup handles history pop cleanly
   };
 
   return { dismiss, dismissWithoutCallback };
