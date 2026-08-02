@@ -106,12 +106,11 @@ export default function App() {
   // Home screen back button exit confirmation interceptor
   const [showExitConfirm, setShowExitConfirm] = useState<boolean>(false);
 
-  const isHomeView = currentView === 'home';
-  useModalHistory(
-    isHomeView && !showExitConfirm,
-    () => setShowExitConfirm(true),
-    'home-exit-guard'
-  );
+  useEffect(() => {
+    window.__onHomeExitRequested = () => {
+      setShowExitConfirm(true);
+    };
+  }, []);
 
   // Unsaved changes failsafe states
   const [isBuilderDirty, setIsBuilderDirty] = useState<boolean>(false);

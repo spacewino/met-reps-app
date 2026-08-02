@@ -16,21 +16,23 @@ declare global {
     __activeModalStack?: ModalRecord[];
     __popstateListenerAdded?: boolean;
     __ignoreNextPopCount?: number;
+    __onHomeExitRequested?: () => void;
   }
 }
 
-// Ensures base app root history state is present
-function initRootHistory() {
+// Ensures base app root and home guard history states are present
+export function initHomeGuard() {
   if (typeof window === 'undefined') return;
-  if (!window.history.state || !window.history.state.__appRoot) {
+  if (!window.history.state || !window.history.state.__homeGuard) {
     window.history.replaceState({ __appRoot: true }, '');
+    window.history.pushState({ __homeGuard: true }, '');
   }
 }
 
 // Initialize popstate listener ONCE globally
 if (typeof window !== 'undefined' && !window.__popstateListenerAdded) {
   window.__activeModalStack = window.__activeModalStack || [];
-  initRootHistory();
+  initHomeGuard();
 
   window.addEventListener('popstate', () => {
     // If popstate was triggered programmatically by UI button cleanup, skip handling
@@ -46,6 +48,13 @@ if (typeof window !== 'undefined' && !window.__popstateListenerAdded) {
       if (topRecord) {
         topRecord.poppedByBrowser = true;
         topRecord.onClose();
+      }
+    } else {
+      // Stack is empty -> User is on Home screen and pressed physical BACK!
+      // Re-push __homeGuard immediately so pressing BACK again works if user cancels exit
+      window.history.pushState({ __homeGuard: true }, '');
+      if (window.__onHomeExitRequested) {
+        window.__onHomeExitRequested();
       }
     }
   });
@@ -69,7 +78,7 @@ export function useModalHistory(isOpen: boolean, onClose: () => void, modalId: s
   useEffect(() => {
     if (!isOpen) return;
 
-    initRootHistory();
+    initHomeGuard();
 
     // Push a new history state for this modal/subview
     window.history.pushState({ modalId }, '');
