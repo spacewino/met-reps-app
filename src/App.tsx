@@ -109,6 +109,39 @@ export default function App() {
     'info-view'
   );
 
+  // Back button physical popstate interceptor for main subviews (logger, builder, analytics, history)
+  const isSubView = currentView !== 'home' && currentView !== 'settings' && currentView !== 'info';
+  useModalHistory(
+    isSubView,
+    () => handleNavigate('home', null),
+    `subview-${currentView}`
+  );
+
+  // Home screen back button exit confirmation interceptor
+  const [showExitConfirm, setShowExitConfirm] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (currentView !== 'home' || showExitConfirm) return;
+
+    window.history.pushState({ homeGuard: true }, '');
+
+    const handleHomePopState = () => {
+      if (window.__activeModals && window.__activeModals.length > 0) {
+        return;
+      }
+      if (window.__ignoreNextPop) {
+        window.__ignoreNextPop = false;
+        return;
+      }
+      setShowExitConfirm(true);
+    };
+
+    window.addEventListener('popstate', handleHomePopState);
+    return () => {
+      window.removeEventListener('popstate', handleHomePopState);
+    };
+  }, [currentView, showExitConfirm]);
+
   // Unsaved changes failsafe states
   const [isBuilderDirty, setIsBuilderDirty] = useState<boolean>(false);
   const [pendingNavigation, setPendingNavigation] = useState<{ view: string; params: any } | null>(null);
@@ -466,6 +499,26 @@ export default function App() {
               }
             }}
             onCancel={() => setPendingNavigation(null)}
+          />
+
+          {/* Exit app confirmation modal on Home screen back press */}
+          <ConfirmationModal
+            visible={showExitConfirm}
+            title="Exit MetReps?"
+            message="Are you sure you want to exit the app?"
+            confirmLabel="Exit MetReps"
+            cancelLabel="Cancel"
+            confirmVariant="danger"
+            onConfirm={() => {
+              setShowExitConfirm(false);
+              try {
+                window.close();
+              } catch (_) {}
+              if (window.history.length > 1) {
+                window.history.back();
+              }
+            }}
+            onCancel={() => setShowExitConfirm(false)}
           />
 
           {/* Phone Navigation Bar Mockup */}

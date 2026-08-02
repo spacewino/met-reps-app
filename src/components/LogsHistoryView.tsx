@@ -446,6 +446,11 @@ interface LogsHistoryViewProps {
 
 export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }: LogsHistoryViewProps) {
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const { dismiss: collapseLog } = useModalHistory(
+    expandedLogId !== null,
+    () => setExpandedLogId(null),
+    'diary-expanded-log'
+  );
   const [expandedDropSets, setExpandedDropSets] = useState<Record<string, boolean>>({});
   const [deleteLogId, setDeleteLogId] = useState<string | null>(null);
   const [showGradeInfo, setShowGradeInfo] = useState(false);
@@ -462,6 +467,11 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
     tagRect?: { left: number; top: number; width: number; height: number };
     cardRect?: { left: number; top: number; width: number; height: number };
   } | null>(null);
+  const { dismiss: dismissActiveTag } = useModalHistory(
+    activeTag !== null,
+    () => setActiveTag(null),
+    'diary-active-tag'
+  );
   const userBodyweight = storage.getBodyweight();
 
   // PR Spotlights standardisation map
