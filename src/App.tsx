@@ -107,11 +107,14 @@ export default function App() {
   const [showExitConfirm, setShowExitConfirm] = useState<boolean>(false);
   const [isExiting, setIsExiting] = useState<boolean>(false);
 
-  useModalHistory(
-    currentView === 'home' && !showExitConfirm && !isExiting,
-    () => setShowExitConfirm(true),
-    'home-exit-guard'
-  );
+  useEffect(() => {
+    window.__getCurrentView = () => currentView;
+    window.__onHomeExitRequested = () => {
+      if (!isExiting) {
+        setShowExitConfirm(true);
+      }
+    };
+  }, [currentView, isExiting]);
 
   // Unsaved changes failsafe states
   const [isBuilderDirty, setIsBuilderDirty] = useState<boolean>(false);

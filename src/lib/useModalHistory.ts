@@ -5,37 +5,66 @@
 
 import { useEffect, useRef } from 'react';
 
-// Declare global types for custom modal registration
+export interface ModalRecord {
+  id: string;
+  onClose: () => void;
+  isPhysicalPop?: boolean;
+}
+
 declare global {
   interface Window {
-    __activeModals?: { id: string; onClose: () => void; pushed: boolean }[];
-    __popstateListenerAdded?: boolean;
-    __ignoreNextPops?: number;
+    __modalHistoryStack?: ModalRecord[];
+    __popstateHandlerAdded?: boolean;
+    __isProgrammaticPop?: boolean;
+    __onHomeExitRequested?: () => void;
+    __getCurrentView?: () => string;
   }
 }
 
-// Set up the global back button interceptor once on load
-if (typeof window !== 'undefined' && !window.__popstateListenerAdded) {
-  window.__activeModals = window.__activeModals || [];
+// Ensures the base home guard history state is present
+export function ensureHomeGuard() {
+  if (typeof window === 'undefined') return;
+  if (!window.history.state || window.history.state.__appRoot !== true) {
+    window.history.replaceState({ __appRoot: true }, '');
+    window.history.pushState({ __homeGuard: true }, '');
+  }
+}
+
+// Initialize popstate listener ONCE globally
+if (typeof window !== 'undefined' && !window.__popstateHandlerAdded) {
+  window.__modalHistoryStack = window.__modalHistoryStack || [];
+  ensureHomeGuard();
 
   window.addEventListener('popstate', () => {
-    // If we programmatically called history.back() due to UI state change, ignore this popstate event
-    if (window.__ignoreNextPops && window.__ignoreNextPops > 0) {
-      window.__ignoreNextPops--;
+    // If popstate was triggered programmatically by UI cleanup, ignore it
+    if (window.__isProgrammaticPop) {
+      window.__isProgrammaticPop = false;
       return;
     }
 
-    const modals = window.__activeModals || [];
-    if (modals.length > 0) {
-      // Pop the youngest active close handler and run it
-      const youngest = modals.pop();
-      if (youngest) {
-        youngest.pushed = false; // History entry was popped by physical back button
-        youngest.onClose();
+    const stack = window.__modalHistoryStack || [];
+
+    if (stack.length > 0) {
+      // Pop the top modal or subview handler from the stack
+      const topRecord = stack.pop();
+      if (topRecord) {
+        topRecord.isPhysicalPop = true;
+        topRecord.onClose();
+      }
+    } else {
+      // Stack is empty! We are at the root/home screen.
+      const currentView = window.__getCurrentView ? window.__getCurrentView() : 'home';
+      if (currentView === 'home') {
+        // Re-push home guard state so pressing back again doesn't exit app if user cancels
+        window.history.pushState({ __homeGuard: true }, '');
+        if (window.__onHomeExitRequested) {
+          window.__onHomeExitRequested();
+        }
       }
     }
   });
-  window.__popstateListenerAdded = true;
+
+  window.__popstateHandlerAdded = true;
 }
 
 /**
@@ -54,46 +83,45 @@ export function useModalHistory(isOpen: boolean, onClose: () => void, modalId: s
   useEffect(() => {
     if (!isOpen) return;
 
-    // Push a new history state for this modal/view
+    ensureHomeGuard();
+
+    // Push history state for this modal/subview
     window.history.pushState({ modalId }, '');
 
-    const record = {
+    const record: ModalRecord = {
       id: modalId,
-      pushed: true,
+      isPhysicalPop: false,
       onClose: () => {
         onCloseRef.current();
       }
     };
 
-    window.__activeModals = window.__activeModals || [];
-    window.__activeModals.push(record);
+    window.__modalHistoryStack = window.__modalHistoryStack || [];
+    window.__modalHistoryStack.push(record);
 
     return () => {
-      // Remove from active modals list
-      if (window.__activeModals) {
-        window.__activeModals = window.__activeModals.filter(r => r !== record);
+      // Remove record from stack
+      if (window.__modalHistoryStack) {
+        window.__modalHistoryStack = window.__modalHistoryStack.filter(r => r !== record);
       }
 
-      // If the browser history entry was pushed and has NOT been popped by physical back button yet,
-      // pop it programmatically so browser history stays 100% in sync with React state
-      if (record.pushed) {
-        record.pushed = false;
-        window.__ignoreNextPops = (window.__ignoreNextPops || 0) + 1;
+      // If closed programmatically in React UI (not via physical back button popstate),
+      // pop the history entry we pushed when opening so history stays cleanly in sync
+      if (!record.isPhysicalPop) {
+        window.__isProgrammaticPop = true;
         window.history.back();
       }
     };
   }, [isOpen, modalId]);
 
-  // Handle standard manual close/cancel/backdrop click (triggers callback)
   const dismiss = () => {
     if (isOpen) {
       onClose();
     }
   };
 
-  // For success saves, confirmations, and submissions where parent state handles closure
   const dismissWithoutCallback = () => {
-    // Parent state change handles closure, cleanup hook auto-pops history
+    // Unmount cleanup handles history pop cleanly
   };
 
   return { dismiss, dismissWithoutCallback };
