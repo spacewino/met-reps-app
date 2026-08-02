@@ -2628,6 +2628,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         onConfirm={() => {
           handleDiscardDraft();
           setShowDiscardConfirm(false);
+          onClose();
         }}
         onCancel={() => setShowDiscardConfirm(false)}
       />

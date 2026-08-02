@@ -95,22 +95,8 @@ export default function App() {
   // Back button physical popstate interceptor
   const { dismiss: dismissNoProgramPopup } = useModalHistory(showNoProgramPopup, () => setShowNoProgramPopup(false), 'no-program-popup');
 
-  // Back button physical popstate interceptor for Settings view
-  const { dismiss: dismissSettingsView } = useModalHistory(
-    currentView === 'settings',
-    () => handleNavigate('home', null),
-    'settings-view'
-  );
-
-  // Back button physical popstate interceptor for Info view
-  const { dismiss: dismissInfoView } = useModalHistory(
-    currentView === 'info',
-    () => handleNavigate('home', null),
-    'info-view'
-  );
-
-  // Back button physical popstate interceptor for main subviews (logger, builder, analytics, history)
-  const isSubView = currentView !== 'home' && currentView !== 'settings' && currentView !== 'info';
+  // Back button physical popstate interceptor for all subviews (logger, builder, analytics, history, settings, info)
+  const isSubView = currentView !== 'home';
   useModalHistory(
     isSubView,
     () => handleNavigate('home', null),
@@ -120,27 +106,11 @@ export default function App() {
   // Home screen back button exit confirmation interceptor
   const [showExitConfirm, setShowExitConfirm] = useState<boolean>(false);
 
-  useEffect(() => {
-    if (currentView !== 'home' || showExitConfirm) return;
-
-    window.history.pushState({ homeGuard: true }, '');
-
-    const handleHomePopState = () => {
-      if (window.__activeModals && window.__activeModals.length > 0) {
-        return;
-      }
-      if (window.__ignoreNextPop) {
-        window.__ignoreNextPop = false;
-        return;
-      }
-      setShowExitConfirm(true);
-    };
-
-    window.addEventListener('popstate', handleHomePopState);
-    return () => {
-      window.removeEventListener('popstate', handleHomePopState);
-    };
-  }, [currentView, showExitConfirm]);
+  useModalHistory(
+    currentView === 'home' && !showExitConfirm,
+    () => setShowExitConfirm(true),
+    'home-exit-guard'
+  );
 
   // Unsaved changes failsafe states
   const [isBuilderDirty, setIsBuilderDirty] = useState<boolean>(false);
@@ -408,14 +378,14 @@ export default function App() {
               <SettingsView
                 currentProgram={currentProgram}
                 onRefresh={loadData}
-                onClose={dismissSettingsView}
+                onClose={() => handleNavigate('home')}
                 themeId={themeId}
                 onThemeChange={handleThemeChange}
               />
             )}
 
             {currentView === 'info' && (
-              <InfoView onClose={dismissInfoView} />
+              <InfoView onClose={() => handleNavigate('home')} />
             )}
           </div>
 
