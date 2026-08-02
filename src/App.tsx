@@ -496,9 +496,8 @@ export default function App() {
 
           {/* Toast notification when BACK is pressed on Home screen */}
           {showExitToast && (
-            <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[100] px-4 py-2.5 bg-slate-900/95 border border-slate-700/80 text-slate-100 rounded-full text-xs font-semibold shadow-xl shadow-black/50 backdrop-blur-md flex items-center gap-2 animate-in fade-in slide-in-from-bottom-3 duration-200 pointer-events-none">
-              <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-              <span>Press BACK again to exit MetReps</span>
+            <div className="fixed bottom-22 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 bg-slate-900/95 border border-slate-700/80 text-slate-100 rounded-2xl text-sm font-medium shadow-2xl shadow-black/70 backdrop-blur-md text-center whitespace-nowrap animate-in fade-in slide-in-from-bottom-3 duration-200 pointer-events-none">
+              Press BACK again to exit MetReps
             </div>
           )}
 
