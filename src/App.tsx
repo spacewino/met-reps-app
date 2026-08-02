@@ -112,6 +112,12 @@ export default function App() {
     'home-exit-guard'
   );
 
+  const { dismiss: dismissExitConfirm } = useModalHistory(
+    showExitConfirm,
+    () => setShowExitConfirm(false),
+    'exit-confirm-modal'
+  );
+
   // Unsaved changes failsafe states
   const [isBuilderDirty, setIsBuilderDirty] = useState<boolean>(false);
   const [pendingNavigation, setPendingNavigation] = useState<{ view: string; params: any } | null>(null);
@@ -488,7 +494,7 @@ export default function App() {
                 window.history.back();
               }
             }}
-            onCancel={() => setShowExitConfirm(false)}
+            onCancel={dismissExitConfirm}
           />
 
           {/* Phone Navigation Bar Mockup */}
