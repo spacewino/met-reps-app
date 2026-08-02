@@ -105,16 +105,12 @@ export default function App() {
 
   // Home screen back button exit confirmation interceptor
   const [showExitConfirm, setShowExitConfirm] = useState<boolean>(false);
-  const [isAppExited, setIsAppExited] = useState<boolean>(false);
 
   const handleExitApp = () => {
-    setIsAppExited(true);
+    setShowExitConfirm(false);
     try {
       window.close();
     } catch (_) {}
-    if (typeof window !== 'undefined' && window.history.length > 1) {
-      window.history.back();
-    }
   };
 
   useModalHistory(
@@ -124,6 +120,7 @@ export default function App() {
   );
 
   useEffect(() => {
+    initHomeGuard();
     window.__onHomeExitRequested = () => {
       setShowExitConfirm(true);
     };
@@ -497,37 +494,12 @@ export default function App() {
             confirmLabel="Exit MetReps"
             cancelLabel="Cancel"
             confirmVariant="danger"
-            onConfirm={() => {
-              setShowExitConfirm(false);
-              handleExitApp();
-            }}
+            onConfirm={handleExitApp}
             onCancel={() => {
               setShowExitConfirm(false);
               initHomeGuard();
             }}
           />
-
-          {/* App Exited Fallback Screen */}
-          {isAppExited && (
-            <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mb-4">
-                <MetRepsLogo className="w-10 h-10 text-indigo-400" />
-              </div>
-              <h2 className="text-xl font-bold text-slate-100 mb-2">MetReps Exited</h2>
-              <p className="text-sm text-slate-400 mb-6 max-w-xs">
-                Your workout data and progress have been safely saved.
-              </p>
-              <button
-                onClick={() => {
-                  setIsAppExited(false);
-                  initHomeGuard();
-                }}
-                className="px-6 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-500 transition shadow-lg shadow-indigo-600/25"
-              >
-                Re-open MetReps
-              </button>
-            </div>
-          )}
 
           {/* Phone Navigation Bar Mockup */}
           <nav className="bg-slate-900/90 backdrop-blur-md border-t border-slate-850 py-1.5 px-1 h-16 shrink-0 flex items-center justify-around text-slate-400 z-40">
