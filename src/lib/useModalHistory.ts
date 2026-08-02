@@ -8,7 +8,7 @@ import { useEffect, useRef } from 'react';
 // Declare global types for custom modal registration
 declare global {
   interface Window {
-    __activeModals?: { id: string; onClose: () => void }[];
+    __activeModals?: { id: string; onClose: () => void; pushedHistory?: boolean }[];
     __popstateListenerAdded?: boolean;
     __ignoreNextPop?: boolean;
   }
@@ -18,7 +18,7 @@ declare global {
 if (typeof window !== 'undefined' && !window.__popstateListenerAdded) {
   window.__activeModals = window.__activeModals || [];
   
-  window.addEventListener('popstate', (event) => {
+  window.addEventListener('popstate', () => {
     // If we programmatically went back, ignore this popstate event
     if (window.__ignoreNextPop) {
       window.__ignoreNextPop = false;
@@ -30,6 +30,7 @@ if (typeof window !== 'undefined' && !window.__popstateListenerAdded) {
       // Pop the youngest active close handler and run it
       const youngest = modals.pop();
       if (youngest) {
+        youngest.pushedHistory = false; // Browser already popped the history entry
         youngest.onClose();
       }
     }
@@ -38,15 +39,13 @@ if (typeof window !== 'undefined' && !window.__popstateListenerAdded) {
 }
 
 /**
- * A hook to automatically integrate standard modal elements with the device's physical
+ * A hook to automatically integrate standard modal elements and subviews with the device's physical
  * back button (using HTML5 History API popstate).
  * 
- * @param isOpen Whether the modal is currently open.
- * @param onClose Callback function to close the modal.
- * @param modalId Unique identifier for this modal.
- * @returns An object containing:
- *  - `dismiss`: A function to close the modal and trigger the onClose callback (used for standard cancel/close/backdrop clicks).
- *  - `dismissWithoutCallback`: A function to pop the history entry without triggering the onClose callback (used for success/confirm saves where the parent state naturally handles closure).
+ * @param isOpen Whether the modal or subview is currently active/open.
+ * @param onClose Callback function to execute when back button is pressed.
+ * @modalId Unique identifier for this modal or subview.
+ * @returns An object containing `dismiss` and `dismissWithoutCallback` functions.
  */
 export function useModalHistory(isOpen: boolean, onClose: () => void, modalId: string) {
   const onCloseRef = useRef(onClose);
@@ -58,8 +57,9 @@ export function useModalHistory(isOpen: boolean, onClose: () => void, modalId: s
     // Push a new mock history state so there is an entry to go "back" from
     window.history.pushState({ modalId }, '');
 
-    const record = {
+    const record: { id: string; onClose: () => void; pushedHistory: boolean } = {
       id: modalId,
+      pushedHistory: true,
       onClose: () => {
         onCloseRef.current();
       }
@@ -73,25 +73,31 @@ export function useModalHistory(isOpen: boolean, onClose: () => void, modalId: s
       if (window.__activeModals) {
         window.__activeModals = window.__activeModals.filter(r => r !== record);
       }
+
+      // If history entry was pushed and hasn't been popped by a physical back button press yet,
+      // pop it now so history stack stays in sync with UI
+      if (record.pushedHistory) {
+        record.pushedHistory = false;
+        window.__ignoreNextPop = true;
+        window.history.back();
+      }
     };
   }, [isOpen, modalId]);
 
   // Handle standard manual close/cancel/backdrop click (triggers callback)
   const dismiss = () => {
     if (isOpen) {
-      window.__ignoreNextPop = true;
-      window.history.back();
       onClose();
     }
   };
 
-  // For success saves, confirmations, and submissions where the parent is already closing the modal
+  // For success saves, confirmations, and submissions where the parent state handles closure
   const dismissWithoutCallback = () => {
     if (isOpen) {
-      window.__ignoreNextPop = true;
-      window.history.back();
+      // Parent state change handles closure, cleanup hook auto-pops history
     }
   };
 
   return { dismiss, dismissWithoutCallback };
 }
+

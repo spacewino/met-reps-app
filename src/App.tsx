@@ -105,45 +105,13 @@ export default function App() {
 
   // Home screen back button exit confirmation interceptor
   const [showExitConfirm, setShowExitConfirm] = useState<boolean>(false);
+  const [isExiting, setIsExiting] = useState<boolean>(false);
 
-  useEffect(() => {
-    if (currentView !== 'home' || showExitConfirm) return;
-
-    let pushed = false;
-    const ensureGuardState = () => {
-      if (!pushed && (!window.history.state || window.history.state.modalId !== 'home-exit-guard')) {
-        window.history.pushState({ modalId: 'home-exit-guard' }, '');
-        pushed = true;
-      }
-    };
-
-    ensureGuardState();
-
-    const handleGesture = () => {
-      ensureGuardState();
-    };
-
-    window.addEventListener('pointerdown', handleGesture, { passive: true });
-    window.addEventListener('keydown', handleGesture, { passive: true });
-
-    const record = {
-      id: 'home-exit-guard',
-      onClose: () => {
-        setShowExitConfirm(true);
-      }
-    };
-
-    window.__activeModals = window.__activeModals || [];
-    window.__activeModals.push(record);
-
-    return () => {
-      window.removeEventListener('pointerdown', handleGesture);
-      window.removeEventListener('keydown', handleGesture);
-      if (window.__activeModals) {
-        window.__activeModals = window.__activeModals.filter(r => r !== record);
-      }
-    };
-  }, [currentView, showExitConfirm]);
+  useModalHistory(
+    currentView === 'home' && !showExitConfirm && !isExiting,
+    () => setShowExitConfirm(true),
+    'home-exit-guard'
+  );
 
   // Unsaved changes failsafe states
   const [isBuilderDirty, setIsBuilderDirty] = useState<boolean>(false);
@@ -513,6 +481,7 @@ export default function App() {
             cancelLabel="Cancel"
             confirmVariant="danger"
             onConfirm={() => {
+              setIsExiting(true);
               setShowExitConfirm(false);
               try {
                 window.close();
