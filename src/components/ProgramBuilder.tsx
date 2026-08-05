@@ -931,7 +931,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                     }`}
                   >
                     <div>
-                      <span className="text-[11px] font-black uppercase tracking-wider text-white">Linear Volume</span>
+                      <span className="text-[11px] font-black uppercase tracking-wider text-white">Wave Volume</span>
                       <span className="block text-[12px] font-medium mt-1 leading-relaxed text-slate-400">Alternates lighter 15-rep and heavy 10-rep (6-rep main) weeks.</span>
                     </div>
                   </button>
@@ -993,7 +993,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                 </div>
                 <p className="text-[12px] text-slate-400 leading-normal font-sans pl-6">
                     {algorithmId === 'hypertrophy_linear' && (
-                      "Linear Volume: Alternates weekly between Light sessions (15 reps @ RPE 8.0) and Heavy sessions (10 reps for accessories, 6 reps for main @ RPE 8.0). This provides rhythmic volume spikes to force muscle fibers to grow while clearing central fatigue every other week."
+                      "Wave Volume: Alternates weekly between Light sessions (15 reps @ RPE 8.0) and Heavy sessions (10 reps for accessories, 6 reps for main @ RPE 8.0). This provides rhythmic volume spikes to force muscle fibers to grow while clearing central fatigue every other week."
                     )}
                     {algorithmId === 'hypertrophy_step' && (
                       "Step Loading: Uses 4-week microcycles where rep counts are held stable, but intensity (RPE) rises stepwise weekly (Week 1: RPE 7.0, Week 2: 7.5, Week 3: 8.0, Week 4: 8.0+). In the 4th week, accessory volume is slightly overreached to spur motor unit recruitment, triggering a deep hyper-recovery response."

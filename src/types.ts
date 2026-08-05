@@ -44,6 +44,8 @@ export type ExerciseEntry = {
   sets: SetEntry[];
   isSuperset?: boolean | null;
   isMainMovement?: boolean | null;
+  movementCategory?: 'compound' | 'isolation';
+  equipment?: 'freeweight' | 'machine';
 };
 
 export type DailyRecoveryMetrics = {

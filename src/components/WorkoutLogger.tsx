@@ -90,7 +90,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const algoId = activeProg?.algorithmId;
     switch (algoId) {
       case 'hypertrophy_linear':
-        return { short: 'LV', name: 'Linear Volume', desc: 'Alternates weekly between Light (15 reps) and Heavy (6-10 reps) sessions.' };
+        return { short: 'WV', name: 'Wave Volume', desc: 'Alternates weekly between Light (15 reps) and Heavy (6-10 reps) sessions.' };
       case 'hypertrophy_step':
         return { short: 'SL', name: 'Step Loading', desc: '4-week blocks holding reps stable while ramping intensity (RPE) weekly.' };
       case 'strength_undulating':

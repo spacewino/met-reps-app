@@ -1,5 +1,6 @@
 import { ExerciseEntry, SetEntry, WorkoutLog } from '../types';
 import { calculateE1RMForSet } from './workoutClassifier';
+import { getExerciseClassification } from './exerciseClassification';
 
 // Canonical RTS % 1RM lookup
 export const RTS_RPE_PERCENT: Record<number, Record<number, number>> = {
@@ -244,8 +245,9 @@ export function calculateObjectiveSets(params: {
 
     if (objective === 'Hypertrophy') {
       const activeAlgo = algorithmId || 'hypertrophy_linear';
-      const isMain = !!exercise.isMainMovement;
-      const isSecond = exerciseIndex === 1 || (isMain ? exerciseIndex === 1 : exerciseIndex === 0);
+      const classification = getExerciseClassification(exercise);
+      const isIsolation = classification.category === 'isolation';
+      const isMachine = classification.equipment === 'machine';
 
       if (activeAlgo === 'hypertrophy_step') {
         const maxWeek = programDuration || 8;
@@ -270,16 +272,24 @@ export function calculateObjectiveSets(params: {
           baseRPE = stepNum === 1 ? 8.0 : (stepNum === 2 ? 8.5 : 9.0);
         }
 
-        // Main movements do slightly lower reps (more motor-unit specific) and higher RPE
-        const targetReps = isMain ? Math.max(4, baseReps - 2) : baseReps;
-        const targetRPE = isMain ? Math.min(10, baseRPE + 0.5) : baseRPE;
+        // Apply modality and movement category offsets based on exercise science
+        if (isIsolation && isMachine) {
+          baseReps = Math.max(12, baseReps + 4);
+        } else if (isIsolation && !isMachine) {
+          baseReps = Math.max(10, baseReps + 2);
+        } else if (!isIsolation && isMachine) {
+          baseReps = baseReps + 2;
+        }
+
+        const targetReps = baseReps;
+        const targetRPE = baseRPE;
 
         const rtsPct = getRTSMultiplier(targetReps, targetRPE);
 
         let estE1RM = previousE1RM;
         if (set.weight && set.weight > 0) {
           const currentRpe = set.rpe || 8.0;
-          const currentReps = set.reps || (isMain ? 5 : 10);
+          const currentReps = set.reps || 10;
           estE1RM = calculateE1RMForSet(set.weight, currentReps, currentRpe);
         }
 
@@ -287,7 +297,7 @@ export function calculateObjectiveSets(params: {
         if (estE1RM > 0) {
           targetWeight = roundToNearest25(estE1RM * rtsPct);
         } else if (set.weight && set.weight > 0) {
-          const baselineRtsPct = getRTSMultiplier(isMain ? 8 : (isSecond ? 10 : 12), 8.0);
+          const baselineRtsPct = getRTSMultiplier(10, 8.0);
           const estimatedE1RM = set.weight / baselineRtsPct;
           targetWeight = roundToNearest25(estimatedE1RM * rtsPct);
         }
@@ -300,16 +310,34 @@ export function calculateObjectiveSets(params: {
           form: 'standard' as const
         };
       } else {
-        // hypertrophy_linear (Default)
-        // Hypertrophy affects ALL exercises
-        // 1. Determine target reps based on week type (odd: Light 15 reps, even: Heavy 10 reps for non-main / 6 reps for main)
+        // hypertrophy_linear (Wave Volume)
+        // Science-based rep matrix considering exercise modality (Free Weight vs Machine/Cable) & biomechanics (Compound vs Isolation)
         const isOddWeek = weekNum % 2 !== 0;
-        let baseReps = 10; // Even week (Heavy) baseline for non-main movements
-        if (isMain) {
-          baseReps = 6;
+        const isIsolation = classification.category === 'isolation';
+        const isMachine = classification.equipment === 'machine';
+
+        let targetReps = 10;
+
+        if (isOddWeek) {
+          // Odd Week (Light / High-Volume):
+          if (isIsolation) {
+            targetReps = 15; // Both Free Weight & Machine/Cable Isolation (15 reps)
+          } else {
+            targetReps = 12; // Both Free Weight & Machine/Cable Compound (12 reps)
+          }
+        } else {
+          // Even Week (Heavy / Intensity):
+          if (!isIsolation && !isMachine) {
+            targetReps = 6;  // Free Weight Compound (High mechanical tension & heavy loading)
+          } else if (!isIsolation && isMachine) {
+            targetReps = 8;  // Machine/Cable Compound (Guided stability allows heavy 8-rep loading)
+          } else if (isIsolation && !isMachine) {
+            targetReps = 10; // Free Weight Isolation (Heavy single-joint loading while protecting joints)
+          } else {
+            targetReps = 12; // Machine/Cable Isolation (Continuous tension & high local fatigue safely)
+          }
         }
 
-        const targetReps = isOddWeek ? 15 : baseReps;
         const targetRPE = 8.0;
 
         // 2. Calculate target weight based on previous e1RM or template weight
@@ -318,7 +346,7 @@ export function calculateObjectiveSets(params: {
         let estE1RM = previousE1RM;
         if (set.weight && set.weight > 0) {
           const currentRpe = set.rpe || 8.0;
-          const currentReps = set.reps || (isMain ? 5 : 10);
+          const currentReps = set.reps || 10;
           estE1RM = calculateE1RMForSet(set.weight, currentReps, currentRpe);
         }
 
@@ -326,7 +354,7 @@ export function calculateObjectiveSets(params: {
         if (estE1RM > 0) {
           targetWeight = roundToNearest25(estE1RM * rtsPct);
         } else if (set.weight && set.weight > 0) {
-          const baselineRtsPct = getRTSMultiplier(isMain ? 8 : (isSecond ? 10 : 12), 8.0);
+          const baselineRtsPct = getRTSMultiplier(10, 8.0);
           const estimatedE1RM = set.weight / baselineRtsPct;
           targetWeight = roundToNearest25(estimatedE1RM * rtsPct);
         }
