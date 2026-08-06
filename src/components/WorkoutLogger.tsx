@@ -439,6 +439,16 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const [deleteExerciseIdx, setDeleteExerciseIdx] = useState<number | null>(null);
   const [historyExerciseName, setHistoryExerciseName] = useState<string | null>(null);
   const [activeSetAction, setActiveSetAction] = useState<{ exIdx: number; setIdx: number } | null>(null);
+  const [commentDraft, setCommentDraft] = useState<string>('');
+
+  useEffect(() => {
+    if (activeSetAction !== null) {
+      const { exIdx, setIdx } = activeSetAction;
+      const currentComment = exercises[exIdx]?.sets[setIdx]?.comment || '';
+      setCommentDraft(currentComment);
+    }
+  }, [activeSetAction, exercises]);
+
   const [commentEditState, setCommentEditState] = useState<{ exIdx: number; setIdx: number; text: string } | null>(null);
   const [activeExAction, setActiveExAction] = useState<number | null>(null);
   const [activeSelector, setActiveSelector] = useState<{ exIdx: number; setIdx: number; type: 'rpe' | 'form'; direction?: 'up' | 'down' } | null>(null);
@@ -2124,7 +2134,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                       </button>
                                     );
                                   })()}
-                                  {[5, 6, 7, 8, 9, 10].map(val => {
+                                  {[4, 5, 6, 7, 8, 9, 10].map(val => {
                                     const currentRpe = set.rpe ?? 8;
                                     const isHalf = currentRpe % 1 !== 0;
                                     const targetVal = isHalf && val !== 10 ? val + 0.5 : val;
@@ -2796,22 +2806,43 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
                 {/* Comment Inline Input */}
                 <div className="space-y-1.5">
-                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider font-mono">Set Comment / Note</label>
+                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider font-mono">
+                    Set Comment / Note
+                  </label>
                   <div className="flex gap-1.5">
-                    <input
-                      type="text"
-                      defaultValue={set.comment || ''}
-                      id="set-comment-input-field"
-                      placeholder="e.g., Last rep was slow, good squeeze"
-                      className="flex-1 bg-slate-950 border border-slate-850 rounded-none px-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-sans"
-                    />
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={commentDraft}
+                        onChange={e => setCommentDraft(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleUpdateSetComment(exIdx, setIdx, commentDraft.trim());
+                            dismissSetAction();
+                          }
+                        }}
+                        placeholder="e.g., Last rep was slow, good squeeze"
+                        className="w-full bg-slate-950 border border-slate-850 rounded-none pl-3 pr-8 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-sans"
+                      />
+                      {commentDraft.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setCommentDraft('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-white transition rounded-full cursor-pointer"
+                          title="Clear comment text"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                     <button
+                      type="button"
                       onClick={() => {
-                        const val = (document.getElementById('set-comment-input-field') as HTMLInputElement)?.value || '';
-                        handleUpdateSetComment(exIdx, setIdx, val);
+                        handleUpdateSetComment(exIdx, setIdx, commentDraft.trim());
                         dismissSetAction();
                       }}
-                      className="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs px-3 py-1.5 rounded-none transition shrink-0 font-mono"
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs px-3.5 py-1.5 rounded-none transition shrink-0 font-mono cursor-pointer"
                     >
                       Save
                     </button>

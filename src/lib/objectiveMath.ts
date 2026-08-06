@@ -87,8 +87,9 @@ export function getPreviousE1RMForExercise(
   for (const log of logs) {
     const matchedEx = log.exercises.find(e => e.name.trim().toLowerCase() === normName);
     if (matchedEx && matchedEx.sets) {
-      const e1rms = matchedEx.sets
-        .filter(s => s.weight && s.reps)
+      const workingSets = matchedEx.sets.filter(s => !s.isWarmup && s.weight && s.reps);
+      const setsToEvaluate = workingSets.length > 0 ? workingSets : matchedEx.sets.filter(s => s.weight && s.reps);
+      const e1rms = setsToEvaluate
         .map(s => calculateE1RMForSet(s.weight || 0, s.reps || 0, s.rpe || 8));
       if (e1rms.length > 0) {
         const logMax = Math.max(...e1rms);
@@ -155,6 +156,18 @@ export function calculateObjectiveSets(params: {
 
   const previousE1RM = getPreviousE1RMForExercise(exercise.name, previousLogs);
 
+  // Identify reference set for working set calculations
+  const referenceSet = exercise.sets.find(s => !s.isWarmup && s.weight && s.weight > 0) || exercise.sets.find(s => s.weight && s.weight > 0);
+  let referenceE1RM = previousE1RM;
+  if (referenceSet && referenceSet.weight && referenceSet.weight > 0) {
+    const currentRpe = referenceSet.rpe || 8.0;
+    const currentReps = referenceSet.reps || 10;
+    referenceE1RM = calculateE1RMForSet(referenceSet.weight, currentReps, currentRpe);
+  }
+
+  const warmupSets = exercise.sets.filter(s => s.isWarmup);
+  const warmupCount = warmupSets.length;
+
   // We map sets
   return exercise.sets.map((set, setIdx) => {
     const key = `${exerciseIndex}-${setIdx}`;
@@ -170,67 +183,102 @@ export function calculateObjectiveSets(params: {
       }
 
       const activeAlgo = algorithmId || 'strength_undulating';
+      let workingTargetReps = 5;
+      let workingTargetRPE = 7.0;
+      let workingTargetWeight = 0;
 
       if (activeAlgo === 'strength_linear') {
         const maxWeek = programDuration || 8;
         const activeWeek = Math.min(weekNum, maxWeek);
         const progress = maxWeek > 1 ? (activeWeek - 1) / (maxWeek - 1) : 0;
 
-        // Transition smoothly from 8 reps down to 1 rep
-        const targetReps = Math.max(1, Math.round(8 - progress * 7));
-        // Transition intensity from RPE 7.0 to RPE 10.0, rounded to nearest 0.5
-        const targetRPE = Math.round((7.0 + progress * 3.0) * 2) / 2;
-
-        // Transition weight from 70% of 1RM to 100% of 1RM
+        workingTargetReps = Math.max(1, Math.round(8 - progress * 7));
+        workingTargetRPE = Math.round((7.0 + progress * 3.0) * 2) / 2;
         const target1RMPercent = 0.70 + progress * 0.30;
 
-        let estE1RM = previousE1RM;
-        if (set.weight && set.weight > 0) {
-          const currentRpe = set.rpe || 8.0;
-          const currentReps = set.reps || 10;
-          estE1RM = calculateE1RMForSet(set.weight, currentReps, currentRpe);
+        if (referenceE1RM > 0) {
+          workingTargetWeight = roundToNearest25(referenceE1RM * target1RMPercent);
+        } else if (referenceSet && referenceSet.weight && referenceSet.weight > 0) {
+          workingTargetWeight = roundToNearest25(referenceSet.weight);
         }
-
-        let targetWeight = 0;
-        if (estE1RM > 0) {
-          targetWeight = roundToNearest25(estE1RM * target1RMPercent);
-        } else if (set.weight && set.weight > 0) {
-          targetWeight = roundToNearest25(set.weight);
-        }
-
-        return {
-          ...set,
-          reps: targetReps,
-          rpe: targetRPE,
-          weight: targetWeight,
-          form: 'standard' as const
-        };
       } else {
         // strength_undulating (Default)
-        // Determine strength week profile
-        const durationKey = STRENGTH_PROFILES[programDuration] ? programDuration : 8; // default to 8 if custom
+        const durationKey = STRENGTH_PROFILES[programDuration] ? programDuration : 8;
         const profile = STRENGTH_PROFILES[durationKey];
         const maxWeek = Math.max(...Object.keys(profile).map(Number));
         const activeWeek = Math.min(weekNum, maxWeek);
         const weekProfile = profile[activeWeek] || profile[1];
 
-        const targetReps = weekProfile.reps;
-        const targetRPE = weekProfile.targetRPE;
+        workingTargetReps = weekProfile.reps;
+        workingTargetRPE = weekProfile.targetRPE;
         const target1RMPercent = weekProfile.target1RMPercent;
 
-        let estE1RM = previousE1RM;
-        if (set.weight && set.weight > 0) {
-          // Use 1RM formula to convert pre-filled/current weight
-          const currentRpe = set.rpe || 8.0;
-          const currentReps = set.reps || 10;
-          estE1RM = calculateE1RMForSet(set.weight, currentReps, currentRpe);
+        if (referenceE1RM > 0) {
+          workingTargetWeight = roundToNearest25(referenceE1RM * target1RMPercent);
+        } else if (referenceSet && referenceSet.weight && referenceSet.weight > 0) {
+          workingTargetWeight = roundToNearest25(referenceSet.weight);
         }
+      }
 
-        let targetWeight = 0;
-        if (estE1RM > 0) {
-          targetWeight = roundToNearest25(estE1RM * target1RMPercent);
-        } else if (set.weight && set.weight > 0) {
-          targetWeight = roundToNearest25(set.weight);
+      // If this set is a Warmup Set, apply Option 3 Exercise Science Warmup Ramping
+      if (set.isWarmup) {
+        const wIdx = warmupSets.indexOf(set);
+        const activeWIdx = wIdx >= 0 ? wIdx : 0;
+
+        let targetWeight = set.weight || 0;
+        let targetReps = workingTargetReps;
+        let targetRPE = 4.0;
+
+        if (workingTargetWeight > 0) {
+          if (warmupCount === 1) {
+            targetWeight = roundToNearest25(workingTargetWeight * 0.60);
+            targetReps = workingTargetReps;
+            targetRPE = 5.0;
+          } else if (warmupCount === 2) {
+            if (activeWIdx === 0) {
+              targetWeight = roundToNearest25(workingTargetWeight * 0.50);
+              targetReps = workingTargetReps;
+              targetRPE = 4.0;
+            } else {
+              targetWeight = roundToNearest25(workingTargetWeight * 0.75);
+              targetReps = Math.max(4, Math.round(workingTargetReps * 0.60));
+              targetRPE = 6.0;
+            }
+          } else {
+            if (activeWIdx === 0) {
+              targetWeight = roundToNearest25(workingTargetWeight * 0.50);
+              targetReps = workingTargetReps;
+              targetRPE = 4.0;
+            } else if (activeWIdx === 1) {
+              targetWeight = roundToNearest25(workingTargetWeight * 0.70);
+              targetReps = Math.max(5, Math.round(workingTargetReps * 0.70));
+              targetRPE = 6.0;
+            } else {
+              const rampPct = Math.min(0.90, 0.85 + (activeWIdx - 2) * 0.05);
+              targetWeight = roundToNearest25(workingTargetWeight * rampPct);
+              targetReps = Math.max(3, Math.round(workingTargetReps * 0.35));
+              targetRPE = 7.0;
+            }
+          }
+        } else {
+          if (warmupCount === 1) {
+            targetReps = workingTargetReps;
+            targetRPE = 5.0;
+          } else if (warmupCount === 2) {
+            targetReps = activeWIdx === 0 ? workingTargetReps : Math.max(4, Math.round(workingTargetReps * 0.60));
+            targetRPE = activeWIdx === 0 ? 4.0 : 6.0;
+          } else {
+            if (activeWIdx === 0) {
+              targetReps = workingTargetReps;
+              targetRPE = 4.0;
+            } else if (activeWIdx === 1) {
+              targetReps = Math.max(5, Math.round(workingTargetReps * 0.70));
+              targetRPE = 6.0;
+            } else {
+              targetReps = Math.max(3, Math.round(workingTargetReps * 0.35));
+              targetRPE = 7.0;
+            }
+          }
         }
 
         return {
@@ -241,6 +289,14 @@ export function calculateObjectiveSets(params: {
           form: 'standard' as const
         };
       }
+
+      return {
+        ...set,
+        reps: workingTargetReps,
+        rpe: workingTargetRPE,
+        weight: workingTargetWeight,
+        form: 'standard' as const
+      };
     }
 
     if (objective === 'Hypertrophy') {
@@ -248,6 +304,9 @@ export function calculateObjectiveSets(params: {
       const classification = getExerciseClassification(exercise);
       const isIsolation = classification.category === 'isolation';
       const isMachine = classification.equipment === 'machine';
+
+      let workingTargetReps = 10;
+      let workingTargetRPE = 8.0;
 
       if (activeAlgo === 'hypertrophy_step') {
         const maxWeek = programDuration || 8;
@@ -259,20 +318,16 @@ export function calculateObjectiveSets(params: {
         let baseRPE = 7.5;
 
         if (activeBlock === 0) {
-          // Block 1 (Weeks 1-4): Stepwise RPE / Volume push
           baseReps = stepNum === 4 ? 12 : 10;
           baseRPE = stepNum === 1 ? 7.0 : (stepNum === 2 ? 7.5 : 8.0);
         } else if (activeBlock === 1) {
-          // Block 2 (Weeks 5-8): Stepwise reps go down, intensity goes up
           baseReps = stepNum === 4 ? 10 : 8;
           baseRPE = stepNum === 1 ? 7.5 : (stepNum === 2 ? 8.0 : 8.5);
         } else {
-          // Block 3 (Weeks 9-12+): Heavy high-threshold motor unit recruitment
           baseReps = stepNum === 4 ? 8 : 6;
           baseRPE = stepNum === 1 ? 8.0 : (stepNum === 2 ? 8.5 : 9.0);
         }
 
-        // Apply modality and movement category offsets based on exercise science
         if (isIsolation && isMachine) {
           baseReps = Math.max(12, baseReps + 4);
         } else if (isIsolation && !isMachine) {
@@ -281,82 +336,103 @@ export function calculateObjectiveSets(params: {
           baseReps = baseReps + 2;
         }
 
-        const targetReps = baseReps;
-        const targetRPE = baseRPE;
-
-        const rtsPct = getRTSMultiplier(targetReps, targetRPE);
-
-        let estE1RM = previousE1RM;
-        if (set.weight && set.weight > 0) {
-          const currentRpe = set.rpe || 8.0;
-          const currentReps = set.reps || 10;
-          estE1RM = calculateE1RMForSet(set.weight, currentReps, currentRpe);
-        }
-
-        let targetWeight = 0;
-        if (estE1RM > 0) {
-          targetWeight = roundToNearest25(estE1RM * rtsPct);
-        } else if (set.weight && set.weight > 0) {
-          const baselineRtsPct = getRTSMultiplier(10, 8.0);
-          const estimatedE1RM = set.weight / baselineRtsPct;
-          targetWeight = roundToNearest25(estimatedE1RM * rtsPct);
-        }
-
-        return {
-          ...set,
-          reps: targetReps,
-          rpe: targetRPE,
-          weight: targetWeight,
-          form: 'standard' as const
-        };
+        workingTargetReps = baseReps;
+        workingTargetRPE = baseRPE;
       } else {
         // hypertrophy_linear (Wave Volume)
-        // Science-based rep matrix considering exercise modality (Free Weight vs Machine/Cable) & biomechanics (Compound vs Isolation)
         const isOddWeek = weekNum % 2 !== 0;
-        const isIsolation = classification.category === 'isolation';
-        const isMachine = classification.equipment === 'machine';
-
-        let targetReps = 10;
 
         if (isOddWeek) {
-          // Odd Week (Light / High-Volume):
           if (isIsolation) {
-            targetReps = 15; // Both Free Weight & Machine/Cable Isolation (15 reps)
+            workingTargetReps = 15;
           } else {
-            targetReps = 12; // Both Free Weight & Machine/Cable Compound (12 reps)
+            workingTargetReps = 12;
           }
         } else {
-          // Even Week (Heavy / Intensity):
           if (!isIsolation && !isMachine) {
-            targetReps = 6;  // Free Weight Compound (High mechanical tension & heavy loading)
+            workingTargetReps = 6;
           } else if (!isIsolation && isMachine) {
-            targetReps = 8;  // Machine/Cable Compound (Guided stability allows heavy 8-rep loading)
+            workingTargetReps = 8;
           } else if (isIsolation && !isMachine) {
-            targetReps = 10; // Free Weight Isolation (Heavy single-joint loading while protecting joints)
+            workingTargetReps = 10;
           } else {
-            targetReps = 12; // Machine/Cable Isolation (Continuous tension & high local fatigue safely)
+            workingTargetReps = 12;
           }
         }
 
-        const targetRPE = 8.0;
+        workingTargetRPE = 8.0;
+      }
 
-        // 2. Calculate target weight based on previous e1RM or template weight
-        const rtsPct = getRTSMultiplier(targetReps, targetRPE);
+      const rtsPct = getRTSMultiplier(workingTargetReps, workingTargetRPE);
 
-        let estE1RM = previousE1RM;
-        if (set.weight && set.weight > 0) {
-          const currentRpe = set.rpe || 8.0;
-          const currentReps = set.reps || 10;
-          estE1RM = calculateE1RMForSet(set.weight, currentReps, currentRpe);
-        }
+      let workingTargetWeight = 0;
+      if (referenceE1RM > 0) {
+        workingTargetWeight = roundToNearest25(referenceE1RM * rtsPct);
+      } else if (referenceSet && referenceSet.weight && referenceSet.weight > 0) {
+        const baselineRtsPct = getRTSMultiplier(10, 8.0);
+        const estimatedE1RM = referenceSet.weight / baselineRtsPct;
+        workingTargetWeight = roundToNearest25(estimatedE1RM * rtsPct);
+      }
 
-        let targetWeight = 0;
-        if (estE1RM > 0) {
-          targetWeight = roundToNearest25(estE1RM * rtsPct);
-        } else if (set.weight && set.weight > 0) {
-          const baselineRtsPct = getRTSMultiplier(10, 8.0);
-          const estimatedE1RM = set.weight / baselineRtsPct;
-          targetWeight = roundToNearest25(estimatedE1RM * rtsPct);
+      // Handle Warmup Set ramping for Hypertrophy
+      if (set.isWarmup) {
+        const wIdx = warmupSets.indexOf(set);
+        const activeWIdx = wIdx >= 0 ? wIdx : 0;
+
+        let targetWeight = set.weight || 0;
+        let targetReps = workingTargetReps;
+        let targetRPE = 4.0;
+
+        if (workingTargetWeight > 0) {
+          if (warmupCount === 1) {
+            targetWeight = roundToNearest25(workingTargetWeight * 0.60);
+            targetReps = workingTargetReps;
+            targetRPE = 5.0;
+          } else if (warmupCount === 2) {
+            if (activeWIdx === 0) {
+              targetWeight = roundToNearest25(workingTargetWeight * 0.50);
+              targetReps = workingTargetReps;
+              targetRPE = 4.0;
+            } else {
+              targetWeight = roundToNearest25(workingTargetWeight * 0.75);
+              targetReps = Math.max(4, Math.round(workingTargetReps * 0.60));
+              targetRPE = 6.0;
+            }
+          } else {
+            if (activeWIdx === 0) {
+              targetWeight = roundToNearest25(workingTargetWeight * 0.50);
+              targetReps = workingTargetReps;
+              targetRPE = 4.0;
+            } else if (activeWIdx === 1) {
+              targetWeight = roundToNearest25(workingTargetWeight * 0.70);
+              targetReps = Math.max(5, Math.round(workingTargetReps * 0.70));
+              targetRPE = 6.0;
+            } else {
+              const rampPct = Math.min(0.90, 0.85 + (activeWIdx - 2) * 0.05);
+              targetWeight = roundToNearest25(workingTargetWeight * rampPct);
+              targetReps = Math.max(3, Math.round(workingTargetReps * 0.35));
+              targetRPE = 7.0;
+            }
+          }
+        } else {
+          if (warmupCount === 1) {
+            targetReps = workingTargetReps;
+            targetRPE = 5.0;
+          } else if (warmupCount === 2) {
+            targetReps = activeWIdx === 0 ? workingTargetReps : Math.max(4, Math.round(workingTargetReps * 0.60));
+            targetRPE = activeWIdx === 0 ? 4.0 : 6.0;
+          } else {
+            if (activeWIdx === 0) {
+              targetReps = workingTargetReps;
+              targetRPE = 4.0;
+            } else if (activeWIdx === 1) {
+              targetReps = Math.max(5, Math.round(workingTargetReps * 0.70));
+              targetRPE = 6.0;
+            } else {
+              targetReps = Math.max(3, Math.round(workingTargetReps * 0.35));
+              targetRPE = 7.0;
+            }
+          }
         }
 
         return {
@@ -367,24 +443,42 @@ export function calculateObjectiveSets(params: {
           form: 'standard' as const
         };
       }
-    }
-
-    if (objective === 'Deload') {
-      // Deload affects ALL exercises. Halving weight, reducing RPE and reps.
-      // Set Form to 'strict' as requested.
-      const baseWeight = set.weight || 0;
-      const baseReps = set.reps || 8;
-
-      const targetWeight = baseWeight > 0 ? roundToNearest25(baseWeight * 0.5) : 0;
-      const targetReps = Math.max(1, Math.round(baseReps * 0.6));
-      const targetRPE = 5.0; // low intensity
 
       return {
         ...set,
-        reps: targetReps,
-        rpe: targetRPE,
-        weight: targetWeight,
-        form: 'strict' as const // strict form for deload
+        reps: workingTargetReps,
+        rpe: workingTargetRPE,
+        weight: workingTargetWeight,
+        form: 'standard' as const
+      };
+    }
+
+    if (objective === 'Deload') {
+      const baseWeight = referenceSet?.weight || set.weight || 0;
+      const baseReps = referenceSet?.reps || set.reps || 8;
+
+      const workingTargetWeight = baseWeight > 0 ? roundToNearest25(baseWeight * 0.5) : 0;
+      const workingTargetReps = Math.max(1, Math.round(baseReps * 0.6));
+
+      if (set.isWarmup) {
+        const wIdx = warmupSets.indexOf(set);
+        const activeWIdx = wIdx >= 0 ? wIdx : 0;
+        const targetWeight = workingTargetWeight > 0 ? roundToNearest25(workingTargetWeight * (0.5 + activeWIdx * 0.2)) : 0;
+        return {
+          ...set,
+          reps: workingTargetReps,
+          rpe: 4.0,
+          weight: targetWeight,
+          form: 'strict' as const
+        };
+      }
+
+      return {
+        ...set,
+        reps: workingTargetReps,
+        rpe: 5.0,
+        weight: workingTargetWeight,
+        form: 'strict' as const
       };
     }
 
