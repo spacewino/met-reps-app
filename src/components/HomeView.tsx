@@ -101,18 +101,10 @@ export function HomeView({
     workoutLogs.forEach((l) => {
       const key = l.date.slice(0, 10);
       if (!key) return;
-      const isCurrent = currentProgram && (
-        l.programId 
-          ? l.programId === currentProgram.id 
-          : l.program === currentProgram.name
-      );
-      const isOneOff = l.program === 'One Off';
-      if (isCurrent || isOneOff) {
-        map.set(key, (map.get(key) || 0) + 1);
-      }
+      map.set(key, (map.get(key) || 0) + 1);
     });
     return map;
-  }, [workoutLogs, currentProgram]);
+  }, [workoutLogs]);
 
   // Planned workouts map
   const plannedByDate = useMemo(() => {
