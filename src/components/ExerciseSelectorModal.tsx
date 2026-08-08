@@ -117,7 +117,8 @@ const getDefaultModality = (name: string): 'weighted' | 'bodyweight' | 'assisted
     norm === 'burpees' ||
     norm === 'air squat' ||
     norm === 'inverted row' ||
-    norm === 'bodyweight squat'
+    norm === 'bodyweight squat' ||
+    norm === 'jump rope'
   ) {
     return 'bodyweight';
   }

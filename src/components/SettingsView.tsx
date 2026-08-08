@@ -127,7 +127,7 @@ export function SettingsView({
       exercisesByDay: {
         1: [
           { name: 'Back Squat (High Bar)', muscleGroup: 'Quads', modality: 'weighted', sets: [] },
-          { name: 'Bench Press (Barbell, Flat)', muscleGroup: 'Pecs', modality: 'weighted', sets: [] },
+          { name: 'Barbell Bench Press (flat)', muscleGroup: 'Pecs', modality: 'weighted', sets: [] },
           { name: 'Deadlift (Conventional)', muscleGroup: 'Hamstrings', modality: 'weighted', sets: [] },
         ]
       },
@@ -286,7 +286,7 @@ export function SettingsView({
             }))
           },
           {
-            name: 'Bench Press (Barbell, Flat)',
+            name: 'Barbell Bench Press (flat)',
             muscleGroup: 'Pecs',
             modality: 'weighted',
             sets: data.benchSets.map((s, sIdx) => ({

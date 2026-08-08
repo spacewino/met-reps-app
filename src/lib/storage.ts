@@ -18,7 +18,7 @@ export const PREBUILT_TEMPLATES: Program[] = [
     exercisesByDay: {
       1: [
         { name: 'Back Squat (High Bar)', muscleGroup: 'Quads', modality: 'weighted', sets: [{ setNumber: 1, weight: 60, reps: 5, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 60, reps: 5, rpe: 8, form: 'strict' }, { setNumber: 3, weight: 60, reps: 5, rpe: 8, form: 'standard' }] },
-        { name: 'Bench Press (Barbell, Flat)', muscleGroup: 'Pecs', modality: 'weighted', sets: [{ setNumber: 1, weight: 40, reps: 8, rpe: 7, form: 'strict' }, { setNumber: 2, weight: 40, reps: 8, rpe: 8, form: 'strict' }] },
+        { name: 'Barbell Bench Press (flat)', muscleGroup: 'Pecs', modality: 'weighted', sets: [{ setNumber: 1, weight: 40, reps: 8, rpe: 7, form: 'strict' }, { setNumber: 2, weight: 40, reps: 8, rpe: 8, form: 'strict' }] },
         { name: 'Lat Pulldown (Wide)', muscleGroup: 'Back', modality: 'weighted', sets: [{ setNumber: 1, weight: 35, reps: 10, rpe: 8, form: 'standard' }, { setNumber: 2, weight: 35, reps: 10, rpe: 8, form: 'standard' }] },
       ],
       2: [
@@ -28,7 +28,7 @@ export const PREBUILT_TEMPLATES: Program[] = [
       ],
       3: [
         { name: 'Leg Press', muscleGroup: 'Quads', modality: 'weighted', sets: [{ setNumber: 1, weight: 100, reps: 10, rpe: 7, form: 'strict' }, { setNumber: 2, weight: 100, reps: 10, rpe: 8, form: 'standard' }] },
-        { name: 'Incline Dumbbell Press', muscleGroup: 'Pecs', modality: 'weighted', sets: [{ setNumber: 1, weight: 16, reps: 10, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 16, reps: 10, rpe: 8, form: 'standard' }] },
+        { name: 'Dumbell Bench Press (incline)', muscleGroup: 'Pecs', modality: 'weighted', sets: [{ setNumber: 1, weight: 16, reps: 10, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 16, reps: 10, rpe: 8, form: 'standard' }] },
         { name: 'Seated Cable Row', muscleGroup: 'Back', modality: 'weighted', sets: [{ setNumber: 1, weight: 40, reps: 10, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 40, reps: 10, rpe: 8, form: 'standard' }] },
       ],
     },
@@ -44,7 +44,7 @@ export const PREBUILT_TEMPLATES: Program[] = [
     algorithmId: 'hypertrophy_linear',
     exercisesByDay: {
       1: [
-        { name: 'Bench Press (Barbell, Flat)', muscleGroup: 'Pecs', modality: 'weighted', sets: [{ setNumber: 1, weight: 50, reps: 8 }, { setNumber: 2, weight: 50, reps: 8 }] },
+        { name: 'Barbell Bench Press (flat)', muscleGroup: 'Pecs', modality: 'weighted', sets: [{ setNumber: 1, weight: 50, reps: 8 }, { setNumber: 2, weight: 50, reps: 8 }] },
         { name: 'Barbell Row (Bent-Over)', muscleGroup: 'Back', modality: 'weighted', sets: [{ setNumber: 1, weight: 40, reps: 8 }, { setNumber: 2, weight: 40, reps: 8 }] },
         { name: 'Seated Dumbbell Shoulder Press', muscleGroup: 'Delts', sets: [{ setNumber: 1, weight: 14, reps: 10 }] },
       ],

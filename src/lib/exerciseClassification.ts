@@ -30,12 +30,49 @@ const COMPOUND_KEYWORDS = [
 const MACHINE_KEYWORDS = [
   'machine', 'cable', 'smith', 'hack', 'leg press', 'pec deck', 'lat pulldown',
   'lever', 'plate-loaded', 'plate loaded', 'nautilus', 'cybex', 'hammer strength',
-  'selectorized', 'chest press machine', 'shoulder press machine', 'seated row machine'
+  'selectorized', 'chest press machine', 'shoulder press machine', 'seated row machine',
+  'pushdown', 'pulldown', 'kickback', 'rope'
 ];
 
 const FREEWEIGHT_KEYWORDS = [
   'barbell', 'dumbbell', 'kettlebell', 'db', 'bb', 'kb', 'trap bar', 'ez bar', 'landmine'
 ];
+
+const EXPLICIT_CLASSIFICATIONS: Record<string, { category: MovementCategory; equipment: EquipmentType }> = {
+  'face pull': { category: 'isolation', equipment: 'machine' },
+  'y raise': { category: 'isolation', equipment: 'freeweight' },
+  'dumbell y-raise': { category: 'isolation', equipment: 'freeweight' },
+  'dumbbell y-raise': { category: 'isolation', equipment: 'freeweight' },
+  'dumbell y raise': { category: 'isolation', equipment: 'freeweight' },
+  'dumbbell y raise': { category: 'isolation', equipment: 'freeweight' },
+  'cable y raise': { category: 'isolation', equipment: 'machine' },
+  'smith machine shrug': { category: 'isolation', equipment: 'machine' },
+  'smith machine shrug (behind-the-back)': { category: 'isolation', equipment: 'machine' },
+  'rope hammer curl': { category: 'isolation', equipment: 'machine' },
+  'triceps pushdown (rope)': { category: 'isolation', equipment: 'machine' },
+  'straight bar pushdown': { category: 'isolation', equipment: 'machine' },
+  'triceps pushdown (straight bar)': { category: 'isolation', equipment: 'machine' },
+  'dumbbell skull crushers': { category: 'isolation', equipment: 'freeweight' },
+  'skull crushers (db)': { category: 'isolation', equipment: 'freeweight' },
+  'single-arm cable pushdown': { category: 'isolation', equipment: 'machine' },
+  'triceps pushdown (single arm)': { category: 'isolation', equipment: 'machine' },
+  'incline dumbbell press': { category: 'compound', equipment: 'freeweight' },
+  'dumbell bench press (incline)': { category: 'compound', equipment: 'freeweight' },
+  'bench press (barbell, flat)': { category: 'compound', equipment: 'freeweight' },
+  'barbell bench press (flat)': { category: 'compound', equipment: 'freeweight' },
+  'pec deck machine': { category: 'isolation', equipment: 'machine' },
+  'pec deck machine fly': { category: 'isolation', equipment: 'machine' },
+  'incline dumbbell fly': { category: 'isolation', equipment: 'freeweight' },
+  'dumbell fly (incline)': { category: 'isolation', equipment: 'freeweight' },
+  'close-grip pulldown': { category: 'compound', equipment: 'machine' },
+  'straight-arm pulldown': { category: 'compound', equipment: 'machine' },
+  'crunches (weighted)': { category: 'isolation', equipment: 'freeweight' },
+  'leg extension': { category: 'isolation', equipment: 'machine' },
+  'seated leg curl': { category: 'isolation', equipment: 'machine' },
+  'standing calf raise (machine)': { category: 'isolation', equipment: 'machine' },
+  'single-leg calf raise (db)': { category: 'isolation', equipment: 'freeweight' },
+  'cable glute kickback': { category: 'isolation', equipment: 'machine' },
+};
 
 /**
  * Detects default movement category and equipment type based on exercise name & modality.
@@ -45,6 +82,11 @@ export function detectExerciseClassification(
   modality?: string
 ): { category: MovementCategory; equipment: EquipmentType } {
   const norm = (name || '').trim().toLowerCase();
+
+  // Check explicit override first
+  if (EXPLICIT_CLASSIFICATIONS[norm]) {
+    return EXPLICIT_CLASSIFICATIONS[norm];
+  }
 
   // 1. Movement Category (Compound vs Isolation) Heuristics
   let category: MovementCategory = 'compound';

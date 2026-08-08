@@ -777,7 +777,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       setUserTouchedSets({});
       setObjective(defaultObjective);
     } else {
-      const defaultName = 'Bench Press (Barbell, Flat)';
+      const defaultName = 'Barbell Bench Press (flat)';
       const prevSets = getPreviousSetsForExercise(defaultName);
       const prefilled = [
         {
@@ -945,7 +945,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       setUserTouchedSets({});
       setObjective(defaultObjective);
     } else {
-      const defaultName = 'Bench Press (Barbell, Flat)';
+      const defaultName = 'Barbell Bench Press (flat)';
       const prevSets = getPreviousSetsForExercise(defaultName);
       const prefilled = [
         {
@@ -1856,6 +1856,77 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             {segmentsStr}
           </span>
           <span className={`text-[14px] font-black font-mono tracking-wider transition-colors ${isResting ? 'text-amber-800 animate-pulse' : 'text-amber-700/70'}`}>
+            {timeStr}
+          </span>
+        </div>
+      );
+    }
+  };
+
+  // Render Floating Rest Timer Widget (appears when rest timer is active)
+  const renderFloatingRestTimer = () => {
+    if (!isResting) return null;
+
+    const minutes = Math.floor(restSeconds / 60);
+    const seconds = restSeconds % 60;
+    const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+    const handleFloatingClick = () => {
+      setIsResting(false);
+      setRestSeconds(0);
+      setRestStartTime(null);
+    };
+
+    const segmentDuration = objective === 'Strength' ? 60 : 30;
+    const numFilled = Math.min(4, Math.floor(restSeconds / segmentDuration));
+    const emptyChar = '▱';
+    const filledChar = '▰';
+    const segmentsStr = filledChar.repeat(numFilled) + emptyChar.repeat(4 - numFilled);
+
+    if (themeId === 'slate') {
+      return (
+        <div
+          onClick={handleFloatingClick}
+          className="fixed bottom-20 right-4 md:absolute md:bottom-20 md:right-4 z-40 bg-slate-950/95 border-2 border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.4)] ring-1 ring-cyan-500/50 px-3.5 py-2 flex items-center gap-3 select-none cursor-pointer hover:scale-105 active:scale-95 transition-all duration-200 animate-in fade-in slide-in-from-bottom-3"
+          title="Rest timer active. Tap to reset & dismiss"
+        >
+          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping shrink-0" />
+          <span className="text-[11.5px] text-cyan-400 font-mono tracking-wider">
+            {segmentsStr}
+          </span>
+          <span className="text-[14px] font-black font-mono tracking-wider text-cyan-400 animate-pulse">
+            {timeStr}
+          </span>
+        </div>
+      );
+    } else if (themeId === 'onyx') {
+      return (
+        <div
+          onClick={handleFloatingClick}
+          className="fixed bottom-20 right-4 md:absolute md:bottom-20 md:right-4 z-40 bg-slate-950/95 border-2 border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.4)] ring-1 ring-emerald-500/50 px-3.5 py-2 flex items-center gap-3 select-none cursor-pointer hover:scale-105 active:scale-95 transition-all duration-200 animate-in fade-in slide-in-from-bottom-3"
+          title="Rest timer active. Tap to reset & dismiss"
+        >
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
+          <span className="text-[11.5px] text-emerald-400 font-mono tracking-wider">
+            {segmentsStr}
+          </span>
+          <span className="text-[14px] font-black font-mono tracking-wider text-emerald-400 animate-pulse">
+            {timeStr}
+          </span>
+        </div>
+      );
+    } else {
+      return (
+        <div
+          onClick={handleFloatingClick}
+          className="fixed bottom-20 right-4 md:absolute md:bottom-20 md:right-4 z-40 bg-[#FAF5F0]/95 border-2 border-amber-600 shadow-[0_0_20px_rgba(217,119,6,0.4)] ring-1 ring-amber-600/50 px-3.5 py-2 flex items-center gap-3 select-none cursor-pointer hover:scale-105 active:scale-95 transition-all duration-200 animate-in fade-in slide-in-from-bottom-3"
+          title="Rest timer active. Tap to reset & dismiss"
+        >
+          <span className="w-2 h-2 rounded-full bg-amber-600 animate-ping shrink-0" />
+          <span className="text-[11.5px] text-amber-700 font-mono tracking-wider">
+            {segmentsStr}
+          </span>
+          <span className="text-[14px] font-black font-mono tracking-wider text-amber-800 animate-pulse">
             {timeStr}
           </span>
         </div>
@@ -2871,10 +2942,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                       dismissSetAction();
                     }}
                     disabled={setIdx === 0}
-                    className="bg-slate-950 hover:bg-slate-850 disabled:opacity-30 border border-slate-850 rounded-none p-3 text-xs font-black text-slate-100 hover:text-white transition flex items-center justify-center gap-1.5 cursor-pointer font-mono"
+                    className="bg-slate-950 hover:bg-slate-850 disabled:opacity-30 border border-slate-850 rounded-none p-3 transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <ChevronUp className="w-5.5 h-5.5 text-indigo-400 shrink-0 stroke-[3]" />
-                    <span>MOVE UP</span>
+                    <ChevronUp className="w-5 h-5 text-indigo-400 shrink-0 stroke-[3]" />
+                    <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-slate-100">MOVE UP</span>
                   </button>
                   <button
                     onClick={() => {
@@ -2882,10 +2953,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                       dismissSetAction();
                     }}
                     disabled={setIdx === ex.sets.length - 1}
-                    className="bg-slate-950 hover:bg-slate-850 disabled:opacity-30 border border-slate-850 rounded-none p-3 text-xs font-black text-slate-100 hover:text-white transition flex items-center justify-center gap-1.5 cursor-pointer font-mono"
+                    className="bg-slate-950 hover:bg-slate-850 disabled:opacity-30 border border-slate-850 rounded-none p-3 transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <ChevronDown className="w-5.5 h-5.5 text-indigo-400 shrink-0 stroke-[3]" />
-                    <span>MOVE DOWN</span>
+                    <ChevronDown className="w-5 h-5 text-indigo-400 shrink-0 stroke-[3]" />
+                    <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-slate-100">MOVE DOWN</span>
                   </button>
                 </div>
 
@@ -2946,7 +3017,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                         handleToggleDropSet(exIdx, setIdx);
                         dismissSetAction();
                       }}
-                      className="bg-slate-950 hover:bg-slate-850 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-between cursor-pointer w-full text-left"
+                      className="bg-slate-950 hover:bg-slate-850 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-center gap-2 cursor-pointer w-full text-center"
                     >
                       <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-slate-100">Drop Set</span>
                       <div className={`w-4.5 h-4.5 border border-slate-700 bg-slate-950 flex items-center justify-center shrink-0 rounded-none transition-colors ${set.isDropSet ? (themeId === 'amber' ? 'border-fuchsia-500 bg-fuchsia-50' : 'border-fuchsia-500 bg-fuchsia-500/10') : ''}`}>
@@ -2960,7 +3031,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                         handleToggleWarmup(exIdx, setIdx);
                         dismissSetAction();
                       }}
-                      className="bg-slate-950 hover:bg-slate-850 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-between cursor-pointer w-full text-left"
+                      className="bg-slate-950 hover:bg-slate-850 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-center gap-2 cursor-pointer w-full text-center"
                     >
                       <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-slate-100">Warmup Set</span>
                       <div className={`w-4.5 h-4.5 border border-slate-700 bg-slate-950 flex items-center justify-center shrink-0 rounded-none transition-colors ${set.isWarmup ? 'border-amber-500 bg-amber-500/10' : ''}`}>
@@ -3000,7 +3071,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                       handleDeleteSet(exIdx, setIdx);
                       dismissSetAction();
                     }}
-                    className="w-full text-left bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/40 rounded-none p-3 text-rose-400 transition flex items-center justify-between cursor-pointer"
+                    className="w-full text-center bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/40 rounded-none p-3 text-rose-400 transition flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide">DELETE SET</span>
                     <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
@@ -3601,6 +3672,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           </div>
         </div>
       )}
+
+      {/* Floating Rest Timer Widget */}
+      {renderFloatingRestTimer()}
     </div>
   );
 }

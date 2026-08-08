@@ -14,7 +14,8 @@
     "Cable Rear Delt Fly",
     "Reverse Pec Deck",
     "Face Pull",
-    "Y Raise",
+    "Dumbell Y Raise",
+    "Cable Y Raise",
     "Cuban Press"
   ],
   "Traps": [
@@ -49,11 +50,11 @@
   "Triceps": [
     "Triceps Pushdown (Rope)",
     "Triceps Pushdown (V-Bar)",
-    "Straight Bar Pushdown",
+    "Triceps Pushdown (Straight Bar)",
     "Overhead Cable Extension (Rope)",
     "Overhead Dumbbell Extension (Seated)",
     "Skull Crushers (EZ-Bar)",
-    "Dumbbell Skull Crushers",
+    "Skull Crushers (DB)",
     "Close-Grip Bench Press",
     "Dips (Parallel Bar)",
     "Dips (Assisted)",
@@ -62,13 +63,13 @@
     "Dumbbell Kickback",
     "JM Press",
     "Tate Press",
-    "Single-Arm Cable Pushdown"
+    "Triceps Pushdown (single arm)"
   ],
   "Pecs": [
-    "Bench Press (Barbell, Flat)",
+    "Barbell Bench Press (flat)",
     "Dumbbell Bench Press (Flat)",
     "Incline Bench Press (Barbell)",
-    "Incline Dumbbell Press",
+    "Dumbell Bench Press (incline)",
     "Decline Bench Press",
     "Push-Ups",
     "Weighted Push-Up",
@@ -77,9 +78,9 @@
     "Cable Fly (High-to-Low)",
     "Cable Fly (Low-to-High)",
     "Cable Fly (Mid)",
-    "Pec Deck Machine",
+    "Pec Deck Machine Fly",
     "Dumbbell Fly (Flat)",
-    "Incline Dumbbell Fly",
+    "Dumbell Fly (incline)",
     "Squeeze Press (Dumbbell)",
     "Dips (Chest Lean)",
     "Landmine Press (Chest Focus)",
@@ -106,13 +107,13 @@
     "Yates Row (Underhand Barbell Row)",
     "Inverted Row",
     "Machine Row",
-    "Kroc Row",
     "Seal Row"
   ],
   "Abs": [
     "Plank",
     "Side Plank",
     "Crunches",
+    "Crunches (Weighted)",
     "Bicycle Crunch",
     "Reverse Crunch",
     "Hanging Leg Raise",
@@ -163,11 +164,13 @@
   ],
   "Calves": [
     "Standing Calf Raise",
+    "Standing Calf Raise (machine)",
     "Seated Calf Raise",
     "Donkey Calf Raise",
     "Leg Press Calf Raise",
     "Smith Machine Calf Raise",
     "Single-Leg Calf Raise",
+    "Single-leg calf raise (DB)",
     "Farmer's Walk on Toes",
     "Tibialis Raise"
   ],
