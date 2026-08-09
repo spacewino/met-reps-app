@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Calendar, Trash2, Dumbbell, Clock, ChevronDown, ChevronUp, MessageSquare, Coffee, Droplet, Flame, Award, Info, X, Pencil, ArrowLeft } from 'lucide-react';
 import { WorkoutLog, mapLitersToHydration } from '../types';
 import { storage } from '../lib/storage';
@@ -572,6 +572,80 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
 
   const sortedLogs = [...workoutLogs].sort((a, b) => b.date.localeCompare(a.date));
 
+  // Group workout logs by month (YYYY, MonthName)
+  const groupedLogs = React.useMemo(() => {
+    const MONTH_NAMES = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    const monthMap: Record<string, WorkoutLog[]> = {};
+    const monthOrder: string[] = [];
+
+    sortedLogs.forEach(log => {
+      const d = parseLocalDate(log.date);
+      const year = d.getFullYear();
+      const monthIdx = d.getMonth();
+      const key = `${year}-${String(monthIdx + 1).padStart(2, '0')}`;
+
+      if (!monthMap[key]) {
+        monthMap[key] = [];
+        monthOrder.push(key);
+      }
+      monthMap[key].push(log);
+    });
+
+    return monthOrder.map(key => {
+      const d = parseLocalDate(monthMap[key][0].date);
+      const year = d.getFullYear();
+      const monthIdx = d.getMonth();
+      const label = `${year}, ${MONTH_NAMES[monthIdx]}`;
+      return {
+        key,
+        label,
+        logs: monthMap[key],
+      };
+    });
+  }, [sortedLogs]);
+
+  // Expand the first/latest month by default on initial load
+  const [expandedMonthKey, setExpandedMonthKey] = useState<string | null>(null);
+  const initializedMonthRef = useRef(false);
+
+  useEffect(() => {
+    if (groupedLogs.length > 0) {
+      if (!initializedMonthRef.current) {
+        setExpandedMonthKey(groupedLogs[0].key);
+        initializedMonthRef.current = true;
+      } else if (expandedMonthKey && !groupedLogs.some(g => g.key === expandedMonthKey)) {
+        setExpandedMonthKey(groupedLogs[0].key);
+      }
+    } else {
+      setExpandedMonthKey(null);
+    }
+  }, [groupedLogs]);
+
+  // Sync expanded month with hardware/browser back button
+  useModalHistory(
+    expandedMonthKey !== null,
+    () => setExpandedMonthKey(null),
+    'diary-expanded-month'
+  );
+
+  const toggleMonth = (key: string) => {
+    if (expandedMonthKey === key) {
+      setExpandedMonthKey(null);
+    } else {
+      setExpandedMonthKey(key);
+      setTimeout(() => {
+        const headerEl = document.getElementById(`month-header-${key}`);
+        if (headerEl) {
+          headerEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 60);
+    }
+  };
+
   return (
     <div className="space-y-4 pb-20">
       {/* Header Bar */}
@@ -601,26 +675,68 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
         </div>
       ) : (
         <div className="space-y-3">
-          {sortedLogs.map(log => {
-            const isExpanded = expandedLogId === log.id;
-            const classification = classifyWorkout(log, workoutLogs, userBodyweight);
-            const { category, categoryDesc, color, flags, fatigueScore, stats } = classification;
-            const uniqueMuscles = Array.from(new Set(log.exercises.map(ex => ex.muscleGroup).filter(Boolean)));
-
-            const isDesert = themeId === 'amber';
-            const popoverBg = isDesert ? 'bg-[#FAF5F0]' : 'bg-slate-950';
-            const popoverBorder = isDesert ? 'border-[#E05A47]' : 'border-indigo-500/85';
-            const popoverTitleColor = isDesert ? 'text-[#9B1C1C]' : 'text-indigo-400';
-            const popoverTextColor = isDesert ? 'text-[#252320]' : 'text-slate-300';
-            const popoverArrowBorder = isDesert ? 'border-t-[#E05A47]' : 'border-t-indigo-500/85';
-            const popoverArrowBg = isDesert ? 'border-t-[#FAF5F0]' : 'border-t-slate-950';
+          {groupedLogs.map(group => {
+            const isMonthExpanded = expandedMonthKey === group.key;
+            const isDesertTheme = themeId === 'amber';
 
             return (
-              <div
-                key={log.id}
-                id={`log-card-${log.id}`}
-                className="w-full bg-slate-900 border-y border-x-0 border-slate-800 rounded-none relative hover:border-slate-700 transition scroll-mt-14"
-              >
+              <div key={group.key} className="space-y-2.5">
+                {/* Discrete Month Section Header */}
+                <button
+                  type="button"
+                  id={`month-header-${group.key}`}
+                  onClick={() => toggleMonth(group.key)}
+                  className={`w-full flex items-center justify-between px-4 py-2.5 transition-all text-left border-y scroll-mt-14 ${
+                    isDesertTheme
+                      ? 'bg-[#FAF5F0] border-[#E05A47]/40 hover:bg-[#F5EBE0] text-[#252320]'
+                      : 'bg-slate-900/90 border-slate-800 hover:bg-slate-850 text-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Calendar className={`w-3.5 h-3.5 ${isDesertTheme ? 'text-[#9B1C1C]' : 'text-indigo-400'}`} />
+                    <span className={`text-xs font-black font-mono uppercase tracking-widest ${isDesertTheme ? 'text-[#252320]' : 'text-slate-100'}`}>
+                      {group.label}
+                    </span>
+                    <span className={`text-[10px] font-bold font-mono px-2 py-0.5 border ${
+                      isDesertTheme
+                        ? 'text-[#9B1C1C] bg-[#FDF2F2] border-[#E05A47]/40'
+                        : 'text-indigo-400 bg-indigo-950/80 border-indigo-800/60'
+                    }`}>
+                      {group.logs.length} {group.logs.length === 1 ? 'SESSION' : 'SESSIONS'}
+                    </span>
+                  </div>
+                  <div className={isDesertTheme ? 'text-[#9B1C1C]' : 'text-indigo-400'}>
+                    {isMonthExpanded ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-slate-500" />
+                    )}
+                  </div>
+                </button>
+
+                {/* Workout Cards for this Month */}
+                {isMonthExpanded && (
+                  <div className="space-y-3">
+                    {group.logs.map(log => {
+                      const isExpanded = expandedLogId === log.id;
+                      const classification = classifyWorkout(log, workoutLogs, userBodyweight);
+                      const { category, categoryDesc, color, flags, fatigueScore, stats } = classification;
+                      const uniqueMuscles = Array.from(new Set(log.exercises.map(ex => ex.muscleGroup).filter(Boolean)));
+
+                      const isDesert = themeId === 'amber';
+                      const popoverBg = isDesert ? 'bg-[#FAF5F0]' : 'bg-slate-950';
+                      const popoverBorder = isDesert ? 'border-[#E05A47]' : 'border-indigo-500/85';
+                      const popoverTitleColor = isDesert ? 'text-[#9B1C1C]' : 'text-indigo-400';
+                      const popoverTextColor = isDesert ? 'text-[#252320]' : 'text-slate-300';
+                      const popoverArrowBorder = isDesert ? 'border-t-[#E05A47]' : 'border-t-indigo-500/85';
+                      const popoverArrowBg = isDesert ? 'border-t-[#FAF5F0]' : 'border-t-slate-950';
+
+                      return (
+                        <div
+                          key={log.id}
+                          id={`log-card-${log.id}`}
+                          className="w-full bg-slate-900 border-y border-x-0 border-slate-800 rounded-none relative hover:border-slate-700 transition scroll-mt-14"
+                        >
                 {/* Log Row Header */}
                 <div className="p-4 flex items-center justify-between gap-4">
                   <div className="min-w-0 flex-1">
@@ -1060,6 +1176,11 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                     </div>
                   );
                 })()}
+              </div>
+            );
+          })}
+                  </div>
+                )}
               </div>
             );
           })}
