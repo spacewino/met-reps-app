@@ -4,10 +4,12 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, Trash2, Dumbbell, Clock, ChevronDown, ChevronUp, MessageSquare, Coffee, Droplet, Flame, Award, Info, X, Pencil, ArrowLeft } from 'lucide-react';
+import { Calendar, Trash2, Dumbbell, Clock, ChevronDown, ChevronUp, MessageSquare, Coffee, Droplet, Flame, Award, Info, X, Pencil, ArrowLeft, Trophy, Zap } from 'lucide-react';
 import { WorkoutLog, mapLitersToHydration } from '../types';
 import { storage } from '../lib/storage';
 import { ConfirmationModal } from './ConfirmationModal';
+import { AchievementsModal } from './AchievementsModal';
+import { evaluateAchievements, getSelectedFeaturedTitleId, setSelectedFeaturedTitleId } from '../lib/achievements';
 import { classifyWorkout } from '../lib/workoutClassifier';
 import { parseLocalDate } from '../lib/dateUtils';
 import { useModalHistory } from '../lib/useModalHistory';
@@ -494,6 +496,29 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
   );
   const userBodyweight = storage.getBodyweight();
 
+  const [isAchievementsModalOpen, setIsAchievementsModalOpen] = useState(false);
+  const [selectedTitleId, setSelectedTitleIdState] = useState<string>(
+    () => getSelectedFeaturedTitleId() || 'iron-initiate'
+  );
+
+  const achievementsList = React.useMemo(() => {
+    return evaluateAchievements(workoutLogs, userBodyweight);
+  }, [workoutLogs, userBodyweight]);
+
+  const featuredTitle = React.useMemo(() => {
+    const chosen = achievementsList.find(a => a.id === selectedTitleId);
+    if (chosen && chosen.unlocked) {
+      return chosen.title;
+    }
+    const highestUnlocked = [...achievementsList].reverse().find(a => a.unlocked);
+    return highestUnlocked ? highestUnlocked.title : 'IRON INITIATE';
+  }, [achievementsList, selectedTitleId]);
+
+  const handleSelectTitle = (id: string) => {
+    setSelectedFeaturedTitleId(id);
+    setSelectedTitleIdState(id);
+  };
+
   // PR Spotlights standardisation map
   const prMap = React.useMemo(() => {
     const map: Record<string, number> = {};
@@ -532,8 +557,11 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
     setExpandedLogId(prev => (prev === id ? null : id));
   };
 
+  const prevExpandedLogIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (expandedLogId) {
+      prevExpandedLogIdRef.current = expandedLogId;
       const timer = setTimeout(() => {
         const element = document.getElementById(`log-card-${expandedLogId}`);
         if (element) {
@@ -542,7 +570,20 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
             block: 'start',
           });
         }
-      }, 150);
+      }, 100);
+      return () => clearTimeout(timer);
+    } else if (prevExpandedLogIdRef.current) {
+      const closedId = prevExpandedLogIdRef.current;
+      prevExpandedLogIdRef.current = null;
+      const timer = setTimeout(() => {
+        const element = document.getElementById(`log-card-${closedId}`);
+        if (element) {
+          element.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+          });
+        }
+      }, 60);
       return () => clearTimeout(timer);
     }
     return undefined;
@@ -571,6 +612,107 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
   };
 
   const sortedLogs = [...workoutLogs].sort((a, b) => b.date.localeCompare(a.date));
+
+  // Lifetime master metrics calculations
+  const masterStats = React.useMemo(() => {
+    if (workoutLogs.length === 0) return null;
+
+    let totalWorkouts = workoutLogs.length;
+    let totalVolumeKg = 0;
+    let totalSets = 0;
+    let totalReps = 0;
+    let totalMinutes = 0;
+
+    const muscleSetsMap: Record<string, number> = {
+      'Delts': 0, 'Traps': 0, 'Biceps': 0, 'Triceps': 0,
+      'Pecs': 0, 'Back': 0, 'Abs': 0, 'Quads': 0,
+      'Hams': 0, 'Calves': 0, 'Glutes': 0, 'Forearms': 0
+    };
+
+    workoutLogs.forEach(log => {
+      if (log.durationMinutes) totalMinutes += log.durationMinutes;
+
+      log.exercises.forEach(ex => {
+        const mg = (ex.muscleGroup || '').trim();
+        // Match standard or fuzzy muscle group names
+        let mappedMg: string | null = null;
+        if (/delt|shoulder/i.test(mg)) mappedMg = 'Delts';
+        else if (/trap/i.test(mg)) mappedMg = 'Traps';
+        else if (/bicep/i.test(mg)) mappedMg = 'Biceps';
+        else if (/tricep/i.test(mg)) mappedMg = 'Triceps';
+        else if (/chest|pec/i.test(mg)) mappedMg = 'Pecs';
+        else if (/back|lats|rhomboid/i.test(mg)) mappedMg = 'Back';
+        else if (/abs|core|abdominal/i.test(mg)) mappedMg = 'Abs';
+        else if (/quad/i.test(mg)) mappedMg = 'Quads';
+        else if (/ham|hamstring/i.test(mg)) mappedMg = 'Hams';
+        else if (/calf|calves/i.test(mg)) mappedMg = 'Calves';
+        else if (/glute/i.test(mg)) mappedMg = 'Glutes';
+        else if (/forearm/i.test(mg)) mappedMg = 'Forearms';
+
+        if (ex.sets) {
+          const validSetsCount = ex.sets.filter(s => (s.reps || 0) > 0 || (s.weight || 0) > 0).length;
+          totalSets += validSetsCount;
+
+          if (mappedMg) {
+            muscleSetsMap[mappedMg] += validSetsCount;
+          }
+
+          ex.sets.forEach(s => {
+            const r = s.reps || 0;
+            const w = s.weight || 0;
+            totalReps += r;
+
+            // Volume in Kg (convert if log unit is lb)
+            const weightInKg = log.unit === 'lb' ? w * 0.453592 : w;
+            if (ex.modality === 'assisted') {
+              const bw = userBodyweight || 75;
+              const netWeight = Math.max(1, bw - weightInKg);
+              totalVolumeKg += netWeight * r;
+            } else if (ex.modality !== 'bodyweight' && ex.modality !== 'distance' && ex.modality !== 'timed') {
+              totalVolumeKg += weightInKg * r;
+            } else if (ex.modality === 'bodyweight') {
+              const bw = userBodyweight || 75;
+              totalVolumeKg += bw * r;
+            }
+          });
+        }
+      });
+    });
+
+    const formatVolume = (kg: number) => {
+      if (kg >= 1000000) return `${(kg / 1000000).toFixed(1)}M kg`;
+      if (kg >= 1000) return `${(kg / 1000).toFixed(0)}K kg`;
+      return `${Math.round(kg)} kg`;
+    };
+
+    // Calculate top muscle group
+    let topMuscle = '';
+    let topMuscleSets = 0;
+    Object.entries(muscleSetsMap).forEach(([mg, count]) => {
+      if (count > topMuscleSets) {
+        topMuscleSets = count;
+        topMuscle = mg;
+      }
+    });
+
+    // Gamification titles
+    let title = 'IRON INITIATE';
+    if (totalWorkouts >= 100) title = 'WARLORD OF IRON';
+    else if (totalWorkouts >= 50) title = 'VETERAN LIFTER';
+    else if (totalWorkouts >= 25) title = 'APEX ATHLETE';
+    else if (totalWorkouts >= 10) title = 'DEDICATED STRIKER';
+
+    return {
+      totalWorkouts,
+      totalVolumeFormatted: formatVolume(totalVolumeKg),
+      totalSets,
+      totalReps,
+      totalHours: Math.round(totalMinutes / 60),
+      topMuscle: topMuscle || 'Pecs',
+      title,
+      muscleSetsMap,
+    };
+  }, [workoutLogs, userBodyweight]);
 
   // Group workout logs by month (YYYY, MonthName)
   const groupedLogs = React.useMemo(() => {
@@ -632,38 +774,214 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
     'diary-expanded-month'
   );
 
+  const prevExpandedMonthKeyRef = useRef<string | null>(null);
+  const userMonthActionRef = useRef(false);
+
+  // Always reset window scroll to top when mounting LogsHistoryView
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+  }, []);
+
+  useEffect(() => {
+    if (!userMonthActionRef.current) {
+      if (expandedMonthKey) {
+        prevExpandedMonthKeyRef.current = expandedMonthKey;
+      }
+      return;
+    }
+
+    if (expandedMonthKey) {
+      prevExpandedMonthKeyRef.current = expandedMonthKey;
+      const timer = setTimeout(() => {
+        const element = document.getElementById(`month-header-${expandedMonthKey}`);
+        if (element) {
+          element.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+          });
+        }
+      }, 60);
+      return () => clearTimeout(timer);
+    } else if (prevExpandedMonthKeyRef.current) {
+      prevExpandedMonthKeyRef.current = null;
+      const timer = setTimeout(() => {
+        const element = document.getElementById('journal-mastery-card');
+        if (element) {
+          element.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+          });
+        } else {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [expandedMonthKey]);
+
   const toggleMonth = (key: string) => {
+    userMonthActionRef.current = true;
     if (expandedMonthKey === key) {
       setExpandedMonthKey(null);
     } else {
       setExpandedMonthKey(key);
-      setTimeout(() => {
-        const headerEl = document.getElementById(`month-header-${key}`);
-        if (headerEl) {
-          headerEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      }, 60);
     }
   };
+
+  const isDesertTheme = themeId === 'amber';
 
   return (
     <div className="space-y-4 pb-20">
       {/* Header Bar */}
-      <div className="sticky top-[-16px] -mt-4 pt-3 pb-2.5 bg-slate-950 z-30 flex items-center justify-between border-b border-slate-850 px-4 shadow-md">
+      <div className={`sticky top-[-16px] -mt-4 pt-3 pb-2.5 z-30 flex items-center justify-between border-b px-4 shadow-md ${
+        isDesertTheme ? 'bg-[#FAF5F0] border-[#E05A47]/30' : 'bg-slate-950 border-slate-850'
+      }`}>
         <div className="flex items-center gap-2">
-          <div className="p-1.5 bg-slate-900 rounded-none border border-slate-800 text-slate-400 flex items-center justify-center">
-            <Calendar className="w-4 h-4 text-indigo-400" />
+          <div className={`p-1.5 rounded-none border flex items-center justify-center ${
+            isDesertTheme ? 'bg-[#F5EBE0] border-[#E05A47]/40 text-[#9B1C1C]' : 'bg-slate-900 border-slate-800 text-indigo-400'
+          }`}>
+            <Calendar className="w-4 h-4" />
           </div>
           <div>
-            <h2 className="font-extrabold text-sm text-white uppercase tracking-wide leading-none">
+            <h2 className={`font-extrabold text-sm uppercase tracking-wide leading-none ${
+              isDesertTheme ? 'text-[#252320]' : 'text-white'
+            }`}>
               Workout Log Book
             </h2>
-            <p className="text-[10px] text-indigo-400 font-mono uppercase tracking-widest mt-1">
+            <p className={`text-[10px] font-mono uppercase tracking-widest mt-1 ${
+              isDesertTheme ? 'text-[#9B1C1C]' : 'text-indigo-400'
+            }`}>
               Logged Training Journal
             </p>
           </div>
         </div>
       </div>
+
+      {/* Lifetime Master Summary Banner */}
+      {masterStats && (
+        <div
+          id="journal-mastery-card"
+          className={`-mt-4 border-b p-3.5 space-y-3 transition-colors scroll-mt-14 ${
+            isDesertTheme
+              ? 'bg-[#FAF5F0] border-[#E05A47]/40 text-[#252320]'
+              : 'bg-slate-900/95 border-slate-800 text-slate-100'
+          }`}
+        >
+          {/* Top Line: Title Badge + Core Big Metrics */}
+          <div className="flex items-center justify-between gap-2 border-b pb-2.5 border-dashed border-slate-800/80">
+            <div className="min-w-0 flex-1">
+              <span className={`block text-xs font-mono font-black uppercase tracking-widest ${
+                isDesertTheme ? 'text-[#252320]' : 'text-slate-100'
+              }`}>
+                Journal Summary
+              </span>
+              <div className="flex items-center gap-1.5 mt-1">
+                <div className={`p-0.5 border text-[10px] shrink-0 ${
+                  isDesertTheme
+                    ? 'bg-[#FDF2F2] border-[#E05A47]/40 text-[#9B1C1C]'
+                    : 'bg-indigo-950/80 border-indigo-500/40 text-indigo-300'
+                }`}>
+                  <Trophy className="w-3.5 h-3.5" />
+                </div>
+                <span className={`text-xs font-black font-mono tracking-wider truncate ${
+                  isDesertTheme ? 'text-[#9B1C1C]' : 'text-indigo-300'
+                }`}>
+                  {featuredTitle}
+                </span>
+                <button
+                  onClick={() => setIsAchievementsModalOpen(true)}
+                  className={`p-1 rounded transition-colors flex items-center justify-center shrink-0 ${
+                    isDesertTheme
+                      ? 'text-[#9B1C1C] hover:bg-[#E05A47]/15'
+                      : 'text-indigo-400 hover:text-indigo-300 hover:bg-slate-800/60'
+                  }`}
+                  title="View Journal Achievements & Titles"
+                >
+                  <Info className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Core Stats Chips */}
+            <div className="flex items-center gap-2 shrink-0">
+              <div className={`px-2 py-1 border text-center ${
+                isDesertTheme
+                  ? 'bg-[#F5EBE0] border-[#E05A47]/30'
+                  : 'bg-slate-950 border-slate-800'
+              }`}>
+                <span className={`block text-[8px] font-mono font-bold uppercase tracking-tight ${
+                  isDesertTheme ? 'text-[#6F6A63]' : 'text-slate-500'
+                }`}>WORKOUTS</span>
+                <span className={`text-xs font-black font-mono ${
+                  isDesertTheme ? 'text-[#252320]' : 'text-white'
+                }`}>{masterStats.totalWorkouts}</span>
+              </div>
+
+              <div className={`px-2 py-1 border text-center ${
+                isDesertTheme
+                  ? 'bg-[#F5EBE0] border-[#E05A47]/30'
+                  : 'bg-slate-950 border-slate-800'
+              }`}>
+                <span className={`block text-[8px] font-mono font-bold uppercase tracking-tight ${
+                  isDesertTheme ? 'text-[#6F6A63]' : 'text-slate-500'
+                }`}>VOL. MOVED</span>
+                <span className={`text-xs font-black font-mono ${
+                  isDesertTheme ? 'text-[#9B1C1C]' : 'text-emerald-400'
+                }`}>{masterStats.totalVolumeFormatted}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Muscle Group Lifetime Set Matrix */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className={`text-[9px] font-mono font-bold uppercase tracking-widest ${
+                isDesertTheme ? 'text-[#6F6A63]' : 'text-slate-400'
+              }`}>
+                LIFETIME SETS BY MUSCLE GROUP
+              </span>
+              <span className={`text-[9px] font-mono font-bold ${
+                isDesertTheme ? 'text-[#9B1C1C]' : 'text-indigo-400'
+              }`}>
+                TOTAL: {masterStats.totalSets} SETS
+              </span>
+            </div>
+
+            {/* Responsive grid of all 12 muscle groups */}
+            <div className="grid grid-cols-4 sm:grid-cols-6 gap-1">
+              {Object.entries(masterStats.muscleSetsMap).map(([muscle, count]) => {
+                const isZero = count === 0;
+                return (
+                  <div
+                    key={muscle}
+                    className={`px-1.5 py-1 border text-center transition-all ${
+                      isDesertTheme
+                        ? isZero
+                          ? 'bg-[#FAF5F0]/50 border-gray-200/50 text-[#A49D95]'
+                          : 'bg-[#F5EBE0] border-[#E05A47]/30 text-[#252320]'
+                        : isZero
+                          ? 'bg-slate-950/40 border-slate-900 text-slate-600'
+                          : 'bg-slate-950 border-slate-800 text-slate-200'
+                    }`}
+                  >
+                    <span className="block text-[8px] font-mono font-semibold uppercase tracking-tight truncate">
+                      {muscle}
+                    </span>
+                    <span className={`block text-[10px] font-black font-mono ${
+                      isZero
+                        ? isDesertTheme ? 'text-[#A49D95]' : 'text-slate-600'
+                        : isDesertTheme ? 'text-[#9B1C1C]' : 'text-indigo-400'
+                    }`}>
+                      {count}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {sortedLogs.length === 0 ? (
         <div className="text-center py-12 w-full bg-slate-900 border-y border-x-0 border-slate-800 rounded-none px-4">
@@ -1334,6 +1652,15 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
         </div>
       )}
 
+
+      <AchievementsModal
+        visible={isAchievementsModalOpen}
+        onClose={() => setIsAchievementsModalOpen(false)}
+        achievements={achievementsList}
+        selectedTitleId={selectedTitleId}
+        onSelectTitle={handleSelectTitle}
+        themeId={themeId}
+      />
 
     </div>
   );
