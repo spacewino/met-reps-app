@@ -157,7 +157,7 @@ export function InfoView({ onClose }: InfoViewProps) {
           <div className="bg-slate-900 border border-slate-800 p-4 space-y-3 font-mono text-[12px] text-slate-400">
             <div className="flex justify-between items-center border-b border-slate-850 pb-2">
               <span className="font-bold text-slate-300">Ver:</span>
-              <span className="text-indigo-400 font-extrabold">1.0</span>
+              <span className="text-indigo-400 font-extrabold">1.0.2</span>
             </div>
             <div className="flex justify-between items-center border-b border-slate-850 pb-2">
               <span className="font-bold text-slate-300">Author:</span>

@@ -40,6 +40,19 @@ export function HomeView({
     'draft-conflict-popup'
   );
 
+  // Read active workout draft from localStorage
+  const activeDraftData = useMemo(() => {
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        return JSON.parse(draftStr);
+      }
+    } catch (e) {
+      console.error('Error reading active draft in HomeView:', e);
+    }
+    return null;
+  }, [selectedDate, currentProgram]);
+
   const handleStartWorkout = (params: any) => {
     try {
       const draftStr = localStorage.getItem('metreps_workout_draft');
@@ -485,21 +498,38 @@ export function HomeView({
                 }
               }
 
-              // Planned workout not yet completed - show Start Card
+              // Planned workout not yet completed - show Start / Resume Card
               const dayIndex = planned.dayIndex;
               const exercises = currentProgram.exercisesByDay?.[dayIndex] || [];
+              const { week } = getWeekAndDayForDate(selectedDate);
+
+              const isOngoingDraft = activeDraftData &&
+                !activeDraftData.isOneOff &&
+                activeDraftData.programId === currentProgram.id &&
+                String(activeDraftData.weekNum) === String(week) &&
+                String(activeDraftData.dayNum) === String(dayIndex);
 
               return (
-                <div className="bg-slate-950/60 rounded-none p-3.5 border border-slate-800">
+                <div className={`rounded-none p-3.5 border ${
+                  isOngoingDraft
+                    ? isAmber
+                      ? 'bg-[#F5EBE0] border-[#E05A47]'
+                      : 'bg-emerald-950/30 border-emerald-500/60'
+                    : 'bg-slate-950/60 border-slate-800'
+                }`}>
                   <div className="flex justify-between items-center mb-3">
                     <div className="flex items-center gap-1.5">
-                      <div className="w-2.5 h-2.5 rounded-full bg-red-400 animate-pulse" />
-                      <span className="text-sm font-bold text-white">
-                        Planned: Day {dayIndex} Workout
+                      <div className={`w-2.5 h-2.5 rounded-full ${isOngoingDraft ? 'bg-emerald-400' : 'bg-red-400'} animate-pulse`} />
+                      <span className={`text-sm font-bold ${isOngoingDraft ? (isAmber ? 'text-[#801717]' : 'text-emerald-300') : 'text-white'}`}>
+                        {isOngoingDraft ? `In-Progress: Day ${dayIndex} Workout` : `Planned: Day ${dayIndex} Workout`}
                       </span>
                     </div>
-                    <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider bg-slate-900 px-2 py-0.5 rounded-none border border-slate-800 font-bold">
-                      REST TO WORK
+                    <span className={`text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-none border font-bold ${
+                      isOngoingDraft
+                        ? isAmber ? 'bg-[#FDF2F2] border-[#E05A47] text-[#9B1C1C]' : 'bg-emerald-950 border-emerald-500 text-emerald-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-500'
+                    }`}>
+                      {isOngoingDraft ? 'ACTIVE SESSION' : 'REST TO WORK'}
                     </span>
                   </div>
 
@@ -521,7 +551,6 @@ export function HomeView({
 
                   <button
                     onClick={() => {
-                      const { week } = getWeekAndDayForDate(selectedDate);
                       handleStartWorkout({
                         programId: currentProgram.id,
                         programName: currentProgram.name,
@@ -531,10 +560,16 @@ export function HomeView({
                         date: getTodayLocalDateString(),
                       });
                     }}
-                    className={`w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 ${isAmber ? 'text-[#FBFAF8]' : 'text-white'} font-extrabold text-sm py-3 px-3 rounded-none transition flex items-center justify-center gap-1.5 shadow`}
+                    className={`w-full font-extrabold text-sm py-3 px-3 rounded-none transition flex items-center justify-center gap-1.5 shadow ${
+                      isOngoingDraft
+                        ? isAmber
+                          ? 'bg-[#E05A47] hover:bg-[#C84B39] text-white ring-1 ring-[#E05A47]'
+                          : 'bg-emerald-600 hover:bg-emerald-500 text-white ring-1 ring-emerald-400'
+                        : `bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 ${isAmber ? 'text-[#FBFAF8]' : 'text-white'}`
+                    }`}
                   >
-                    <Play className="w-4 h-4 fill-current" />
-                    Start this workout
+                    <Play className={`w-4 h-4 fill-current ${isOngoingDraft ? 'animate-pulse' : ''}`} />
+                    {isOngoingDraft ? 'Resume workout' : 'Start this workout'}
                   </button>
                 </div>
               );
@@ -549,17 +584,26 @@ export function HomeView({
         )}
 
         {/* Log One-Off Workout Today Option - Only visible on today's agenda */}
-        {isTodaySelected && (
-          <div className="mt-4 border-t border-slate-850 pt-4">
-            <button
-              onClick={() => handleStartWorkout({ isOneOff: true })}
-              className={`w-full bg-slate-950 hover:bg-slate-850 active:bg-slate-900 text-indigo-400 hover:text-indigo-300 font-extrabold text-xs py-2.5 px-3 rounded-none transition flex items-center justify-center gap-1.5 border border-slate-800 shadow cursor-pointer`}
-            >
-              <Plus className="w-4 h-4" />
-              Log one-off workout today
-            </button>
-          </div>
-        )}
+        {isTodaySelected && (() => {
+          const isOngoingOneOffDraft = activeDraftData && activeDraftData.isOneOff === true;
+          return (
+            <div className="mt-4 border-t border-slate-850 pt-4">
+              <button
+                onClick={() => handleStartWorkout({ isOneOff: true })}
+                className={`w-full font-extrabold text-xs py-2.5 px-3 rounded-none transition flex items-center justify-center gap-1.5 border shadow cursor-pointer ${
+                  isOngoingOneOffDraft
+                    ? isAmber
+                      ? 'bg-[#F5EBE0] text-[#9B1C1C] border-[#E05A47] hover:bg-[#E05A47]/20 font-black'
+                      : 'bg-emerald-950/80 text-emerald-300 border-emerald-600 hover:bg-emerald-900/80 font-black'
+                    : 'bg-slate-950 hover:bg-slate-850 active:bg-slate-900 text-indigo-400 hover:text-indigo-300 border-slate-800'
+                }`}
+              >
+                <Plus className="w-4 h-4" />
+                {isOngoingOneOffDraft ? 'Resume in-progress one-off workout' : 'Log one-off workout today'}
+              </button>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Draft Conflict Safety Warning Modal */}

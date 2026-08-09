@@ -9,6 +9,7 @@ import { WorkoutLog, mapLitersToHydration } from '../types';
 import { storage } from '../lib/storage';
 import { ConfirmationModal } from './ConfirmationModal';
 import { AchievementsModal } from './AchievementsModal';
+import { WarmupIcon } from './WarmupIcon';
 import { evaluateAchievements, getSelectedFeaturedTitleId, setSelectedFeaturedTitleId } from '../lib/achievements';
 import { classifyWorkout } from '../lib/workoutClassifier';
 import { parseLocalDate } from '../lib/dateUtils';
@@ -1276,7 +1277,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                           </span>
                         </div>
                         <div className="text-center">
-                          <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider block">Calories</span>
+                          <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider block">Intake</span>
                           <span className="text-xs font-black text-amber-500 font-mono flex items-center justify-center gap-1 mt-0.5">
                             <Flame className="w-3.5 h-3.5" /> {log.recovery.nutritionCalories || '—'} kcal
                           </span>
@@ -1329,7 +1330,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                                     <span>
                                       Set {set.setNumber}
                                       {set.isWarmup && (
-                                        <span className="text-amber-500 font-extrabold ml-1" title="Warmup Set">⌇⌇⌇</span>
+                                        <WarmupIcon className="w-3.5 h-3 text-amber-500 inline-block shrink-0 align-middle ml-1" title="Warmup Set" />
                                       )}
                                       {set.isDropSet && (
                                         <span className={`${themeId === 'amber' ? 'text-fuchsia-600' : 'text-fuchsia-400'} font-extrabold ml-1 animate-pulse`} title="Drop Set">↓</span>

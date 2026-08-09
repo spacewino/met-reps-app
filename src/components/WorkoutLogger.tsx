@@ -10,6 +10,7 @@ import { storage, PREBUILT_TEMPLATES } from '../lib/storage';
 import { getTodayLocalDateString } from '../lib/dateUtils';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { ConfirmationModal } from './ConfirmationModal';
+import { WarmupIcon } from './WarmupIcon';
 import { calculateObjectiveSets, roundToNearest25, getRTSMultiplier } from '../lib/objectiveMath';
 import { calculateE1RMForSet } from '../lib/workoutClassifier';
 import { useModalHistory } from '../lib/useModalHistory';
@@ -2186,7 +2187,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                   <span className={`${themeId === 'amber' ? 'text-fuchsia-600' : 'text-fuchsia-400'} font-black text-xs`} title="Drop Set">↓</span>
                                 )}
                                 {set.isWarmup && (
-                                  <span className="text-amber-500 font-black text-xs" title="Warmup Set">⌇⌇⌇</span>
+                                  <WarmupIcon className="w-3.5 h-3 text-amber-500 inline-block shrink-0 align-middle ml-0.5" title="Warmup Set" />
                                 )}
                               </div>
                             </div>
@@ -2647,11 +2648,11 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             </div>
           </div>
 
-          {/* Calories */}
+          {/* Intake */}
           <div className="space-y-1.5">
             <label className="flex items-center gap-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
               <Flame className="w-3.5 h-3.5 text-amber-500" />
-              Calories
+              Intake
             </label>
             <div className="bg-slate-950 px-2 py-2 rounded-none border border-slate-850 flex items-center justify-between gap-1 h-10">
               <input
@@ -3383,7 +3384,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                           <div className="flex items-center gap-1.5 text-slate-200 shrink-0 text-right">
                             <span className="text-slate-400 font-bold">
                               Set {item.setNumber}
-                              {item.isWarmup && <span className="text-amber-500 font-black ml-0.5" title="Warmup Set">⌇⌇⌇</span>}
+                              {item.isWarmup && <WarmupIcon className="w-3.5 h-3 text-amber-500 inline-block ml-0.5 shrink-0 align-middle" title="Warmup Set" />}
                               {item.isDropSet && <span className="text-rose-500 font-black ml-0.5 animate-pulse" title="Drop Set">↓</span>}
                               {' '}-
                             </span>
