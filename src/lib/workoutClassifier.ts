@@ -92,7 +92,7 @@ export function getRollingBaselineE1RM(
 
   for (const log of priorLogsNewestFirst) {
     const matchedEx = log.exercises.find(ex => ex.name.trim().toLowerCase() === normName);
-    if (matchedEx && matchedEx.sets && matchedEx.sets.length > 0) {
+    if (matchedEx && !matchedEx.isSkipped && matchedEx.sets && matchedEx.sets.length > 0) {
       let maxSetE1RM = 0;
       matchedEx.sets.forEach(set => {
         const reps = set.reps || 0;

@@ -1182,6 +1182,20 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     });
   };
 
+  const handleToggleSkipExercise = (idx: number) => {
+    setExercises(prev =>
+      prev.map((ex, i) => {
+        if (i === idx) {
+          return {
+            ...ex,
+            isSkipped: !ex.isSkipped
+          };
+        }
+        return ex;
+      })
+    );
+  };
+
   const handleToggleDropSet = (exIdx: number, setIdx: number) => {
     setExercises(prev =>
       prev.map((ex, i) => {
@@ -2111,7 +2125,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                   </div>
 
                   <div className="flex flex-col gap-1 min-w-0">
-                    <h4 className="font-black text-sm sm:text-base text-indigo-300 uppercase tracking-wide break-words">
+                    <h4 className={`font-black text-sm sm:text-base ${ex.isSkipped ? 'text-amber-400/80 line-through' : 'text-indigo-300'} uppercase tracking-wide break-words`}>
                       {ex.name}
                     </h4>
                     {!isOneOff && Number(weekNum) > 1 ? (
@@ -2147,9 +2161,31 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                   </div>
                 </div>
 
+                {/* Skipped Notice Banner */}
+                {ex.isSkipped && (
+                  <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-2.5 flex items-center justify-between gap-2 font-mono">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                      <span className="text-xs font-black text-amber-400 uppercase tracking-wider">
+                        Skipped This Session
+                      </span>
+                      <span className="text-[11px] text-slate-400 hidden sm:inline">
+                        (Preserves baseline targets for future workouts)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleSkipExercise(exIdx)}
+                      className="text-xs font-black text-amber-400 hover:text-amber-300 underline cursor-pointer shrink-0"
+                    >
+                      UNSKIP
+                    </button>
+                  </div>
+                )}
+
                 {/* Set logging details */}
                 {!isCollapsed && (
-                  <div className="p-0 space-y-0">
+                  <div className={`p-0 space-y-0 transition-opacity ${ex.isSkipped ? 'opacity-30 pointer-events-none' : ''}`}>
                     {/* Sets Column Header */}
                     <div className={`grid ${gridColsClass} gap-1 px-2 py-2 bg-slate-950/50 border-b border-slate-850 text-[10px] font-black text-slate-400 uppercase tracking-wider text-center`}>
                       <span className="text-center text-slate-500">Set</span>
@@ -2670,8 +2706,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           </div>
         </div>
 
-        {/* Soreness & Quality sliders */}
-        <div className="space-y-3.5 pt-2">
+        {/* Soreness & Quality 10-button selectors */}
+        <div className="space-y-4 pt-2">
           {/* Soreness Rating */}
           <div className="space-y-1.5">
             <div className="flex justify-between items-center">
@@ -2680,22 +2716,35 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                 <button
                   type="button"
                   onClick={() => setShowSorenessInfo(true)}
-                  className="p-1 hover:bg-slate-800 text-slate-500 hover:text-indigo-400 rounded-full transition flex items-center justify-center cursor-pointer"
+                  className={`p-1 hover:bg-slate-800 text-slate-500 ${themeId === 'amber' ? 'hover:text-amber-400' : 'hover:text-indigo-400'} rounded-full transition flex items-center justify-center cursor-pointer`}
                   title="Muscle soreness information"
                 >
                   <Info className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <span className="text-indigo-400 font-mono font-black text-[16px]">{soreness}/10</span>
+              <span className={`${themeId === 'amber' ? 'text-amber-500' : 'text-indigo-400'} font-mono font-black text-[16px]`}>{soreness}/10</span>
             </div>
-            <input
-              type="range"
-              min="1"
-              max="10"
-              value={soreness}
-              onChange={e => setSoreness(Number(e.target.value))}
-              className="w-full h-1.5 bg-slate-950 rounded-none appearance-none cursor-pointer accent-indigo-500"
-            />
+            <div className="grid grid-cols-10 gap-1 w-full pt-0.5">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(val => {
+                const isSelected = soreness === val;
+                return (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setSoreness(val)}
+                    className={`h-9 rounded-none font-mono text-xs font-bold transition-all cursor-pointer flex items-center justify-center border ${
+                      isSelected
+                        ? themeId === 'amber'
+                          ? 'bg-amber-500 border-amber-400 text-slate-950 font-black shadow-sm'
+                          : 'bg-indigo-600 border-indigo-500 text-white font-black shadow-sm shadow-indigo-600/30'
+                        : 'bg-slate-950 border-slate-850 text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+                    }`}
+                  >
+                    {val}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Quality Rating */}
@@ -2706,22 +2755,35 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                 <button
                   type="button"
                   onClick={() => setShowQualityInfo(true)}
-                  className="p-1 hover:bg-slate-800 text-slate-500 hover:text-cyan-400 rounded-full transition flex items-center justify-center cursor-pointer"
+                  className={`p-1 hover:bg-slate-800 text-slate-500 ${themeId === 'amber' ? 'hover:text-amber-400' : 'hover:text-cyan-400'} rounded-full transition flex items-center justify-center cursor-pointer`}
                   title="Workout quality information"
                 >
                   <Info className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <span className="text-cyan-400 font-mono font-black text-[16px]">{motivation}/10</span>
+              <span className={`${themeId === 'amber' ? 'text-amber-500' : 'text-cyan-400'} font-mono font-black text-[16px]`}>{motivation}/10</span>
             </div>
-            <input
-              type="range"
-              min="1"
-              max="10"
-              value={motivation}
-              onChange={e => setMotivation(Number(e.target.value))}
-              className="w-full h-1.5 bg-slate-950 rounded-none appearance-none cursor-pointer accent-cyan-500"
-            />
+            <div className="grid grid-cols-10 gap-1 w-full pt-0.5">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(val => {
+                const isSelected = motivation === val;
+                return (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setMotivation(val)}
+                    className={`h-9 rounded-none font-mono text-xs font-bold transition-all cursor-pointer flex items-center justify-center border ${
+                      isSelected
+                        ? themeId === 'amber'
+                          ? 'bg-amber-500 border-amber-400 text-slate-950 font-black shadow-sm'
+                          : 'bg-cyan-600 border-cyan-500 text-white font-black shadow-sm shadow-cyan-600/30'
+                        : 'bg-slate-950 border-slate-850 text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+                    }`}
+                  >
+                    {val}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
@@ -2896,6 +2958,19 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                   <span>Superset with exercise below</span>
                   <div className={`w-4.5 h-4.5 border border-slate-700 bg-slate-950 flex items-center justify-center shrink-0 rounded-none transition-colors ${ex.isSuperset ? 'border-indigo-500 bg-indigo-500/10' : ''}`}>
                     {ex.isSuperset && <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0 stroke-[3]" />}
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    handleToggleSkipExercise(activeExAction);
+                    dismissExAction();
+                  }}
+                  className="w-full text-left bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 hover:border-amber-500/40 rounded-none p-3 text-xs font-bold text-amber-400 transition flex items-center justify-between font-mono cursor-pointer"
+                >
+                  <span>{ex.isSkipped ? 'Unskip Exercise' : 'Skip Exercise This Session'}</span>
+                  <div className={`w-4.5 h-4.5 border border-amber-500/50 bg-slate-950 flex items-center justify-center shrink-0 rounded-none transition-colors ${ex.isSkipped ? 'border-amber-500 bg-amber-500/10' : ''}`}>
+                    {ex.isSkipped && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0 stroke-[3]" />}
                   </div>
                 </button>
 

@@ -46,6 +46,7 @@ export type ExerciseEntry = {
   isMainMovement?: boolean | null;
   movementCategory?: 'compound' | 'isolation';
   equipment?: 'freeweight' | 'machine';
+  isSkipped?: boolean | null;
 };
 
 export type DailyRecoveryMetrics = {

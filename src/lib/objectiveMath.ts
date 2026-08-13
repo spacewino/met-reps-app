@@ -86,7 +86,7 @@ export function getPreviousE1RMForExercise(
 
   for (const log of logs) {
     const matchedEx = log.exercises.find(e => e.name.trim().toLowerCase() === normName);
-    if (matchedEx && matchedEx.sets) {
+    if (matchedEx && !matchedEx.isSkipped && matchedEx.sets) {
       const workingSets = matchedEx.sets.filter(s => !s.isWarmup && s.weight && s.reps);
       const setsToEvaluate = workingSets.length > 0 ? workingSets : matchedEx.sets.filter(s => s.weight && s.reps);
       const e1rms = setsToEvaluate

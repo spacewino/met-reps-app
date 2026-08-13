@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Dumbbell, Feather, Settings, ChevronLeft, ChevronRight, CheckCircle2, Play, Calendar as CalendarIcon, Info, Pencil, Repeat, Check, Plus, X } from 'lucide-react';
+import { Dumbbell, Feather, Settings, ChevronLeft, ChevronRight, CheckCircle2, Play, Calendar as CalendarIcon, Info, Pencil, Repeat, Check, Plus, Minus, X } from 'lucide-react';
 import { Program, WorkoutLog } from '../types';
 import { storage } from '../lib/storage';
 import { getLocalDateString, getTodayLocalDateString, parseLocalDate } from '../lib/dateUtils';
@@ -309,6 +309,9 @@ export function HomeView({
 
             const planned = plannedByDate?.[dateStr];
             const completedCount = completedByDate.get(dateStr) || 0;
+            const offScheduleSessionCompletedToday = Object.values(plannedByDate).find(
+              p => p.status === 'completed' && p.completedDate === dateStr && p.date !== dateStr
+            );
 
             return (
               <button
@@ -336,16 +339,23 @@ export function HomeView({
                       {completedCount > 3 && <span className="text-[7px] text-emerald-400 font-bold font-mono">+</span>}
                     </div>
                   ) : completedCount === 1 ? (
-                    <Check size={14} strokeWidth={3.5} className="text-emerald-400" />
+                    offScheduleSessionCompletedToday ? (
+                      /* Completed on a different day than originally scheduled! Show orange check */
+                      <span title={`Off-schedule workout completed today (originally scheduled for ${offScheduleSessionCompletedToday.date})`}>
+                        <Check size={14} strokeWidth={3.5} className="text-amber-500" />
+                      </span>
+                    ) : (
+                      /* Standard / On-schedule completion: show green check */
+                      <Check size={14} strokeWidth={3.5} className="text-emerald-400" />
+                    )
                   ) : planned ? (
                     planned.status === 'completed' ? (
                       planned.completedDate && planned.completedDate !== dateStr ? (
-                        /* Completed on a different day (early or late)! Show orange check */
-                        <span title={`Completed ${planned.completedDate < dateStr ? 'early' : 'late'} on ${planned.completedDate}`}>
-                          <Check size={14} strokeWidth={3.5} className="text-amber-500" />
+                        /* Originally scheduled for today, but completed on another day! Show green dash */
+                        <span title={`Scheduled workout was completed ${planned.completedDate < dateStr ? 'early' : 'late'} on ${planned.completedDate}`}>
+                          <Minus size={14} strokeWidth={3.5} className="text-emerald-400" />
                         </span>
                       ) : (
-                        /* Completed on this day: already handled by completedCount === 1 (green check) */
                         <div className="w-1.5 h-1.5" />
                       )
                     ) : (
@@ -391,9 +401,25 @@ export function HomeView({
         {/* Completed Logs list for this date, if any */}
         {logsForSelected.length > 0 && (
           <div className="space-y-4 mb-4">
-            <div className="flex items-center gap-2 bg-emerald-500/10 text-emerald-400 px-3 py-2 rounded-none border border-emerald-500/20 text-sm font-semibold">
-              <CheckCircle2 className="w-4 h-4" />
-              Completed {logsForSelected.length} Session{logsForSelected.length > 1 ? 's' : ''}!
+            <div className="flex flex-wrap items-center justify-between gap-1.5 bg-emerald-500/10 text-emerald-400 px-3 py-2 rounded-none border border-emerald-500/20 text-sm font-semibold">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>Completed {logsForSelected.length} Session{logsForSelected.length > 1 ? 's' : ''}!</span>
+              </div>
+              {(() => {
+                const offSchedulePlanned = Object.values(plannedByDate).find(
+                  p => p.status === 'completed' && p.completedDate === selectedDate && p.date !== selectedDate
+                );
+                if (offSchedulePlanned) {
+                  const origDateFormatted = parseLocalDate(offSchedulePlanned.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                  return (
+                    <span className="text-xs text-amber-400 font-mono font-medium">
+                      (Workout scheduled on {origDateFormatted})
+                    </span>
+                  );
+                }
+                return null;
+              })()}
             </div>
 
             {logsForSelected.map((log, lIdx) => (
