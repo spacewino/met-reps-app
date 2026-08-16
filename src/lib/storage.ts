@@ -3,8 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Program, WorkoutLog, PlannedSession } from '../types';
+import { Program, WorkoutLog, PlannedSession, AppSettings } from '../types';
 import { getLocalDateString, calculateSessionDate } from './dateUtils';
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  highlightCurrentSet: true,
+};
 
 export const PREBUILT_TEMPLATES: Program[] = [
   {
@@ -199,6 +203,39 @@ export const storage = {
 
   setTheme: (t: string) => {
     localStorage.setItem('metreps_theme', t);
+  },
+
+  getSettings: (): AppSettings => {
+    try {
+      const data = localStorage.getItem('metreps_settings');
+      if (!data) {
+        return { ...DEFAULT_SETTINGS };
+      }
+      return {
+        ...DEFAULT_SETTINGS,
+        ...JSON.parse(data),
+      };
+    } catch {
+      return { ...DEFAULT_SETTINGS };
+    }
+  },
+
+  saveSettings: (settings: Partial<AppSettings>) => {
+    try {
+      const current = storage.getSettings();
+      const updated: AppSettings = { ...current, ...settings };
+      localStorage.setItem('metreps_settings', JSON.stringify(updated));
+    } catch (e) {
+      console.error('Failed to save settings:', e);
+    }
+  },
+
+  getHighlightCurrentSet: (): boolean => {
+    return storage.getSettings().highlightCurrentSet;
+  },
+
+  setHighlightCurrentSet: (val: boolean) => {
+    storage.saveSettings({ highlightCurrentSet: val });
   },
 
   getPlannedSessions: (programId: string): Record<string, PlannedSession> => {

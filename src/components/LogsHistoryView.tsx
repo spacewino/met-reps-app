@@ -14,6 +14,7 @@ import { evaluateAchievements, getSelectedFeaturedTitleId, setSelectedFeaturedTi
 import { classifyWorkout } from '../lib/workoutClassifier';
 import { parseLocalDate } from '../lib/dateUtils';
 import { useModalHistory } from '../lib/useModalHistory';
+import { getHistoricalSetDisplayState } from '../lib/historicalDisplay';
 
 // Format date to: TUE 9 JUN 26 format
 const formatDateWithTwoDigitYear = (dateStr: string) => {
@@ -525,6 +526,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
     const map: Record<string, number> = {};
     workoutLogs.forEach(log => {
       log.exercises.forEach(ex => {
+        if (ex.isSkipped) return;
         const isWeighted = !ex.modality || ex.modality === 'weighted';
         const isBw = ex.modality === 'bodyweight';
         const isAssisted = ex.modality === 'assisted';
@@ -532,6 +534,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
         const isDistance = ex.modality === 'distance';
         if (isWeighted || isBw || isAssisted || isDistanceLoaded || isDistance) {
           ex.sets.forEach(s => {
+            if (s.isSkipped || s.isCompleted === false || s.isWarmup) return;
             const w = s.weight || 0;
             const r = s.reps || 0;
             if (w > 0 && r > 0) {
@@ -650,15 +653,18 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
         else if (/glute/i.test(mg)) mappedMg = 'Glutes';
         else if (/forearm/i.test(mg)) mappedMg = 'Forearms';
 
+        if (ex.isSkipped) return;
+
         if (ex.sets) {
-          const validSetsCount = ex.sets.filter(s => (s.reps || 0) > 0 || (s.weight || 0) > 0).length;
+          const validSets = ex.sets.filter(s => !s.isSkipped && s.isCompleted !== false && ((s.reps || 0) > 0 || (s.weight || 0) > 0));
+          const validSetsCount = validSets.length;
           totalSets += validSetsCount;
 
           if (mappedMg) {
             muscleSetsMap[mappedMg] += validSetsCount;
           }
 
-          ex.sets.forEach(s => {
+          validSets.forEach(s => {
             const r = s.reps || 0;
             const w = s.weight || 0;
             totalReps += r;
@@ -1289,11 +1295,22 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                     <div className="space-y-4">
                       {log.exercises.map((ex, exIdx) => (
                         <div key={exIdx} className="space-y-1.5">
-                          <h4 className="text-xs font-extrabold text-slate-200 flex justify-between uppercase tracking-wider font-sans">
+                          <h4 className={`text-xs font-extrabold flex justify-between uppercase tracking-wider font-sans ${
+                            ex.isSkipped ? 'text-amber-400/80' : 'text-slate-200'
+                          }`}>
                             <span className="flex items-center gap-1">
-                              • {ex.name}
+                              <span className={ex.isSkipped ? 'line-through text-slate-400' : ''}>• {ex.name}</span>
                               {ex.isMainMovement && (
                                 <sup className="text-[9px] text-indigo-400 font-black tracking-normal align-super bg-indigo-500/10 px-1 border border-indigo-500/20 rounded-sm">MM</sup>
+                              )}
+                              {ex.isSkipped && (
+                                <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-none uppercase tracking-wide ml-1 ${
+                                  themeId === 'amber'
+                                    ? 'text-[#B56D3E] bg-[#B56D3E]/10 border border-[#B56D3E]/20'
+                                    : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+                                }`}>
+                                  Skipped
+                                </span>
                               )}
                             </span>
                             <span className="text-[9px] text-indigo-400 font-semibold font-mono">({ex.muscleGroup})</span>
@@ -1301,15 +1318,17 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
 
                           <div className="space-y-1.5 pl-2.5">
                             {ex.sets.map((set, sIdx) => {
+                              const displayState = getHistoricalSetDisplayState(set, !!ex.isSkipped);
                               const isPR = (() => {
+                                if (displayState.isSkipped || ex.isSkipped) return false;
                                 const isWeighted = !ex.modality || ex.modality === 'weighted';
                                 const isBw = ex.modality === 'bodyweight';
                                 const isAssisted = ex.modality === 'assisted';
                                 const isDistanceLoaded = ex.modality === 'distance_loaded';
                                 const isDistance = ex.modality === 'distance';
                                 if (!isWeighted && !isBw && !isAssisted && !isDistanceLoaded && !isDistance) return false;
-                                const w = set.weight || 0;
-                                const r = set.reps || 0;
+                                const w = displayState.weight;
+                                const r = displayState.reps;
                                 if (w <= 0 || r <= 0) return false;
                                 let est = 0;
                                 if (isDistance) {
@@ -1322,58 +1341,74 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                                 return prVal && Math.abs(roundedEst - prVal) < 0.05;
                               })();
 
+                              const isDesert = themeId === 'amber';
+
                               return (
                                 <div key={sIdx} className="space-y-1">
                                   <div
-                                    className="text-xs text-slate-400 flex items-center justify-between font-mono py-0.5"
+                                    className={`text-xs flex items-center justify-between font-mono py-0.5 ${
+                                      displayState.isRowMuted ? 'text-slate-500 opacity-80' : 'text-slate-400'
+                                    }`}
                                   >
-                                    <span>
-                                      Set {set.setNumber}
-                                      {set.isWarmup && (
-                                        <WarmupIcon className="w-3.5 h-3 text-amber-500 inline-block shrink-0 align-middle ml-1" title="Warmup Set" />
+                                    <span className="flex items-center flex-wrap gap-1">
+                                      <span>Set {set.setNumber}</span>
+                                      {displayState.isWarmup && (
+                                        <WarmupIcon className="w-3.5 h-3 text-amber-500 inline-block shrink-0 align-middle ml-0.5" title="Warmup Set" />
                                       )}
-                                      {set.isDropSet && (
-                                        <span className={`${themeId === 'amber' ? 'text-fuchsia-600' : 'text-fuchsia-400'} font-extrabold ml-1 animate-pulse`} title="Drop Set">↓</span>
+                                      {displayState.isDropSet && (
+                                        <span className={`${isDesert ? 'text-fuchsia-600' : 'text-fuchsia-400'} font-extrabold ml-0.5 animate-pulse`} title="Drop Set">↓</span>
                                       )}
-                                      :{' '}
+                                      {displayState.showSkippedBadge && (
+                                        <span
+                                          className={`inline-flex items-center text-[9px] font-extrabold px-1.5 py-0.2 rounded-none uppercase tracking-wider ml-1 ${
+                                            isDesert
+                                              ? 'text-[#B56D3E] bg-[#B56D3E]/10 border border-[#B56D3E]/20'
+                                              : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+                                          }`}
+                                          title="Skipped Set (Target Not Performed)"
+                                        >
+                                          Skipped
+                                        </span>
+                                      )}
+                                      <span>:</span>{' '}
                                       {ex.modality === 'bodyweight' ? (
                                         <>
-                                          <strong className="text-indigo-400 font-black">Bodyweight ({set.weight && set.weight !== 0 ? `${set.weight} ${log.unit.toUpperCase()}` : 'BW'})</strong> x{' '}
-                                          <strong className="text-slate-200 font-black">{set.reps || 0}</strong> reps
+                                          <strong className={`${displayState.isRowMuted ? 'text-indigo-400/80 font-semibold' : 'text-indigo-400 font-black'}`}>Bodyweight ({displayState.weight && displayState.weight !== 0 ? `${displayState.weight} ${log.unit.toUpperCase()}` : 'BW'})</strong> x{' '}
+                                          <strong className={`${displayState.isRowMuted ? 'text-slate-400 font-semibold' : 'text-slate-200 font-black'}`}>{displayState.reps}</strong> reps
                                         </>
                                       ) : ex.modality === 'timed' ? (
                                         <>
-                                          <strong className="text-slate-200 font-black">{set.weight || 0}</strong> secs
+                                          <strong className={`${displayState.isRowMuted ? 'text-slate-400 font-semibold' : 'text-slate-200 font-black'}`}>{displayState.weight}</strong> secs
                                         </>
                                       ) : ex.modality === 'distance' ? (
                                         <>
-                                          <strong className="text-slate-200 font-black">{set.reps || 0}</strong> meters in <strong className="text-slate-200 font-black">{set.weight || 0}</strong> secs
+                                          <strong className={`${displayState.isRowMuted ? 'text-slate-400 font-semibold' : 'text-slate-200 font-black'}`}>{displayState.reps}</strong> meters in <strong className={`${displayState.isRowMuted ? 'text-slate-400 font-semibold' : 'text-slate-200 font-black'}`}>{displayState.weight}</strong> secs
                                         </>
                                       ) : ex.modality === 'distance_loaded' ? (
                                         <>
-                                          <strong className="text-slate-200 font-black">{set.weight || 0}</strong> {log.unit} x <strong className="text-slate-200 font-black">{set.reps || 0}</strong> meters
+                                          <strong className={`${displayState.isRowMuted ? 'text-slate-400 font-semibold' : 'text-slate-200 font-black'}`}>{displayState.weight}</strong> {log.unit} x <strong className={`${displayState.isRowMuted ? 'text-slate-400 font-semibold' : 'text-slate-200 font-black'}`}>{displayState.reps}</strong> meters
                                         </>
                                       ) : ex.modality === 'assisted' ? (
                                         <>
-                                          <strong className="text-slate-200 font-black">{set.weight || 0}</strong> {log.unit} assist x{' '}
-                                          <strong className="text-slate-200 font-black">{set.reps || 0}</strong> reps
+                                          <strong className={`${displayState.isRowMuted ? 'text-slate-400 font-semibold' : 'text-slate-200 font-black'}`}>{displayState.weight}</strong> {log.unit} assist x{' '}
+                                          <strong className={`${displayState.isRowMuted ? 'text-slate-400 font-semibold' : 'text-slate-200 font-black'}`}>{displayState.reps}</strong> reps
                                         </>
                                       ) : (
                                         <>
-                                          <strong className="text-slate-200 font-black">{set.weight || 0}</strong> {log.unit} x{' '}
-                                          <strong className="text-slate-200 font-black">{set.reps || 0}</strong> reps
+                                          <strong className={`${displayState.isRowMuted ? 'text-slate-400 font-semibold' : 'text-slate-200 font-black'}`}>{displayState.weight}</strong> {log.unit} x{' '}
+                                          <strong className={`${displayState.isRowMuted ? 'text-slate-400 font-semibold' : 'text-slate-200 font-black'}`}>{displayState.reps}</strong> reps
                                         </>
                                       )}
                                       {isPR && (
                                         <span className={`inline-flex items-center gap-0.5 text-[8px] font-extrabold px-1 py-0.5 rounded uppercase tracking-tight animate-pulse shrink-0 ml-1.5 ${
-                                          themeId === 'amber'
+                                          isDesert
                                             ? 'text-[#B56D3E] bg-[#B56D3E]/10 border border-[#B56D3E]/20'
                                             : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
                                         }`} title="Personal Record!">
-                                          <Award className={`w-2.5 h-2.5 shrink-0 ${themeId === 'amber' ? 'text-[#B56D3E]' : 'text-amber-400'}`} /> PR
+                                          <Award className={`w-2.5 h-2.5 shrink-0 ${isDesert ? 'text-[#B56D3E]' : 'text-amber-400'}`} /> PR
                                         </span>
                                       )}
-                                      {set.isDropSet && set.dropSubSets && set.dropSubSets.length > 0 && (
+                                      {displayState.isDropSet && set.dropSubSets && set.dropSubSets.length > 0 && (
                                         <button
                                           type="button"
                                           onClick={(e) => {
@@ -1382,7 +1417,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                                             setExpandedDropSets(prev => ({ ...prev, [key]: !prev[key] }));
                                           }}
                                           className={`ml-2 text-[9px] font-black px-1.5 py-0.5 rounded cursor-pointer transition flex items-center gap-1 inline-flex font-sans ${
-                                            themeId === 'amber'
+                                            isDesert
                                               ? 'text-fuchsia-700 bg-fuchsia-50/70 hover:bg-fuchsia-100 border border-fuchsia-200/50'
                                               : 'text-fuchsia-400 hover:text-fuchsia-300 bg-fuchsia-950/40 hover:bg-fuchsia-950/60 border border-fuchsia-900/40'
                                           }`}
@@ -1392,25 +1427,40 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                                         </button>
                                       )}
                                     </span>
-                                    <div className="flex gap-2">
-                                      <span className="text-[10px] text-slate-400 font-bold bg-slate-900 px-1.5 py-0.2 rounded-none border border-slate-850/40">RPE {set.rpe || '—'}</span>
-                                      {set.form && (
-                                        <span className="text-[10px] font-black text-indigo-400 capitalize">{set.form}</span>
+                                    <div className="flex gap-2 items-center shrink-0">
+                                      <span className={`text-[10px] font-bold bg-slate-900 px-1.5 py-0.2 rounded-none border border-slate-850/40 ${
+                                        displayState.isRowMuted ? 'text-slate-500' : 'text-slate-400'
+                                      }`}>
+                                        RPE {displayState.rpe}
+                                      </span>
+                                      {displayState.form && (
+                                        <span className={`text-[10px] font-black capitalize ${
+                                          displayState.isRowMuted ? 'text-indigo-400/70' : 'text-indigo-400'
+                                        }`}>
+                                          {displayState.form}
+                                        </span>
                                       )}
                                     </div>
                                   </div>
- 
+
+                                  {displayState.comment && (
+                                    <div className="text-[10px] text-slate-400/80 italic flex items-center gap-1 pl-2 font-sans">
+                                      <MessageSquare className="w-2.5 h-2.5 text-indigo-400/70 shrink-0" />
+                                      <span>"{displayState.comment}"</span>
+                                    </div>
+                                  )}
+
                                   {/* Render Expanded Drop Sub-sets */}
-                                  {set.isDropSet && expandedDropSets[`${log.id}-${exIdx}-${sIdx}`] && set.dropSubSets && set.dropSubSets.length > 0 && (
+                                  {displayState.isDropSet && expandedDropSets[`${log.id}-${exIdx}-${sIdx}`] && set.dropSubSets && set.dropSubSets.length > 0 && (
                                     <div className={`pl-4 pr-3 py-1.5 space-y-1 rounded-none mt-0.5 text-slate-400 text-xs w-full max-w-md border ${
-                                      themeId === 'amber'
+                                      isDesert
                                         ? 'bg-fuchsia-50/40 border-fuchsia-100/60'
                                         : 'bg-fuchsia-950/5 border-fuchsia-950/15'
                                     }`}>
                                       {set.dropSubSets.map((sub, subIdx) => (
                                         <div key={subIdx} className="flex justify-between items-center py-0.5 font-mono text-[11px]">
                                           <span className="text-slate-500">└ Drop {subIdx + 1}:</span>
-                                          <span className={`font-bold ${themeId === 'amber' ? 'text-fuchsia-700' : 'text-fuchsia-400'}`}>
+                                          <span className={`font-bold ${isDesert ? 'text-fuchsia-700' : 'text-fuchsia-400'}`}>
                                             {ex.modality === 'bodyweight' ? (
                                               <>BW ({sub.weight || 'BW'}) x {sub.reps || 0} reps</>
                                             ) : ex.modality === 'timed' ? (

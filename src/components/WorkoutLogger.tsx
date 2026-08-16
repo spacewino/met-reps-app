@@ -4,16 +4,61 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Dumbbell, Plus, Trash2, Check, ArrowLeft, Clock, Flame, Smile, Droplet, Coffee, Award, ChevronDown, ChevronUp, BookOpen, Pencil, History, Info, MoreVertical, Link, Lock, Unlock, ClipboardCheck, Gamepad2, Compass, Activity, X } from 'lucide-react';
+import { Dumbbell, Plus, Trash2, Check, ArrowLeft, Clock, Flame, Smile, Droplet, Coffee, Award, ChevronDown, ChevronUp, BookOpen, Pencil, History, Info, MoreVertical, Link, Lock, Unlock, ClipboardCheck, Gamepad2, Compass, Activity, X, AlertTriangle } from 'lucide-react';
 import { Program, WorkoutLog, ExerciseEntry, SetEntry, WeightUnit, DailyRecoveryMetrics, HydrationLevel, mapHydrationToLiters, mapLitersToHydration } from '../types';
 import { storage, PREBUILT_TEMPLATES } from '../lib/storage';
 import { getTodayLocalDateString } from '../lib/dateUtils';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { WarmupIcon } from './WarmupIcon';
-import { calculateObjectiveSets, roundToNearest25, getRTSMultiplier } from '../lib/objectiveMath';
+import { calculateObjectiveSets, calculateAddedSetTarget, roundToNearest25, getRTSMultiplier, findMatchingTemplateExercise, syncAddedSetStructureToProgramDay, extractHistoricalBaselineE1RM, extractTemplateBaselineE1RM } from '../lib/objectiveMath';
 import { calculateE1RMForSet } from '../lib/workoutClassifier';
+import { isEligibleStrengthMainMovement, getEligibleMainMovementCount, updateProgramDayMainMovement } from '../lib/programMetadata';
 import { useModalHistory } from '../lib/useModalHistory';
+import {
+  prepareExercisesForSave,
+  remapAfterExerciseDelete,
+  remapAfterSetDelete,
+  remapAfterExerciseReplace,
+  remapAfterExerciseMove,
+  remapAfterSetMove,
+  remapAfterSetInsert,
+} from '../lib/workoutCompletion';
+import {
+  PrescribedTargetSnapshotMap,
+  CommittedLiveEvidenceMap,
+  LiveAdjustedSetMap,
+  capturePrescribedSnapshotsFromExercises,
+  createCommittedLiveEvidenceValue,
+  prepareLiveAdjustmentParams,
+  applyLiveAdjustmentResult,
+  canRestorePlannedTargets,
+  restorePlannedTargetsForExercise,
+  getWorkingSetRowIndex,
+  shouldShowLowRPEExplanation,
+} from '../lib/liveAdjustmentSession';
+import { calculateLiveSetAdjustments } from '../lib/liveAdjustmentMath';
+import type { FatiguePriorProfile } from '../lib/setDistribution';
+import {
+  canSkipSet,
+  canUnskipSet,
+  isValidSkippedSuffix,
+  hasSkippedWorkingSets,
+} from '../lib/setSkipRules';
+import {
+  formatGuideRowKey,
+  isRowEligibleForGuide,
+  findNextEligibleGuideRow,
+  reconcileGuideAfterSetDelete,
+  reconcileGuideAfterExerciseDelete,
+  reconcileGuideAfterSetSkip,
+  reconcileGuideAfterExerciseSkip,
+  reconcileGuideAfterExerciseMove,
+  reconcileGuideAfterSetMove,
+  reconcileGuideAfterWarmupChange,
+  reconcileGuideAfterExerciseReplace,
+  resolveInitialGuideKey,
+} from '../lib/currentSetGuideMath';
 
 function formatDayMonYear(dateStr: string): string {
   try {
@@ -30,6 +75,33 @@ function formatDayMonYear(dateStr: string): string {
     console.error('Error formatting date in formatDayMonYear:', e);
   }
   return dateStr;
+}
+
+export function resolveEffectiveAlgorithmPolicyB(
+  objective: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload',
+  rawAlgorithmId?: string | null
+): string {
+  if (objective === 'Hypertrophy') {
+    if (rawAlgorithmId === 'hypertrophy_linear' || rawAlgorithmId === 'hypertrophy_step') {
+      return rawAlgorithmId;
+    }
+    if (rawAlgorithmId === undefined || rawAlgorithmId === null || rawAlgorithmId === 'none' || rawAlgorithmId === '') {
+      return 'hypertrophy_linear';
+    }
+    return rawAlgorithmId;
+  }
+
+  if (objective === 'Strength') {
+    if (rawAlgorithmId === 'strength_undulating' || rawAlgorithmId === 'strength_linear') {
+      return rawAlgorithmId;
+    }
+    if (rawAlgorithmId === undefined || rawAlgorithmId === null || rawAlgorithmId === 'none' || rawAlgorithmId === '') {
+      return 'strength_undulating';
+    }
+    return rawAlgorithmId;
+  }
+
+  return rawAlgorithmId || 'none';
 }
 
 interface WorkoutLoggerProps {
@@ -151,7 +223,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         const programLogs = sortedLogs.filter(l => l.programId === programId);
         for (const log of programLogs) {
           const matchedEx = log.exercises.find(
-            ex => ex.name.trim().toLowerCase() === exerciseName.trim().toLowerCase()
+            ex => !ex.isSkipped && ex.name.trim().toLowerCase() === exerciseName.trim().toLowerCase()
           );
           if (matchedEx && matchedEx.sets && matchedEx.sets.length > 0) {
             return matchedEx.sets.map(s => ({
@@ -172,7 +244,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       // Fallback to any program logs or one-off logs in database
       for (const log of sortedLogs) {
         const matchedEx = log.exercises.find(
-          ex => ex.name.trim().toLowerCase() === exerciseName.trim().toLowerCase()
+          ex => !ex.isSkipped && ex.name.trim().toLowerCase() === exerciseName.trim().toLowerCase()
         );
         if (matchedEx && matchedEx.sets && matchedEx.sets.length > 0) {
           return matchedEx.sets.map(s => ({
@@ -230,12 +302,16 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           previousLogs: storage.getWorkoutLogs(),
           userTouchedSets,
           checkedSets,
+          algorithmId: activeProg?.algorithmId,
         });
         return { ...ex, sets: calculatedSets };
       });
 
       const nextExs = [...exercises, ...calculatedNewItems];
       setExercises(nextExs);
+      setPrescribedTargetSnapshots(prev =>
+        capturePrescribedSnapshotsFromExercises(calculatedNewItems, prev, {}, exercises.length)
+      );
       syncExercisesToActiveProgram(nextExs);
       setSelectorTargetIdx(null);
     } else if (selectorTargetIdx !== null) {
@@ -248,13 +324,23 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         sets: prevSets || [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' as const }],
       };
 
+      // Clean all state records for the replaced exercise index
+      const cleanChecked = remapAfterExerciseReplace(checkedSets, selectorTargetIdx);
+      const cleanTouched = remapAfterExerciseReplace(userTouchedSets, selectorTargetIdx);
+      const cleanCompletionTouched = remapAfterExerciseReplace(completionTouchedSets, selectorTargetIdx);
+      setCheckedSets(cleanChecked);
+      setUserTouchedSets(cleanTouched);
+      setCompletionTouchedSets(cleanCompletionTouched);
+      setCommittedLiveEvidenceBySet(prev => remapAfterExerciseReplace(prev, selectorTargetIdx));
+      setLiveAdjustedSets(prev => remapAfterExerciseReplace(prev, selectorTargetIdx));
+
       // Update userRawExercises backup
       setUserRawExercises(prev => {
         if (!prev) return [replacedItem];
         return prev.map((ex, idx) => idx === selectorTargetIdx ? replacedItem : ex);
       });
 
-      // Calculate the replacement sets
+      // Calculate the replacement sets with cleaned touched/checked states
       const calculatedSets = calculateObjectiveSets({
         objective,
         exercise: replacedItem,
@@ -263,15 +349,25 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         weekNum: Number(weekNum),
         programDuration,
         previousLogs: storage.getWorkoutLogs(),
-        userTouchedSets,
-        checkedSets,
+        userTouchedSets: cleanTouched,
+        checkedSets: cleanChecked,
         algorithmId: activeProg?.algorithmId,
       });
       const finalReplaced = { ...replacedItem, sets: calculatedSets };
 
+      setPrescribedTargetSnapshots(prev => {
+        const cleaned = remapAfterExerciseReplace(prev, selectorTargetIdx);
+        return capturePrescribedSnapshotsFromExercises([finalReplaced], cleaned, {}, selectorTargetIdx);
+      });
+
       const nextExs = exercises.map((ex, idx) => (idx === selectorTargetIdx ? finalReplaced : ex));
       setExercises(nextExs);
       syncExercisesToActiveProgram(nextExs);
+      if (highlightCurrentSet) {
+        setCurrentSetGuideKey(current => reconcileGuideAfterExerciseReplace(current, selectorTargetIdx, nextExs));
+      } else {
+        setCurrentSetGuideKey(null);
+      }
       setSelectorTargetIdx(null);
     }
   };
@@ -431,11 +527,51 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const [userRawExercises, setUserRawExercises] = useState<ExerciseEntry[] | null>(null);
   const [userTouchedSets, setUserTouchedSets] = useState<Record<string, boolean>>({});
 
-  // Set-level checkbox tracking for satisfying UX
+  // Set-level checkbox tracking for UX and completion persistence
   const [checkedSets, setCheckedSets] = useState<Record<string, boolean>>({});
+  // Set-level explicit checkbox interaction tracking during current session
+  const [completionTouchedSets, setCompletionTouchedSets] = useState<Record<string, boolean>>({});
+
+  // Phase 2B-2A-2 Draft-only Live Adjustment session maps
+  const [prescribedTargetSnapshots, setPrescribedTargetSnapshots] = useState<PrescribedTargetSnapshotMap>({});
+  const [committedLiveEvidenceBySet, setCommittedLiveEvidenceBySet] = useState<CommittedLiveEvidenceMap>({});
+  const [liveAdjustedSets, setLiveAdjustedSets] = useState<LiveAdjustedSetMap>({});
+
+  // Focus tracking for target adjustment protection (internal only, no visual highlighting)
+  const [focusedSetKey, setFocusedSetKey] = useState<string | null>(null);
+
+  // Current Working Set Guide state (visual navigation aid only)
+  const [currentSetGuideKey, setCurrentSetGuideKey] = useState<string | null>(null);
+  const highlightCurrentSet = storage.getHighlightCurrentSet();
+
+  // Non-intrusive live adjustment toast notification
+  const [liveAdjustmentToast, setLiveAdjustmentToast] = useState<string | null>(null);
+  const toastTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
+
+  const showLiveAdjustmentToast = (message: string = "Later-set targets adjusted for today's performance.") => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
+    setLiveAdjustmentToast(message);
+    toastTimerRef.current = setTimeout(() => {
+      setLiveAdjustmentToast(null);
+      toastTimerRef.current = null;
+    }, 2500);
+  };
 
   // Collapsed states
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
+
+  // Add Set blocked warning when skipped sets exist
+  const [addSetBlockedWarning, setAddSetBlockedWarning] = useState<Record<number, string | null>>({});
 
   // Dialog and contextual action states
   const [deleteExerciseIdx, setDeleteExerciseIdx] = useState<number | null>(null);
@@ -554,18 +690,23 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         setStartTime(existingLog.startTime);
       }
 
-      // Pre-check all sets so they show as checked in edit mode
+      // Initialize checked sets from existingLog (completed sets checked, legacy undefined sets default checked)
       const initialChecked: Record<string, boolean> = {};
       existingLog.exercises.forEach((ex, exIdx) => {
-        ex.sets.forEach((_, sIdx) => {
-          initialChecked[`${exIdx}-${sIdx}`] = true;
+        ex.sets.forEach((s, sIdx) => {
+          initialChecked[`${exIdx}-${sIdx}`] = s.isCompleted !== false;
         });
       });
       setCheckedSets(initialChecked);
+      setCompletionTouchedSets({});
       setCollapsed({});
       setObjective(existingLog.objective || 'Off');
       setUserRawExercises(existingLog.exercises || []);
       setUserTouchedSets({});
+      setPrescribedTargetSnapshots({});
+      setCommittedLiveEvidenceBySet({});
+      setLiveAdjustedSets({});
+      setCurrentSetGuideKey(null);
       setIsDraftLoaded(true);
       return;
     }
@@ -620,10 +761,15 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           setSoreness(3);
           setMotivation(5);
           setCheckedSets({});
+          setCompletionTouchedSets({});
           setCollapsed({});
           setObjective('Off');
           setUserRawExercises(JSON.parse(JSON.stringify(prefilled)));
           setUserTouchedSets({});
+          setPrescribedTargetSnapshots({});
+          setCommittedLiveEvidenceBySet({});
+          setLiveAdjustedSets({});
+          setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(null, finalPre) : null);
           setIsDraftLoaded(true);
           return;
         }
@@ -671,7 +817,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum));
 
         if (matches) {
-          setExercises(draft.exercises || []);
+          const loadedExercises = draft.exercises || [];
+          setExercises(loadedExercises);
           setDuration(draft.duration || 60);
           setNotes(draft.notes || '');
           setSleep(draft.sleep ?? 7.5);
@@ -686,10 +833,15 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           setSoreness(draft.soreness ?? 3);
           setMotivation(draft.motivation ?? 5);
           setCheckedSets(draft.checkedSets || {});
+          setCompletionTouchedSets(draft.completionTouchedSets || {});
           setCollapsed(draft.collapsed || {});
           setObjective(draft.objective || 'Off');
           setUserRawExercises(draft.userRawExercises || draft.exercises || []);
           setUserTouchedSets(draft.userTouchedSets || {});
+          setPrescribedTargetSnapshots(draft.prescribedTargetSnapshots || {});
+          setCommittedLiveEvidenceBySet(draft.committedLiveEvidenceBySet || {});
+          setLiveAdjustedSets(draft.liveAdjustedSets || {});
+          setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(draft, loadedExercises) : null);
           if (draft.startTime) {
             setStartTime(draft.startTime);
           }
@@ -747,6 +899,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         // Apply objective calculations if defaultObjective is not 'Off'
         const programDuration = activeProgLocal.programDuration !== '∞' ? Number(activeProgLocal.programDuration) : 8;
         const finalPre = prefilled.map((ex, exIdx) => {
+          const templateEx = findMatchingTemplateExercise(ex, templates, exIdx);
           const calculated = calculateObjectiveSets({
             objective: defaultObjective,
             exercise: ex,
@@ -758,6 +911,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             userTouchedSets: {},
             checkedSets: {},
             algorithmId: activeProgLocal.algorithmId,
+            templateExercise: templateEx,
           });
           return { ...ex, sets: calculated };
         });
@@ -765,6 +919,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         setExercises(finalPre);
         setUserRawExercises(JSON.parse(JSON.stringify(prefilled)));
         setUserTouchedSets({});
+        setPrescribedTargetSnapshots(capturePrescribedSnapshotsFromExercises(finalPre, {}, {}));
+        setCommittedLiveEvidenceBySet({});
+        setLiveAdjustedSets({});
+        setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(null, finalPre) : null);
         setObjective(defaultObjective);
         setIsDraftLoaded(true);
         return;
@@ -776,6 +934,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       setExercises([]);
       setUserRawExercises([]);
       setUserTouchedSets({});
+      setPrescribedTargetSnapshots({});
+      setCommittedLiveEvidenceBySet({});
+      setLiveAdjustedSets({});
+      setCurrentSetGuideKey(null);
       setObjective(defaultObjective);
     } else {
       const defaultName = 'Barbell Bench Press (flat)';
@@ -807,6 +969,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       setExercises(finalPre);
       setUserRawExercises(JSON.parse(JSON.stringify(prefilled)));
       setUserTouchedSets({});
+      setPrescribedTargetSnapshots(capturePrescribedSnapshotsFromExercises(finalPre, {}, {}));
+      setCommittedLiveEvidenceBySet({});
+      setLiveAdjustedSets({});
+      setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(null, finalPre) : null);
       setObjective(defaultObjective);
     }
     setIsDraftLoaded(true);
@@ -816,7 +982,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   useEffect(() => {
     if (!isDraftLoaded) return;
 
-    const draftData = {
+    const draftData: Record<string, any> = {
       programId,
       programName,
       weekNum,
@@ -834,12 +1000,20 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       soreness,
       motivation,
       checkedSets,
+      completionTouchedSets,
       collapsed,
       objective,
       userRawExercises,
       userTouchedSets,
       startTime,
+      prescribedTargetSnapshots,
+      committedLiveEvidenceBySet,
+      liveAdjustedSets,
     };
+
+    if (highlightCurrentSet) {
+      draftData.currentSetGuideKey = currentSetGuideKey;
+    }
 
     localStorage.setItem('metreps_workout_draft', JSON.stringify(draftData));
     setHasExistingDraft(true);
@@ -862,11 +1036,17 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     soreness,
     motivation,
     checkedSets,
+    completionTouchedSets,
     collapsed,
     objective,
     userRawExercises,
     userTouchedSets,
     startTime,
+    prescribedTargetSnapshots,
+    committedLiveEvidenceBySet,
+    liveAdjustedSets,
+    currentSetGuideKey,
+    highlightCurrentSet,
   ]);
 
   const handleDiscardDraft = () => {
@@ -915,6 +1095,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         // Apply objective calculations if defaultObjective is not 'Off'
         const programDuration = activeProgLocal.programDuration !== '∞' ? Number(activeProgLocal.programDuration) : 8;
         const finalPre = prefilled.map((ex, exIdx) => {
+          const templateEx = templates[exIdx];
           const calculated = calculateObjectiveSets({
             objective: defaultObjective,
             exercise: ex,
@@ -926,6 +1107,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             userTouchedSets: {},
             checkedSets: {},
             algorithmId: activeProgLocal.algorithmId,
+            templateExercise: templateEx,
           });
           return { ...ex, sets: calculated };
         });
@@ -933,17 +1115,29 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         setExercises(finalPre);
         setUserRawExercises(JSON.parse(JSON.stringify(prefilled)));
         setUserTouchedSets({});
+        setPrescribedTargetSnapshots(capturePrescribedSnapshotsFromExercises(finalPre, {}, {}));
+        setCommittedLiveEvidenceBySet({});
+        setLiveAdjustedSets({});
+        setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(null, finalPre) : null);
         setObjective(defaultObjective);
       } else {
         setExercises([]);
         setUserRawExercises([]);
         setUserTouchedSets({});
+        setPrescribedTargetSnapshots({});
+        setCommittedLiveEvidenceBySet({});
+        setLiveAdjustedSets({});
+        setCurrentSetGuideKey(null);
         setObjective(defaultObjective);
       }
     } else if (isOneOff) {
       setExercises([]);
       setUserRawExercises([]);
       setUserTouchedSets({});
+      setPrescribedTargetSnapshots({});
+      setCommittedLiveEvidenceBySet({});
+      setLiveAdjustedSets({});
+      setCurrentSetGuideKey(null);
       setObjective(defaultObjective);
     } else {
       const defaultName = 'Barbell Bench Press (flat)';
@@ -975,6 +1169,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       setExercises(finalPre);
       setUserRawExercises(JSON.parse(JSON.stringify(prefilled)));
       setUserTouchedSets({});
+      setPrescribedTargetSnapshots(capturePrescribedSnapshotsFromExercises(finalPre, {}, {}));
+      setCommittedLiveEvidenceBySet({});
+      setLiveAdjustedSets({});
+      setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(null, finalPre) : null);
       setObjective(defaultObjective);
     }
 
@@ -987,6 +1185,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     setSoreness(3);
     setMotivation(5);
     setCheckedSets({});
+    setCompletionTouchedSets({});
     setCollapsed({});
 
     setTimeout(() => {
@@ -1008,11 +1207,14 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const activeProg = programId ? storage.getPrograms().find(p => p.id === programId) : null;
     const programDuration = activeProg && activeProg.programDuration !== '∞' ? Number(activeProg.programDuration) : 8;
     const touched = customTouched || userTouchedSets;
+    const programDayTemplates = (activeProg && activeProg.exercisesByDay?.[Number(dayNum)]) || null;
 
     return list.map((ex, exIdx) => {
       if (activeObj === 'Off') {
         return ex;
       }
+
+      const templateEx = findMatchingTemplateExercise(ex, programDayTemplates, exIdx);
 
       const calculated = calculateObjectiveSets({
         objective: activeObj,
@@ -1025,6 +1227,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         userTouchedSets: touched,
         checkedSets,
         algorithmId: activeProg?.algorithmId,
+        templateExercise: templateEx,
       });
 
       return { ...ex, sets: calculated };
@@ -1036,25 +1239,50 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
     // Apply the objective immediately
     setObjective(newObjective);
-    setExercises(prev => {
-      return applyObjectiveCalculationsToExercises(prev, newObjective);
-    });
+    const updated = applyObjectiveCalculationsToExercises(exercises, newObjective);
+    setExercises(updated);
+    setPrescribedTargetSnapshots(prevSnaps =>
+      capturePrescribedSnapshotsFromExercises(updated, prevSnaps, userTouchedSets)
+    );
+    setCommittedLiveEvidenceBySet({});
+    setLiveAdjustedSets({});
 
     // Show a prompt if switching to Strength with no main movement selected
     if (newObjective === 'Strength') {
-      const hasMainMovement = exercises.some(ex => !!ex.isMainMovement);
-      if (!hasMainMovement) {
+      const eligibleCount = getEligibleMainMovementCount(updated);
+      if (eligibleCount === 0) {
         setShowStrengthMainMovementPrompt(true);
       }
     }
   };
 
+  const persistMainMovementMetadata = (targetIdx: number | null, activeExerciseName?: string) => {
+    if (isOneOff || !programId || !dayNum) return;
+    try {
+      const programs = storage.getPrograms();
+      const currentProg = programs.find(p => p.id === programId) || PREBUILT_TEMPLATES.find(p => p.id === programId);
+      if (!currentProg) return;
+
+      const dayInt = Number(dayNum);
+      const result = updateProgramDayMainMovement(currentProg, dayInt, targetIdx, activeExerciseName);
+      if (result.success && result.updatedProgram) {
+        storage.saveProgram(result.updatedProgram);
+      } else if (!result.success && result.error) {
+        setAlertMsg(result.error);
+      }
+    } catch (e) {
+      console.error('Failed to persist main movement metadata to program template:', e);
+    }
+  };
+
   const toggleMainMovement = (targetIdx: number) => {
-    if (!isOneOff && Number(weekNum) > 1) {
+    const eligibleCount = getEligibleMainMovementCount(exercises);
+    if (!isOneOff && Number(weekNum) > 1 && eligibleCount === 1) {
       setAlertMsg("The Main Movement is locked after Week 1 to prevent disrupting your periodised loading progression and weight recommendations.");
       return;
     }
     const targetEx = exercises[targetIdx];
+    if (!targetEx) return;
     const isCurrentlyMain = !!targetEx.isMainMovement;
 
     if (isCurrentlyMain) {
@@ -1069,9 +1297,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         const updated = applyObjectiveCalculationsToExercises(baseUpdated, objective);
         return updated;
       });
+      persistMainMovementMetadata(null);
     } else {
       const currentMainIdx = exercises.findIndex(ex => !!ex.isMainMovement);
-      if (currentMainIdx !== -1) {
+      if (currentMainIdx !== -1 && eligibleCount === 1) {
         setSwapMainTargetIdx(targetIdx);
       } else {
         setExercises(prev => {
@@ -1082,6 +1311,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           const updated = applyObjectiveCalculationsToExercises(baseUpdated, objective);
           return updated;
         });
+        persistMainMovementMetadata(targetIdx, targetEx.name);
       }
     }
   };
@@ -1089,6 +1319,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const handleConfirmSwapMainMovement = () => {
     if (swapMainTargetIdx === null) return;
     const targetEx = exercises[swapMainTargetIdx];
+    const targetName = targetEx ? targetEx.name : undefined;
 
     setExercises(prev => {
       const baseUpdated = prev.map((ex, idx) => {
@@ -1099,7 +1330,24 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       return updated;
     });
 
+    persistMainMovementMetadata(swapMainTargetIdx, targetName);
     setSwapMainTargetIdx(null);
+  };
+
+  const syncAddedSetStructureToActiveProgram = (currentEx: ExerciseEntry, exIdx: number) => {
+    if (!programId) return;
+    try {
+      const activeProg = storage.getPrograms().find(p => p.id === programId);
+      const dayIndex = Number(dayNum);
+      if (activeProg && activeProg.exercisesByDay?.[dayIndex]) {
+        const currentDayTemplates = activeProg.exercisesByDay[dayIndex];
+        const updatedTemplates = syncAddedSetStructureToProgramDay(currentDayTemplates, currentEx, exIdx);
+        activeProg.exercisesByDay[dayIndex] = updatedTemplates;
+        storage.saveProgram(activeProg);
+      }
+    } catch (e) {
+      console.error('Failed to sync added set structure to active program:', e);
+    }
   };
 
   const syncExercisesToActiveProgram = (currentExercises: ExerciseEntry[]) => {
@@ -1163,6 +1411,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     });
     const finalNew = { ...newItem, sets: calculatedSets };
 
+    setPrescribedTargetSnapshots(prev =>
+      capturePrescribedSnapshotsFromExercises([finalNew], prev, {}, exercises.length)
+    );
+
     setExercises(prev => {
       const nextExs = [...prev, finalNew];
       syncExercisesToActiveProgram(nextExs);
@@ -1178,13 +1430,29 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     setExercises(prev => {
       const nextExs = prev.filter((_, i) => i !== idx);
       syncExercisesToActiveProgram(nextExs);
+      setCurrentSetGuideKey(current => reconcileGuideAfterExerciseDelete(current, idx, nextExs));
       return nextExs;
+    });
+    setCheckedSets(prev => remapAfterExerciseDelete(prev, idx));
+    setUserTouchedSets(prev => remapAfterExerciseDelete(prev, idx));
+    setCompletionTouchedSets(prev => remapAfterExerciseDelete(prev, idx));
+    setPrescribedTargetSnapshots(prev => remapAfterExerciseDelete(prev, idx));
+    setCommittedLiveEvidenceBySet(prev => remapAfterExerciseDelete(prev, idx));
+    setLiveAdjustedSets(prev => remapAfterExerciseDelete(prev, idx));
+    setCollapsed(prev => {
+      const next: Record<number, boolean> = {};
+      Object.entries(prev).forEach(([k, v]) => {
+        const i = parseInt(k, 10);
+        if (i < idx) next[i] = v;
+        else if (i > idx) next[i - 1] = v;
+      });
+      return next;
     });
   };
 
   const handleToggleSkipExercise = (idx: number) => {
-    setExercises(prev =>
-      prev.map((ex, i) => {
+    setExercises(prev => {
+      const nextExs = prev.map((ex, i) => {
         if (i === idx) {
           return {
             ...ex,
@@ -1192,8 +1460,11 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           };
         }
         return ex;
-      })
-    );
+      });
+      const isNowSkipped = !!nextExs[idx]?.isSkipped;
+      setCurrentSetGuideKey(current => reconcileGuideAfterExerciseSkip(current, idx, isNowSkipped, nextExs));
+      return nextExs;
+    });
   };
 
   const handleToggleDropSet = (exIdx: number, setIdx: number) => {
@@ -1325,6 +1596,11 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleToggleWarmup = (exIdx: number, setIdx: number) => {
+    const currentEx = exercises[exIdx];
+    if (!currentEx) return;
+    const targetSet = currentEx.sets[setIdx];
+    if (targetSet?.isSkipped) return;
+
     setExercises(prev =>
       prev.map((ex, i) => {
         if (i === exIdx) {
@@ -1338,17 +1614,74 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     );
   };
 
-  const handleAutoWarmup = (exIdx: number, setIdx: number) => {
+  const handleToggleSkipSet = (exIdx: number, setIdx: number) => {
+    const currentEx = exercises[exIdx];
+    if (!currentEx) return;
+    const targetSet = currentEx.sets[setIdx];
+    if (!targetSet || targetSet.isWarmup) return;
+
+    const isSkipping = !targetSet.isSkipped;
+    if (isSkipping) {
+      const check = canSkipSet(currentEx.sets, setIdx);
+      if (!check.allowed) {
+        setAlertMsg(check.reason || 'Cannot skip set');
+        return;
+      }
+    } else {
+      const check = canUnskipSet(currentEx.sets, setIdx);
+      if (!check.allowed) {
+        setAlertMsg(check.reason || 'Cannot unskip set');
+        return;
+      }
+    }
+
+    setUserRawExercises(prev => {
+      if (!prev) return null;
+      return prev.map((ex, i) => {
+        if (i === exIdx) {
+          const sets = ex.sets.map((s, sIdx) =>
+            sIdx === setIdx ? { ...s, isSkipped: isSkipping } : s
+          );
+          return { ...ex, sets };
+        }
+        return ex;
+      });
+    });
+
     setExercises(prev => {
       const nextExs = prev.map((ex, i) => {
         if (i === exIdx) {
-          const targetSet = ex.sets[setIdx];
+          const sets = ex.sets.map((s, sIdx) =>
+            sIdx === setIdx ? { ...s, isSkipped: isSkipping } : s
+          );
+          return { ...ex, sets };
+        }
+        return ex;
+      });
+      setCurrentSetGuideKey(current => reconcileGuideAfterSetSkip(current, exIdx, setIdx, isSkipping, nextExs));
+      return nextExs;
+    });
+
+    // Clear add set blocked warning if unskipping
+    setAddSetBlockedWarning(prev => ({ ...prev, [exIdx]: null }));
+  };
+
+  const handleAutoWarmup = (exIdx: number, setIdx: number) => {
+    const currentEx = exercises[exIdx];
+    if (!currentEx) return;
+    const targetSet = currentEx.sets[setIdx];
+    if (targetSet?.isSkipped) return;
+
+    let nextCombinedSets: SetEntry[] | null = null;
+    setExercises(prev => {
+      const nextExs = prev.map((ex, i) => {
+        if (i === exIdx) {
           const workingWeight = targetSet?.weight && targetSet.weight > 0
             ? targetSet.weight
-            : (ex.sets.find(s => !s.isWarmup && s.weight && s.weight > 0)?.weight || 60);
+            : (ex.sets.find(s => !s.isWarmup && !s.isSkipped && s.weight && s.weight > 0)?.weight || 60);
           const workingReps = targetSet?.reps && targetSet.reps > 0
             ? targetSet.reps
-            : (ex.sets.find(s => !s.isWarmup && s.reps && s.reps > 0)?.reps || 10);
+            : (ex.sets.find(s => !s.isWarmup && !s.isSkipped && s.reps && s.reps > 0)?.reps || 10);
 
           // Strip existing warmup sets to prevent duplicate stacking
           const workingSetsOnly = ex.sets.filter(s => !s.isWarmup);
@@ -1397,6 +1730,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             ...s,
             setNumber: idx + 1
           }));
+          nextCombinedSets = combined;
 
           return { ...ex, sets: combined };
         }
@@ -1405,6 +1739,21 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       syncExercisesToActiveProgram(nextExs);
       return nextExs;
     });
+
+    if (highlightCurrentSet && nextCombinedSets) {
+      setCurrentSetGuideKey(current => reconcileGuideAfterWarmupChange(current, exIdx, currentEx.sets, nextCombinedSets!));
+    }
+
+    const priorWarmupCount = currentEx.sets.filter(s => s.isWarmup).length;
+    const shift = 3 - priorWarmupCount;
+    if (shift > 0) {
+      setCheckedSets(prev => remapAfterSetInsert(prev, exIdx, priorWarmupCount, shift));
+      setUserTouchedSets(prev => remapAfterSetInsert(prev, exIdx, priorWarmupCount, shift));
+      setCompletionTouchedSets(prev => remapAfterSetInsert(prev, exIdx, priorWarmupCount, shift));
+      setPrescribedTargetSnapshots(prev => remapAfterSetInsert(prev, exIdx, priorWarmupCount, shift));
+      setCommittedLiveEvidenceBySet(prev => remapAfterSetInsert(prev, exIdx, priorWarmupCount, shift));
+      setLiveAdjustedSets(prev => remapAfterSetInsert(prev, exIdx, priorWarmupCount, shift));
+    }
   };
 
   const handleOpenCalc = (exIdx: number, setIdx: number) => {
@@ -1430,11 +1779,24 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleMoveSet = (exIdx: number, setIdx: number, direction: 'up' | 'down') => {
+    const targetIdx = direction === 'up' ? setIdx - 1 : setIdx + 1;
+    const currentEx = exercises[exIdx];
+    if (!currentEx || targetIdx < 0 || targetIdx >= currentEx.sets.length) return;
+
+    // Check if swap violates contiguous skip suffix invariant
+    const simulatedSets = [...currentEx.sets];
+    const tempSet = simulatedSets[setIdx];
+    simulatedSets[setIdx] = simulatedSets[targetIdx];
+    simulatedSets[targetIdx] = tempSet;
+    if (!isValidSkippedSuffix(simulatedSets)) {
+      setAlertMsg('Cannot move set because skipped sets must remain at the end of the exercise.');
+      return;
+    }
+
     setUserRawExercises(prev => {
       if (!prev) return null;
       return prev.map((ex, i) => {
         if (i === exIdx) {
-          const targetIdx = direction === 'up' ? setIdx - 1 : setIdx + 1;
           if (targetIdx < 0 || targetIdx >= ex.sets.length) return ex;
           const sets = [...ex.sets];
           const temp = sets[setIdx];
@@ -1450,8 +1812,6 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     setExercises(prev => {
       const nextExs = prev.map((ex, i) => {
         if (i === exIdx) {
-          const targetIdx = direction === 'up' ? setIdx - 1 : setIdx + 1;
-          if (targetIdx < 0 || targetIdx >= ex.sets.length) return ex;
           const sets = [...ex.sets];
           const temp = sets[setIdx];
           sets[setIdx] = sets[targetIdx];
@@ -1464,6 +1824,14 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       syncExercisesToActiveProgram(nextExs);
       return nextExs;
     });
+
+    setCheckedSets(prev => remapAfterSetMove(prev, exIdx, setIdx, targetIdx));
+    setUserTouchedSets(prev => remapAfterSetMove(prev, exIdx, setIdx, targetIdx));
+    setCompletionTouchedSets(prev => remapAfterSetMove(prev, exIdx, setIdx, targetIdx));
+    setPrescribedTargetSnapshots(prev => remapAfterSetMove(prev, exIdx, setIdx, targetIdx));
+    setCommittedLiveEvidenceBySet(prev => remapAfterSetMove(prev, exIdx, setIdx, targetIdx));
+    setLiveAdjustedSets(prev => remapAfterSetMove(prev, exIdx, setIdx, targetIdx));
+    setCurrentSetGuideKey(prev => reconcileGuideAfterSetMove(prev, exIdx, setIdx, targetIdx));
   };
 
   const handleMoveExercise = (exIdx: number, direction: 'up' | 'down') => {
@@ -1502,29 +1870,14 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       return copy;
     });
 
-    // 4. Remap checkedSets and userTouchedSets keys because the exercise index changed
-    const remapKeys = (prevRecord: Record<string, any>) => {
-      const nextRecord: Record<string, any> = {};
-      Object.entries(prevRecord).forEach(([key, val]) => {
-        const parts = key.split('-');
-        if (parts.length === 2) {
-          const keyExIdx = parseInt(parts[0], 10);
-          const setIdx = parts[1];
-          if (keyExIdx === exIdx) {
-            nextRecord[`${targetIdx}-${setIdx}`] = val;
-          } else if (keyExIdx === targetIdx) {
-            nextRecord[`${exIdx}-${setIdx}`] = val;
-          } else {
-            nextRecord[key] = val;
-          }
-        } else {
-          nextRecord[key] = val;
-        }
-      });
-      return nextRecord;
-    };
-    setCheckedSets(prev => remapKeys(prev));
-    setUserTouchedSets(prev => remapKeys(prev));
+    // 4. Remap checkedSets, userTouchedSets, and completionTouchedSets keys using shared helper
+    setCheckedSets(prev => remapAfterExerciseMove(prev, exIdx, targetIdx));
+    setUserTouchedSets(prev => remapAfterExerciseMove(prev, exIdx, targetIdx));
+    setCompletionTouchedSets(prev => remapAfterExerciseMove(prev, exIdx, targetIdx));
+    setPrescribedTargetSnapshots(prev => remapAfterExerciseMove(prev, exIdx, targetIdx));
+    setCommittedLiveEvidenceBySet(prev => remapAfterExerciseMove(prev, exIdx, targetIdx));
+    setLiveAdjustedSets(prev => remapAfterExerciseMove(prev, exIdx, targetIdx));
+    setCurrentSetGuideKey(prev => reconcileGuideAfterExerciseMove(prev, exIdx, targetIdx));
 
     // 5. Persist to active program (exercisesByDay) if inside a program workout
     if (programId) {
@@ -1579,21 +1932,63 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleAddSet = (exIdx: number) => {
-    const nextSetNum = (exercises[exIdx]?.sets?.length || 0) + 1;
-    const lastSet = exercises[exIdx]?.sets[exercises[exIdx].sets.length - 1] || { weight: 0, reps: 0, rpe: 8, form: 'standard' as const };
-    const rawSetEntry = {
+    if (hasSkippedWorkingSets(exercises[exIdx]?.sets)) {
+      setAddSetBlockedWarning(prev => ({
+        ...prev,
+        [exIdx]: 'Restore skipped sets before adding another set.'
+      }));
+      return;
+    }
+    setAddSetBlockedWarning(prev => ({ ...prev, [exIdx]: null }));
+
+    const currentEx = exercises[exIdx];
+    if (!currentEx) return;
+
+    const nextSetNum = (currentEx.sets?.length || 0) + 1;
+
+    // Safe lookup of active program template for this exercise
+    const activeProg = programId ? storage.getPrograms().find(p => p.id === programId) : null;
+    const programDuration = activeProg && activeProg.programDuration !== '∞' ? Number(activeProg.programDuration) : 8;
+    const programDayTemplates = (activeProg && activeProg.exercisesByDay?.[Number(dayNum)]) || null;
+    const templateEx = findMatchingTemplateExercise(currentEx, programDayTemplates, exIdx);
+
+    // Calculate target for newly added set using authoritative inputs and distribution engine
+    const targetResult = calculateAddedSetTarget({
+      objective,
+      exercise: currentEx,
+      weekNum: Number(weekNum),
+      programDuration,
+      previousLogs: storage.getWorkoutLogs(),
+      algorithmId: activeProg?.algorithmId,
+      templateExercise: templateEx,
+    });
+
+    const isPrescribed = targetResult.isPrescribed && !!targetResult.target;
+    const newSetEntry: SetEntry = {
       setNumber: nextSetNum,
-      weight: lastSet.weight,
-      reps: lastSet.reps,
-      rpe: lastSet.rpe,
-      form: lastSet.form,
+      weight: isPrescribed ? targetResult.target!.weight : 0,
+      reps: isPrescribed ? targetResult.target!.reps : 0,
+      rpe: isPrescribed ? targetResult.target!.rpe : 8,
+      form: (isPrescribed ? targetResult.target!.form : 'standard') as 'standard' | 'strict' | 'loose',
     };
+
+    if (isPrescribed && targetResult.target) {
+      const newSetKey = `${exIdx}-${currentEx.sets.length}`;
+      setPrescribedTargetSnapshots(prev => ({
+        ...prev,
+        [newSetKey]: {
+          weight: targetResult.target!.weight,
+          reps: targetResult.target!.reps,
+          rpe: targetResult.target!.rpe,
+        },
+      }));
+    }
 
     setUserRawExercises(prev => {
       if (!prev) return null;
       return prev.map((ex, i) => {
         if (i === exIdx) {
-          return { ...ex, sets: [...ex.sets, { ...rawSetEntry }] };
+          return { ...ex, sets: [...ex.sets, { ...newSetEntry }] };
         }
         return ex;
       });
@@ -1606,13 +2001,13 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             ...ex,
             sets: [
               ...ex.sets,
-              { ...rawSetEntry },
+              { ...newSetEntry },
             ],
           };
         }
         return ex;
       });
-      syncExercisesToActiveProgram(nextExs);
+      syncAddedSetStructureToActiveProgram(currentEx, exIdx);
       return nextExs;
     });
   };
@@ -1643,8 +2038,16 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         return ex;
       });
       syncExercisesToActiveProgram(nextExs);
+      setCurrentSetGuideKey(current => reconcileGuideAfterSetDelete(current, exIdx, setIdx, nextExs));
       return nextExs;
     });
+
+    setCheckedSets(prev => remapAfterSetDelete(prev, exIdx, setIdx));
+    setUserTouchedSets(prev => remapAfterSetDelete(prev, exIdx, setIdx));
+    setCompletionTouchedSets(prev => remapAfterSetDelete(prev, exIdx, setIdx));
+    setPrescribedTargetSnapshots(prev => remapAfterSetDelete(prev, exIdx, setIdx));
+    setCommittedLiveEvidenceBySet(prev => remapAfterSetDelete(prev, exIdx, setIdx));
+    setLiveAdjustedSets(prev => remapAfterSetDelete(prev, exIdx, setIdx));
   };
 
   const handleUpdateSet = <K extends keyof SetEntry>(
@@ -1676,9 +2079,189 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     );
   };
 
+  const handleCommitUserRPE = (exIdx: number, setIdx: number, newRpe: number) => {
+    const setKey = `${exIdx}-${setIdx}`;
+    setUserTouchedSets(prev => ({ ...prev, [setKey]: true }));
+    setCompletionTouchedSets(prev => {
+      const next = { ...prev };
+      delete next[setKey];
+      return next;
+    });
+
+    const targetEx = exercises[exIdx];
+    if (!targetEx || !targetEx.sets) {
+      handleUpdateSet(exIdx, setIdx, 'rpe', newRpe);
+      return;
+    }
+
+    const targetSet = targetEx.sets[setIdx];
+    const rawWeight = targetSet?.weight;
+    const isBw = targetEx.modality === 'bodyweight';
+    const effectiveWeight =
+      rawWeight !== null && rawWeight !== undefined && rawWeight !== 0
+        ? rawWeight
+        : isBw
+        ? storage.getBodyweight() ?? 0
+        : typeof rawWeight === 'number'
+        ? rawWeight
+        : null;
+
+    const newEvidence = createCommittedLiveEvidenceValue(
+      effectiveWeight,
+      targetSet?.reps,
+      newRpe,
+      targetSet?.form
+    );
+
+    const nextCommittedLiveEvidence: CommittedLiveEvidenceMap = {
+      ...committedLiveEvidenceBySet,
+      [setKey]: newEvidence,
+    };
+
+    // Build updated exercise with the triggering row's RPE updated
+    const updatedSets = targetEx.sets.map((s, sIdx) =>
+      sIdx === setIdx ? { ...s, rpe: newRpe } : s
+    );
+    const updatedTargetEx: ExerciseEntry = { ...targetEx, sets: updatedSets };
+
+    // Resolve baseline e1RM from historical logs or program day template
+    const activeProg = programId ? storage.getPrograms().find(p => p.id === programId) : null;
+    const dayKey = Number(dayNum);
+    const templateEx = activeProg?.exercisesByDay?.[dayKey]
+      ? findMatchingTemplateExercise(targetEx, activeProg.exercisesByDay[dayKey], exIdx)
+      : undefined;
+
+    const previousLogs = storage.getWorkoutLogs();
+    const historicalE1RM = extractHistoricalBaselineE1RM(targetEx.name, previousLogs);
+    const baselineE1RM = historicalE1RM > 0 ? historicalE1RM : extractTemplateBaselineE1RM(templateEx);
+
+    // Resolve profile type
+    let profileType: FatiguePriorProfile = 'hypertrophy';
+    if (objective === 'Strength') {
+      const workingSet1RowIdx = getWorkingSetRowIndex(targetEx.sets, 1);
+      const ws1Key = workingSet1RowIdx !== null ? `${exIdx}-${workingSet1RowIdx}` : null;
+      const prescribedSet1 = ws1Key ? prescribedTargetSnapshots[ws1Key] : undefined;
+      if (prescribedSet1 && prescribedSet1.reps === 1 && prescribedSet1.rpe >= 9.5) {
+        profileType = 'strength_post_test';
+      } else {
+        profileType = 'strength_normal';
+      }
+    }
+
+    const effectiveAlgorithmId = resolveEffectiveAlgorithmPolicyB(objective, activeProg?.algorithmId);
+
+    let finalUpdatedExercise = updatedTargetEx;
+    let finalUpdatedLiveAdjustedSets = { ...liveAdjustedSets };
+    delete finalUpdatedLiveAdjustedSets[setKey];
+
+    if (
+      (objective === 'Hypertrophy' || objective === 'Strength') &&
+      baselineE1RM > 0
+    ) {
+      const adapterPrep = prepareLiveAdjustmentParams({
+        exercise: updatedTargetEx,
+        exIdx,
+        objective,
+        algorithmId: effectiveAlgorithmId,
+        profileType,
+        baselineE1RM,
+        prescribedTargetSnapshots,
+        committedLiveEvidenceBySet: nextCommittedLiveEvidence,
+        triggeringSetIdx: setIdx,
+      });
+
+      if (adapterPrep.success && adapterPrep.params) {
+        const adjustmentResult = calculateLiveSetAdjustments(adapterPrep.params);
+        const activeSelectorRowKey = activeSelector ? `${activeSelector.exIdx}-${activeSelector.setIdx}` : null;
+
+        const applicationOutput = applyLiveAdjustmentResult({
+          exercise: updatedTargetEx,
+          exIdx,
+          result: adjustmentResult,
+          prescribedTargetSnapshots,
+          currentLiveAdjustedSets: liveAdjustedSets,
+          userTouchedSets: { ...userTouchedSets, [setKey]: true },
+          focusedSetKey,
+          activeSelectorRowKey,
+          triggeringRowIndex: setIdx,
+        });
+
+        finalUpdatedExercise = applicationOutput.updatedExercise;
+        finalUpdatedLiveAdjustedSets = applicationOutput.updatedLiveAdjustedSets;
+
+        if (applicationOutput.appliedChangeCount > 0 && adjustmentResult.shouldNotify) {
+          showLiveAdjustmentToast("Later-set targets adjusted for today's performance.");
+        } else if (
+          shouldShowLowRPEExplanation({
+            objective,
+            exercise: targetEx,
+            setIdx,
+            rpe: newRpe,
+          })
+        ) {
+          showLiveAdjustmentToast("RPE below 6 was recorded but is not used for live target adjustments.");
+        }
+      } else if (
+        shouldShowLowRPEExplanation({
+          objective,
+          exercise: targetEx,
+          setIdx,
+          rpe: newRpe,
+        })
+      ) {
+        showLiveAdjustmentToast("RPE below 6 was recorded but is not used for live target adjustments.");
+      }
+    } else if (
+      shouldShowLowRPEExplanation({
+        objective,
+        exercise: targetEx,
+        setIdx,
+        rpe: newRpe,
+      })
+    ) {
+      showLiveAdjustmentToast("RPE below 6 was recorded but is not used for live target adjustments.");
+    }
+
+    const nextExercises = exercises.map((ex, i) => i === exIdx ? finalUpdatedExercise : ex);
+    setExercises(nextExercises);
+    setCommittedLiveEvidenceBySet(nextCommittedLiveEvidence);
+    setLiveAdjustedSets(finalUpdatedLiveAdjustedSets);
+
+    if (highlightCurrentSet) {
+      const nextGuide = findNextEligibleGuideRow(nextExercises, exIdx, setIdx);
+      setCurrentSetGuideKey(nextGuide);
+    } else {
+      setCurrentSetGuideKey(null);
+    }
+  };
+
+  const handleRestorePlannedTargets = (targetExIdx: number) => {
+    const ex = exercises[targetExIdx];
+    if (!ex) return;
+
+    const activeSelectorRowKey = activeSelector ? `${activeSelector.exIdx}-${activeSelector.setIdx}` : null;
+
+    const { updatedExercise, updatedLiveAdjustedSets, restoredRowKeys } = restorePlannedTargetsForExercise({
+      exercise: ex,
+      exIdx: targetExIdx,
+      prescribedTargetSnapshots,
+      currentLiveAdjustedSets: liveAdjustedSets,
+      userTouchedSets,
+      focusedSetKey,
+      activeSelectorRowKey,
+    });
+
+    if (restoredRowKeys.length > 0) {
+      const nextExercises = exercises.map((item, i) => i === targetExIdx ? updatedExercise : item);
+      setExercises(nextExercises);
+      setLiveAdjustedSets(updatedLiveAdjustedSets);
+    }
+  };
+
   const toggleSetCheck = (exIdx: number, setIdx: number) => {
     const key = `${exIdx}-${setIdx}`;
     setCheckedSets(prev => ({ ...prev, [key]: !prev[key] }));
+    setCompletionTouchedSets(prev => ({ ...prev, [key]: true }));
   };
 
   const getExerciseHistory = (name: string) => {
@@ -1731,18 +2314,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const executeSaveSession = () => {
-    const processedExercises = exercises.map(ex => {
-      if (ex.modality === 'bodyweight') {
-        const defaultBw = storage.getBodyweight();
-        return {
-          ...ex,
-          sets: ex.sets.map(s => ({
-            ...s,
-            weight: s.weight !== null && s.weight !== undefined && s.weight !== 0 ? s.weight : (defaultBw ?? 0)
-          }))
-        };
-      }
-      return ex;
+    const processedExercises = prepareExercisesForSave({
+      exercises,
+      checkedSets,
+      defaultBodyweight: storage.getBodyweight(),
+      completionTouchedSets,
+      isEditMode: !!(editLogId && existingLog),
     });
 
     const newLog: WorkoutLog = {
@@ -1787,10 +2364,16 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       return;
     }
 
-    const hasMainMovement = exercises.some(ex => !!ex.isMainMovement);
-    if (objective === 'Strength' && !hasMainMovement) {
-      setShowNoMainMovementConfirm(true);
-      return;
+    if (objective === 'Strength' && !isOneOff) {
+      const eligibleMainCount = getEligibleMainMovementCount(exercises);
+      if (eligibleMainCount === 0) {
+        setShowNoMainMovementConfirm(true);
+        return;
+      }
+      if (eligibleMainCount > 1) {
+        setAlertMsg('Please select exactly one Main Movement before saving your Strength workout.');
+        return;
+      }
     }
 
     executeSaveSession();
@@ -2128,7 +2711,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                     <h4 className={`font-black text-sm sm:text-base ${ex.isSkipped ? 'text-amber-400/80 line-through' : 'text-indigo-300'} uppercase tracking-wide break-words`}>
                       {ex.name}
                     </h4>
-                    {!isOneOff && Number(weekNum) > 1 ? (
+                    {!isOneOff && Number(weekNum) > 1 && getEligibleMainMovementCount(exercises) === 1 ? (
                       <div className="flex items-center gap-1.5 py-0.5 select-none" title="Main Movement designation is locked after Week 1">
                         {ex.isMainMovement ? (
                           <>
@@ -2209,17 +2792,29 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                     </div>
 
                     {ex.sets.map((set, setIdx) => {
+                      const isSetSkipped = !!set.isSkipped;
+                      const isCurrentGuidedSet = highlightCurrentSet && currentSetGuideKey === `${exIdx}-${setIdx}` && isRowEligibleForGuide(ex, set);
+                      const rowBgClass = isSetSkipped
+                        ? 'bg-amber-950/15 border-l-2 border-l-transparent'
+                        : isCurrentGuidedSet
+                        ? (themeId === 'amber'
+                            ? 'bg-amber-600/15 border-l-2 border-l-amber-500'
+                            : 'bg-indigo-950/50 border-l-2 border-l-indigo-500')
+                        : 'bg-slate-950/25 border-l-2 border-l-transparent';
+
                       return (
-                        <div key={setIdx} className="space-y-0 border-b border-slate-850">
+                        <div key={setIdx} className={`space-y-0 border-b border-slate-850 ${isSetSkipped ? 'opacity-50' : ''}`}>
                           <div
-                            className={`grid ${gridColsClass} gap-1 items-center px-2 py-1.5 bg-slate-950/25`}
+                            className={`grid ${gridColsClass} gap-1 items-center px-2 py-1.5 transition-colors duration-150 ${rowBgClass}`}
                           >
-                            {/* Set index / Drop Set Icon */}
+                            {/* Set index / Drop Set Icon / Skipped indicator */}
                             <div className="text-center text-xs font-black text-slate-300 font-mono flex flex-col items-center justify-center leading-none">
-                              <span className="text-[8px] text-slate-500 uppercase font-sans font-medium tracking-normal mb-0.5">Set</span>
+                              <span className={`text-[8px] uppercase font-sans font-medium tracking-normal mb-0.5 ${isSetSkipped ? 'text-amber-500 font-bold' : 'text-slate-500'}`}>
+                                {isSetSkipped ? 'SKIP' : 'Set'}
+                              </span>
                               <div className="flex items-center justify-center gap-0.5">
-                                <span className="text-sm font-bold">{set.setNumber}</span>
-                                {set.isDropSet && (
+                                <span className={`text-sm font-bold ${isSetSkipped ? 'line-through text-amber-400' : ''}`}>{set.setNumber}</span>
+                                {set.isDropSet && !isSetSkipped && (
                                   <span className={`${themeId === 'amber' ? 'text-fuchsia-600' : 'text-fuchsia-400'} font-black text-xs`} title="Drop Set">↓</span>
                                 )}
                                 {set.isWarmup && (
@@ -2235,7 +2830,15 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                   type="number"
                                   min="0"
                                   step="0.1"
+                                  disabled={isSetSkipped}
                                   value={set.weight !== null && set.weight !== undefined && set.weight !== 0 ? set.weight : (storage.getBodyweight() ?? '')}
+                                  onFocus={() => {
+                                    setFocusedSetKey(`${exIdx}-${setIdx}`);
+                                    if (highlightCurrentSet && isRowEligibleForGuide(ex, set)) {
+                                      setCurrentSetGuideKey(`${exIdx}-${setIdx}`);
+                                    }
+                                  }}
+                                  onBlur={() => setFocusedSetKey(prev => prev === `${exIdx}-${setIdx}` ? null : prev)}
                                   onChange={e =>
                                     handleUpdateSet(
                                       exIdx,
@@ -2244,7 +2847,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                       e.target.value === '' ? null : Number(e.target.value)
                                     )
                                   }
-                                  className="bg-slate-950 text-base font-black text-center text-white border border-slate-800 rounded-none h-10 w-full focus:outline-none focus:border-indigo-500 font-mono"
+                                  className={`bg-slate-950 text-base font-black text-center text-white border border-slate-800 rounded-none h-10 w-full focus:outline-none focus:border-indigo-500 font-mono ${isSetSkipped ? 'cursor-not-allowed opacity-75' : ''}`}
                                   placeholder={storage.getBodyweight() ? String(storage.getBodyweight()) : 'BW'}
                                 />
                               ) : (
@@ -2252,7 +2855,15 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                   type="number"
                                   min="0"
                                   step="0.5"
+                                  disabled={isSetSkipped}
                                   value={set.weight ?? ''}
+                                  onFocus={() => {
+                                    setFocusedSetKey(`${exIdx}-${setIdx}`);
+                                    if (highlightCurrentSet && isRowEligibleForGuide(ex, set)) {
+                                      setCurrentSetGuideKey(`${exIdx}-${setIdx}`);
+                                    }
+                                  }}
+                                  onBlur={() => setFocusedSetKey(prev => prev === `${exIdx}-${setIdx}` ? null : prev)}
                                   onChange={e =>
                                     handleUpdateSet(
                                       exIdx,
@@ -2261,7 +2872,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                       e.target.value === '' ? null : Number(e.target.value)
                                     )
                                   }
-                                  className="bg-slate-950 text-base font-black text-center text-white border border-slate-800 rounded-none h-10 w-full focus:outline-none focus:border-indigo-500 font-mono"
+                                  className={`bg-slate-950 text-base font-black text-center text-white border border-slate-800 rounded-none h-10 w-full focus:outline-none focus:border-indigo-500 font-mono ${isSetSkipped ? 'cursor-not-allowed opacity-75' : ''}`}
                                   placeholder={(ex.modality === 'timed' || ex.modality === 'distance') ? 'Secs' : '0'}
                                 />
                               )}
@@ -2273,7 +2884,15 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                 <input
                                   type="number"
                                   min="0"
+                                  disabled={isSetSkipped}
                                   value={set.reps ?? ''}
+                                  onFocus={() => {
+                                    setFocusedSetKey(`${exIdx}-${setIdx}`);
+                                    if (highlightCurrentSet && isRowEligibleForGuide(ex, set)) {
+                                      setCurrentSetGuideKey(`${exIdx}-${setIdx}`);
+                                    }
+                                  }}
+                                  onBlur={() => setFocusedSetKey(prev => prev === `${exIdx}-${setIdx}` ? null : prev)}
                                   onChange={e =>
                                     handleUpdateSet(
                                       exIdx,
@@ -2282,7 +2901,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                       e.target.value === '' ? null : Number(e.target.value)
                                     )
                                   }
-                                  className="bg-slate-950 text-base font-black text-center text-white border border-slate-800 rounded-none h-10 w-full focus:outline-none focus:border-indigo-500 font-mono"
+                                  className={`bg-slate-950 text-base font-black text-center text-white border border-slate-800 rounded-none h-10 w-full focus:outline-none focus:border-indigo-500 font-mono ${isSetSkipped ? 'cursor-not-allowed opacity-75' : ''}`}
                                   placeholder={(ex.modality === 'distance' || ex.modality === 'distance_loaded') ? 'Mtrs' : '0'}
                                 />
                               </div>
@@ -2292,12 +2911,13 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                             <div className="relative">
                               <button
                                 type="button"
+                                disabled={isSetSkipped}
                                 onClick={(e) => toggleSelector(e, exIdx, setIdx, 'rpe')}
-                                className="bg-slate-950 text-sm font-black text-center text-slate-300 border border-slate-800 rounded-none h-10 w-full focus:outline-none focus:border-indigo-500 font-mono flex items-center justify-center cursor-pointer hover:bg-slate-900 transition"
+                                className={`bg-slate-950 text-sm font-black text-center text-slate-300 border border-slate-800 rounded-none h-10 w-full focus:outline-none focus:border-indigo-500 font-mono flex items-center justify-center transition ${isSetSkipped ? 'cursor-not-allowed opacity-75' : 'cursor-pointer hover:bg-slate-900'}`}
                               >
                                 {set.rpe ?? 8}
                               </button>
-                              {activeSelector?.exIdx === exIdx && activeSelector?.setIdx === setIdx && activeSelector?.type === 'rpe' && (
+                              {!isSetSkipped && activeSelector?.exIdx === exIdx && activeSelector?.setIdx === setIdx && activeSelector?.type === 'rpe' && (
                                 <div className={`selector-popup-container absolute left-1/2 -translate-x-1/2 bg-slate-950 border border-slate-800 rounded-none shadow-2xl z-50 overflow-hidden py-1 min-w-[75px] max-w-[85px] ${activeSelector.direction === 'down' ? 'top-11' : 'bottom-11'}`}>
                                   {(() => {
                                     const currentRpe = set.rpe ?? 8;
@@ -2310,7 +2930,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                           const nextRpe = isHalf 
                                             ? Math.floor(currentRpe) 
                                             : Math.min(9.5, currentRpe + 0.5);
-                                          handleUpdateSet(exIdx, setIdx, 'rpe', nextRpe);
+                                          handleCommitUserRPE(exIdx, setIdx, nextRpe);
                                         }}
                                         className={`w-full text-center py-1.5 text-[9px] font-black tracking-wider uppercase border-b border-slate-850 cursor-pointer transition flex items-center justify-center gap-1 ${
                                           isHalf 
@@ -2333,7 +2953,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                         key={val}
                                         type="button"
                                         onClick={() => {
-                                          handleUpdateSet(exIdx, setIdx, 'rpe', targetVal);
+                                          handleCommitUserRPE(exIdx, setIdx, targetVal);
                                           setActiveSelector(null);
                                         }}
                                         className={`w-full text-center py-2 text-sm font-mono font-black border-y border-transparent cursor-pointer transition ${
@@ -2354,12 +2974,13 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                             <div className="relative">
                               <button
                                 type="button"
+                                disabled={isSetSkipped}
                                 onClick={(e) => toggleSelector(e, exIdx, setIdx, 'form')}
-                                className="bg-slate-950 text-xs font-bold text-center text-slate-300 border border-slate-800 rounded-none h-10 w-full focus:outline-none focus:border-indigo-500 flex items-center justify-center cursor-pointer hover:bg-slate-900 transition capitalize truncate px-1"
+                                className={`bg-slate-950 text-xs font-bold text-center text-slate-300 border border-slate-800 rounded-none h-10 w-full focus:outline-none focus:border-indigo-500 flex items-center justify-center capitalize truncate px-1 transition ${isSetSkipped ? 'cursor-not-allowed opacity-75' : 'cursor-pointer hover:bg-slate-900'}`}
                               >
                                 {set.form ?? 'standard'}
                               </button>
-                              {activeSelector?.exIdx === exIdx && activeSelector?.setIdx === setIdx && activeSelector?.type === 'form' && (
+                              {!isSetSkipped && activeSelector?.exIdx === exIdx && activeSelector?.setIdx === setIdx && activeSelector?.type === 'form' && (
                                 <div className={`selector-popup-container absolute left-1/2 -translate-x-1/2 bg-slate-950 border border-slate-800 rounded-none shadow-2xl z-50 overflow-hidden py-1 min-w-[85px] ${activeSelector.direction === 'down' ? 'top-11' : 'bottom-11'}`}>
                                   {(['strict', 'standard', 'loose'] as const).map(val => (
                                     <button
@@ -2435,6 +3056,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                       min="0"
                                       step="0.1"
                                       value={sub.weight !== null && sub.weight !== undefined && sub.weight !== 0 ? sub.weight : (storage.getBodyweight() ?? '')}
+                                      onFocus={() => setFocusedSetKey(`${exIdx}-${setIdx}`)}
+                                      onBlur={() => setFocusedSetKey(prev => prev === `${exIdx}-${setIdx}` ? null : prev)}
                                       onChange={e =>
                                         handleUpdateDropSubSet(
                                           exIdx,
@@ -2453,6 +3076,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                       min="0"
                                       step="0.5"
                                       value={sub.weight ?? ''}
+                                      onFocus={() => setFocusedSetKey(`${exIdx}-${setIdx}`)}
+                                      onBlur={() => setFocusedSetKey(prev => prev === `${exIdx}-${setIdx}` ? null : prev)}
                                       onChange={e =>
                                         handleUpdateDropSubSet(
                                           exIdx,
@@ -2475,6 +3100,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                       type="number"
                                       min="0"
                                       value={sub.reps ?? ''}
+                                      onFocus={() => setFocusedSetKey(`${exIdx}-${setIdx}`)}
+                                      onBlur={() => setFocusedSetKey(prev => prev === `${exIdx}-${setIdx}` ? null : prev)}
                                       onChange={e =>
                                         handleUpdateDropSubSet(
                                           exIdx,
@@ -2530,7 +3157,13 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                       );
                     })}
 
-                    <div className="px-2 py-1.5 bg-slate-950/25 border-b border-slate-850">
+                    <div className="px-2 py-1.5 bg-slate-950/25 border-b border-slate-850 space-y-1.5">
+                      {addSetBlockedWarning[exIdx] && (
+                        <div className="px-3 py-2 text-xs text-amber-400 bg-amber-950/30 border border-amber-500/30 flex items-start gap-2 animate-fadeIn">
+                          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                          <span>{addSetBlockedWarning[exIdx]}</span>
+                        </div>
+                      )}
                       <button
                         type="button"
                         onClick={() => handleAddSet(exIdx)}
@@ -2802,8 +3435,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         />
       </div>
 
-      {/* Main Movement Prompt Bubble (Week 1 of Strength) */}
-      {!isOneOff && Number(weekNum) === 1 && objective === 'Strength' && !exercises.some(ex => !!ex.isMainMovement) && (
+      {/* Main Movement Prompt Bubble (Week 1 of Strength, or Week 2+ repair mode with 0 eligible main movements) */}
+      {!isOneOff && objective === 'Strength' && getEligibleMainMovementCount(exercises) === 0 && (
         <div className="mx-4 mb-3 p-3 bg-slate-950 border border-indigo-500/30 rounded-none relative">
           <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-slate-950 border-r border-b border-indigo-500/30 rotate-45"></div>
           <p className="text-xs font-black text-indigo-300 uppercase tracking-widest mb-1 flex items-center gap-1.5 font-mono">
@@ -2811,7 +3444,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             Select Your Main Lift
           </p>
           <p className="text-[11px] text-slate-400 leading-normal font-sans">
-            Please designate a <strong className="text-indigo-400 font-extrabold uppercase font-mono">Main Movement</strong> by checking the box next to your primary lift (e.g., Squat, Bench Press) before saving. This locks in your strength periodisation for Week 2 and beyond!
+            Please designate a <strong className="text-indigo-400 font-extrabold uppercase font-mono">Main Movement</strong> by checking the box next to your primary lift (e.g., Squat, Bench Press) before saving. This locks in your strength periodisation for your program!
           </p>
         </div>
       )}
@@ -3017,7 +3650,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                       handleMoveSet(exIdx, setIdx, 'up');
                       dismissSetAction();
                     }}
-                    disabled={setIdx === 0}
+                    disabled={setIdx === 0 || set.isSkipped}
                     className="bg-slate-950 hover:bg-slate-850 disabled:opacity-30 border border-slate-850 rounded-none p-3 transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <ChevronUp className="w-5 h-5 text-indigo-400 shrink-0 stroke-[3]" />
@@ -3028,7 +3661,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                       handleMoveSet(exIdx, setIdx, 'down');
                       dismissSetAction();
                     }}
-                    disabled={setIdx === ex.sets.length - 1}
+                    disabled={setIdx === ex.sets.length - 1 || set.isSkipped}
                     className="bg-slate-950 hover:bg-slate-850 disabled:opacity-30 border border-slate-850 rounded-none p-3 transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <ChevronDown className="w-5 h-5 text-indigo-400 shrink-0 stroke-[3]" />
@@ -3037,63 +3670,158 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                 </div>
 
                 {/* Comment Inline Input */}
-                <div className="space-y-1.5">
-                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider font-mono">
-                    Set Comment / Note
-                  </label>
-                  <div className="flex gap-1.5">
-                    <div className="relative flex-1">
-                      <input
-                        type="text"
-                        value={commentDraft}
-                        onChange={e => setCommentDraft(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleUpdateSetComment(exIdx, setIdx, commentDraft.trim());
-                            dismissSetAction();
-                          }
+                {!set.isSkipped && (
+                  <div className="space-y-1.5">
+                    <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider font-mono">
+                      Set Comment / Note
+                    </label>
+                    <div className="flex gap-1.5">
+                      <div className="relative flex-1">
+                        <input
+                          type="text"
+                          value={commentDraft}
+                          onChange={e => setCommentDraft(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleUpdateSetComment(exIdx, setIdx, commentDraft.trim());
+                              dismissSetAction();
+                            }
+                          }}
+                          placeholder="e.g., Last rep was slow, good squeeze"
+                          className="w-full bg-slate-950 border border-slate-850 rounded-none pl-3 pr-8 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-sans"
+                        />
+                        {commentDraft.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setCommentDraft('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-white transition rounded-full cursor-pointer"
+                            title="Clear comment text"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleUpdateSetComment(exIdx, setIdx, commentDraft.trim());
+                          dismissSetAction();
                         }}
-                        placeholder="e.g., Last rep was slow, good squeeze"
-                        className="w-full bg-slate-950 border border-slate-850 rounded-none pl-3 pr-8 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-sans"
-                      />
-                      {commentDraft.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setCommentDraft('')}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-white transition rounded-full cursor-pointer"
-                          title="Clear comment text"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                        className={`${
+                          themeId === 'amber'
+                            ? 'bg-amber-600 hover:bg-amber-500 text-[#FBFAF8]'
+                            : 'bg-indigo-600 hover:bg-indigo-500 text-[#FBFAF8]'
+                        } font-extrabold text-xs px-3.5 py-1.5 rounded-none transition shrink-0 font-mono cursor-pointer`}
+                      >
+                        Save
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleUpdateSetComment(exIdx, setIdx, commentDraft.trim());
-                        dismissSetAction();
-                      }}
-                      className={`${
-                        themeId === 'amber'
-                          ? 'bg-amber-600 hover:bg-amber-500 text-[#FBFAF8]'
-                          : 'bg-indigo-600 hover:bg-indigo-500 text-[#FBFAF8]'
-                      } font-extrabold text-xs px-3.5 py-1.5 rounded-none transition shrink-0 font-mono cursor-pointer`}
-                    >
-                      Save
-                    </button>
                   </div>
-                </div>
+                )}
 
                 <div className="border-t border-slate-850 my-2 pt-2 space-y-2">
+                  {/* Skip Set and Restore Planned Targets Grid */}
+                  <div className="space-y-1">
+                    <div className="grid grid-cols-2 gap-2">
+                      {/* Skip Set / Unskip Set Button */}
+                      {(() => {
+                        if (set.isWarmup) {
+                          return (
+                            <button
+                              type="button"
+                              disabled
+                              className="bg-slate-950 disabled:opacity-40 border border-slate-850 rounded-none p-3 text-slate-500 font-mono text-xs sm:text-sm font-black uppercase tracking-wide cursor-not-allowed w-full text-center"
+                            >
+                              SKIP SET
+                            </button>
+                          );
+                        }
+                        const isSkipped = !!set.isSkipped;
+                        const check = isSkipped ? canUnskipSet(ex.sets, setIdx) : canSkipSet(ex.sets, setIdx);
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (check.allowed) {
+                                handleToggleSkipSet(exIdx, setIdx);
+                                dismissSetAction();
+                              }
+                            }}
+                            disabled={!check.allowed}
+                            title={check.allowed ? undefined : check.reason}
+                            className={`w-full p-3 border rounded-none flex items-center justify-center gap-2 transition cursor-pointer ${
+                              isSkipped
+                                ? 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-400 disabled:opacity-40'
+                                : 'bg-slate-950 hover:bg-slate-850 border-slate-850 text-slate-300 hover:text-amber-400 disabled:opacity-40'
+                            }`}
+                          >
+                            <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide">
+                              {isSkipped ? 'UNSKIP SET' : 'SKIP SET'}
+                            </span>
+                          </button>
+                        );
+                      })()}
+
+                      {/* Restore Planned Targets Button */}
+                      {(() => {
+                        const canRestore = canRestorePlannedTargets({
+                          exercise: ex,
+                          exIdx,
+                          prescribedTargetSnapshots,
+                          currentLiveAdjustedSets: liveAdjustedSets,
+                          userTouchedSets,
+                          focusedSetKey,
+                          activeSelectorRowKey: activeSelector ? `${activeSelector.exIdx}-${activeSelector.setIdx}` : null,
+                        });
+                        return (
+                          <button
+                            type="button"
+                            disabled={!canRestore}
+                            onClick={() => {
+                              if (canRestore) {
+                                handleRestorePlannedTargets(exIdx);
+                                dismissSetAction();
+                              }
+                            }}
+                            title={canRestore ? 'Restore planned targets for this exercise' : 'No restorable live targets'}
+                            className={`w-full p-3 border rounded-none flex items-center justify-center gap-1.5 transition ${
+                              canRestore
+                                ? 'bg-indigo-950/40 hover:bg-indigo-900/60 border-indigo-500/40 text-indigo-300 hover:text-white cursor-pointer'
+                                : 'bg-slate-950 border-slate-850 text-slate-600 opacity-40 cursor-not-allowed'
+                            }`}
+                          >
+                            <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-center leading-tight">
+                              Restore Planned Targets
+                            </span>
+                          </button>
+                        );
+                      })()}
+                    </div>
+
+                    {!set.isWarmup && (() => {
+                      const isSkipped = !!set.isSkipped;
+                      const check = isSkipped ? canUnskipSet(ex.sets, setIdx) : canSkipSet(ex.sets, setIdx);
+                      if (!check.allowed && check.reason) {
+                        return (
+                          <p className="text-[10px] text-amber-500/80 font-mono text-center px-1">
+                            {check.reason}
+                          </p>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
+                      disabled={set.isSkipped}
                       onClick={() => {
                         handleToggleDropSet(exIdx, setIdx);
                         dismissSetAction();
                       }}
-                      className="bg-slate-950 hover:bg-slate-850 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-center gap-2 cursor-pointer w-full text-center"
+                      className="bg-slate-950 hover:bg-slate-850 disabled:opacity-30 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-center gap-2 cursor-pointer w-full text-center"
                     >
                       <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-slate-100">Drop Set</span>
                       <div className={`w-4.5 h-4.5 border border-slate-700 bg-slate-950 flex items-center justify-center shrink-0 rounded-none transition-colors ${set.isDropSet ? (themeId === 'amber' ? 'border-fuchsia-500 bg-fuchsia-50' : 'border-fuchsia-500 bg-fuchsia-500/10') : ''}`}>
@@ -3103,11 +3831,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
                     <button
                       type="button"
+                      disabled={set.isSkipped}
                       onClick={() => {
                         handleToggleWarmup(exIdx, setIdx);
                         dismissSetAction();
                       }}
-                      className="bg-slate-950 hover:bg-slate-850 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-center gap-2 cursor-pointer w-full text-center"
+                      className="bg-slate-950 hover:bg-slate-850 disabled:opacity-30 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-center gap-2 cursor-pointer w-full text-center"
                     >
                       <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-slate-100">Warmup Set</span>
                       <div className={`w-4.5 h-4.5 border border-slate-700 bg-slate-950 flex items-center justify-center shrink-0 rounded-none transition-colors ${set.isWarmup ? 'border-amber-500 bg-amber-500/10' : ''}`}>
@@ -3119,8 +3848,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
+                      disabled={set.isSkipped}
                       onClick={() => handleOpenCalc(exIdx, setIdx)}
-                      className="bg-slate-950 hover:bg-slate-850 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-center cursor-pointer w-full text-center"
+                      className="bg-slate-950 hover:bg-slate-850 disabled:opacity-30 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-center cursor-pointer w-full text-center"
                     >
                       <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-slate-100 whitespace-nowrap">
                         Rep/WT Calc
@@ -3129,11 +3859,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
                     <button
                       type="button"
+                      disabled={set.isSkipped}
                       onClick={() => {
                         handleAutoWarmup(exIdx, setIdx);
                         dismissSetAction();
                       }}
-                      className="bg-slate-950 hover:bg-slate-850 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-center cursor-pointer w-full text-center"
+                      className="bg-slate-950 hover:bg-slate-850 disabled:opacity-30 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-center cursor-pointer w-full text-center"
                     >
                       <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-slate-100 whitespace-nowrap">
                         Auto Warmup
@@ -3745,6 +4476,16 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                 Got it
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Live Adjustment Notification Toast */}
+      {liveAdjustmentToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none animate-fade-in max-w-[90vw]">
+          <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700/80 text-slate-100 text-xs font-mono px-4 py-2 shadow-2xl tracking-wide flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
+            <span>{liveAdjustmentToast}</span>
           </div>
         </div>
       )}

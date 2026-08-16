@@ -80,8 +80,9 @@ function getProgramReportCard(program: Program, logs: WorkoutLog[]) {
 
     // Get baseline E1RM (first logged session)
     const firstExLog = exLogs[0];
-    const firstMatchedEx = firstExLog.exercises.find(e => e.name.toLowerCase() === exName.toLowerCase());
+    const firstMatchedEx = firstExLog.exercises.find(e => !e.isSkipped && e.name.toLowerCase() === exName.toLowerCase());
     const firstE1RMs = firstMatchedEx?.sets.map(s => {
+      if (s.isSkipped || s.isCompleted === false || s.isWarmup) return 0;
       const w = s.weight || 0;
       const r = s.reps || 0;
       if (r <= 0) return 0;
@@ -93,8 +94,9 @@ function getProgramReportCard(program: Program, logs: WorkoutLog[]) {
 
     // Get latest E1RM (last logged session)
     const lastExLog = exLogs[exLogs.length - 1];
-    const lastMatchedEx = lastExLog.exercises.find(e => e.name.toLowerCase() === exName.toLowerCase());
+    const lastMatchedEx = lastExLog.exercises.find(e => !e.isSkipped && e.name.toLowerCase() === exName.toLowerCase());
     const lastE1RMs = lastMatchedEx?.sets.map(s => {
+      if (s.isSkipped || s.isCompleted === false || s.isWarmup) return 0;
       const w = s.weight || 0;
       const r = s.reps || 0;
       if (r <= 0) return 0;
@@ -105,8 +107,9 @@ function getProgramReportCard(program: Program, logs: WorkoutLog[]) {
     // Max E1RM across all logs
     let maxE1RM = baselineE1RM;
     exLogs.forEach(l => {
-      const match = l.exercises.find(e => e.name.toLowerCase() === exName.toLowerCase());
+      const match = l.exercises.find(e => !e.isSkipped && e.name.toLowerCase() === exName.toLowerCase());
       match?.sets.forEach(s => {
+        if (s.isSkipped || s.isCompleted === false || s.isWarmup) return;
         const w = s.weight || 0;
         const r = s.reps || 0;
         if (r > 0) {
@@ -156,15 +159,19 @@ function getProgramReportCard(program: Program, logs: WorkoutLog[]) {
   const runningBest: Record<string, number> = {};
   sortedLogs.forEach(l => {
     l.exercises.forEach(ex => {
+      if (ex.isSkipped) return;
       const match = exerciseStats.find(es => es.name.toLowerCase() === ex.name.toLowerCase());
       if (!match) return;
 
-      const sessionMax = Math.max(...ex.sets.map(s => {
+      const validSets = ex.sets.filter(s => !s.isSkipped && s.isCompleted !== false && !s.isWarmup);
+      if (validSets.length === 0) return;
+
+      const sessionMax = Math.max(...validSets.map(s => {
         const w = s.weight || 0;
         const r = s.reps || 0;
         if (r <= 0) return 0;
         return r === 1 ? w : w * (1 + r / 30);
-      }));
+      }), 0);
 
       if (sessionMax > 0) {
         const prevBest = runningBest[ex.name] || 0;
@@ -481,14 +488,17 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
     const sortedLogs = [...workoutLogs].sort((a, b) => a.date.localeCompare(b.date));
 
     sortedLogs.forEach(log => {
-      const ex = log.exercises.find(e => e.name.toLowerCase() === selectedExercise.toLowerCase() && (!e.modality || e.modality === 'weighted'));
+      const ex = log.exercises.find(e => !e.isSkipped && e.name.toLowerCase() === selectedExercise.toLowerCase() && (!e.modality || e.modality === 'weighted'));
       if (ex && ex.sets.length > 0) {
+        const validSets = ex.sets.filter(s => !s.isSkipped && s.isCompleted !== false && !s.isWarmup);
+        if (validSets.length === 0) return;
+
         // Find maximum weight lifted in this session
-        const weights = ex.sets.map(s => s.weight || 0);
+        const weights = validSets.map(s => s.weight || 0);
         const maxWeight = Math.max(...weights, 0);
 
         // Calculate peak 1RM for this session using Epley formula
-        const epley1RMs = ex.sets.map(s => {
+        const epley1RMs = validSets.map(s => {
           const w = s.weight || 0;
           const r = s.reps || 0;
           if (r <= 0) return 0;
@@ -498,7 +508,7 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
         const max1RM = Math.max(...epley1RMs, 0);
 
         // Find average RPE
-        const rpes = ex.sets.map(s => s.rpe || 8);
+        const rpes = validSets.map(s => s.rpe || 8);
         const avgRpe = rpes.length > 0 ? rpes.reduce((a, b) => a + b, 0) / rpes.length : 8;
 
         data.push({
@@ -580,8 +590,10 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
 
     workoutLogs.forEach(log => {
       log.exercises.forEach(ex => {
+        if (ex.isSkipped) return;
         if (!ex.modality || ex.modality === 'weighted') {
           ex.sets.forEach(s => {
+            if (s.isSkipped || s.isCompleted === false || s.isWarmup) return;
             const w = s.weight || 0;
             const r = s.reps || 0;
             if (w > 0 && r > 0) {
@@ -645,9 +657,10 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
       const cals = log.recovery?.nutritionCalories ?? 2500;
 
       log.exercises.forEach(ex => {
-        if (ex.name.toLowerCase() === selectedExercise.toLowerCase() && (!ex.modality || ex.modality === 'weighted')) {
+        if (!ex.isSkipped && ex.name.toLowerCase() === selectedExercise.toLowerCase() && (!ex.modality || ex.modality === 'weighted')) {
           // Calculate peak 1RM for this exercise session
-          const epley1RMs = ex.sets.map(s => {
+          const validSets = ex.sets.filter(s => !s.isSkipped && s.isCompleted !== false && !s.isWarmup);
+          const epley1RMs = validSets.map(s => {
             const w = s.weight || 0;
             const r = s.reps || 0;
             if (r <= 0) return 0;
@@ -910,11 +923,12 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
       const programmedNames = reportExercises.filter(name => name !== 'Overall');
       
       programmedNames.forEach(exName => {
-        const exLogs = sortedLogs.filter(l => l.exercises.some(e => e.name.toLowerCase() === exName.toLowerCase()));
+        const exLogs = sortedLogs.filter(l => l.exercises.some(e => !e.isSkipped && e.name.toLowerCase() === exName.toLowerCase()));
         if (exLogs.length > 0) {
           const firstLog = exLogs[0];
-          const matchedEx = firstLog.exercises.find(e => e.name.toLowerCase() === exName.toLowerCase());
+          const matchedEx = firstLog.exercises.find(e => !e.isSkipped && e.name.toLowerCase() === exName.toLowerCase());
           const e1rms = matchedEx?.sets.map(s => {
+            if (s.isSkipped || s.isCompleted === false || s.isWarmup) return 0;
             const w = s.weight || 0;
             const r = s.reps || 0;
             if (r <= 0) return 0;
@@ -934,10 +948,11 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
           const baseline = exerciseBaselines[exName];
           if (!baseline || baseline === 0) return;
 
-          const exWeekLog = weekLogs.find(l => l.exercises.some(e => e.name.toLowerCase() === exName.toLowerCase()));
+          const exWeekLog = weekLogs.find(l => l.exercises.some(e => !e.isSkipped && e.name.toLowerCase() === exName.toLowerCase()));
           if (exWeekLog) {
-            const matchedEx = exWeekLog.exercises.find(e => e.name.toLowerCase() === exName.toLowerCase());
+            const matchedEx = exWeekLog.exercises.find(e => !e.isSkipped && e.name.toLowerCase() === exName.toLowerCase());
             const e1rms = matchedEx?.sets.map(s => {
+              if (s.isSkipped || s.isCompleted === false || s.isWarmup) return 0;
               const weight = s.weight || 0;
               const reps = s.reps || 0;
               if (reps <= 0) return 0;
@@ -983,12 +998,13 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
       };
     } else {
       const exName = reportChartExercise;
-      const exLogs = sortedLogs.filter(l => l.exercises.some(e => e.name.toLowerCase() === exName.toLowerCase()));
+      const exLogs = sortedLogs.filter(l => l.exercises.some(e => !e.isSkipped && e.name.toLowerCase() === exName.toLowerCase()));
       let baseline = 0;
       if (exLogs.length > 0) {
         const firstLog = exLogs[0];
-        const matchedEx = firstLog.exercises.find(e => e.name.toLowerCase() === exName.toLowerCase());
+        const matchedEx = firstLog.exercises.find(e => !e.isSkipped && e.name.toLowerCase() === exName.toLowerCase());
         const e1rms = matchedEx?.sets.map(s => {
+          if (s.isSkipped || s.isCompleted === false || s.isWarmup) return 0;
           const w = s.weight || 0;
           const r = s.reps || 0;
           if (r <= 0) return 0;
@@ -1001,12 +1017,13 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
 
       const points = weeks.map(w => {
         const weekLogs = sortedLogs.filter(l => Number(l.week) === w);
-        const exWeekLog = weekLogs.find(l => l.exercises.some(e => e.name.toLowerCase() === exName.toLowerCase()));
+        const exWeekLog = weekLogs.find(l => l.exercises.some(e => !e.isSkipped && e.name.toLowerCase() === exName.toLowerCase()));
         
         let actual: number | null = null;
         if (exWeekLog) {
-          const matchedEx = exWeekLog.exercises.find(e => e.name.toLowerCase() === exName.toLowerCase());
+          const matchedEx = exWeekLog.exercises.find(e => !e.isSkipped && e.name.toLowerCase() === exName.toLowerCase());
           const e1rms = matchedEx?.sets.map(s => {
+            if (s.isSkipped || s.isCompleted === false || s.isWarmup) return 0;
             const weight = s.weight || 0;
             const reps = s.reps || 0;
             if (reps <= 0) return 0;

@@ -95,6 +95,7 @@ export function getRollingBaselineE1RM(
     if (matchedEx && !matchedEx.isSkipped && matchedEx.sets && matchedEx.sets.length > 0) {
       let maxSetE1RM = 0;
       matchedEx.sets.forEach(set => {
+        if (set.isSkipped || set.isCompleted === false) return;
         const reps = set.reps || 0;
         const rpe = set.rpe || 8;
         const w = set.weight || 0;
@@ -163,20 +164,21 @@ export function classifyWorkout(
   }> = [];
 
   currentLog.exercises.forEach(ex => {
+    if (ex.isSkipped) return;
     if (!ex.sets || ex.sets.length === 0) return;
     const modality = ex.modality || 'weighted';
 
     // Get rolling baseline e1RM for this exercise
     let exerciseRollingBaseline = getRollingBaselineE1RM(ex.name, priorLogs, userBodyweight);
     
-    // Find current session top set e1RM to use as fallback baseline if no history (excluding warmups)
+    // Find current session top set e1RM to use as fallback baseline if no history (excluding warmups and skipped)
     let currentSessionTopE1RM = 0;
     ex.sets.forEach(set => {
+      if (set.isSkipped || set.isCompleted === false || set.isWarmup) return;
       const reps = set.reps || 0;
       const rpe = set.rpe || 8;
       const weight = set.weight || 0;
       if (reps <= 0) return;
-      if (set.isWarmup) return;
       const effW = getEffectiveWeight(weight, modality, userBodyweight);
       const e1rm = calculateE1RMForSet(effW, reps, rpe);
       if (e1rm > currentSessionTopE1RM) currentSessionTopE1RM = e1rm;
@@ -189,6 +191,7 @@ export function classifyWorkout(
     let maxExRelIntensity = 0;
 
     ex.sets.forEach(set => {
+      if (set.isSkipped || set.isCompleted === false) return;
       const reps = set.reps || 0;
       const rpe = set.rpe || 8;
       const weight = set.weight || 0;

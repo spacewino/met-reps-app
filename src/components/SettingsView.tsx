@@ -95,6 +95,7 @@ export function SettingsView({
     const bw = storage.getBodyweight();
     return bw !== null ? String(bw) : '';
   });
+  const [highlightCurrentSet, setHighlightCurrentSet] = useState<boolean>(() => storage.getSettings().highlightCurrentSet);
   const [showDataMgmtPopup, setShowDataMgmtPopup] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
 
@@ -628,6 +629,37 @@ export function SettingsView({
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono font-black text-indigo-400 uppercase">
             {unitPref}
           </span>
+        </div>
+      </div>
+
+      {/* Highlight Current Set Setting */}
+      <div className="w-full bg-slate-900 border-y border-x-0 border-slate-800 p-4 space-y-3 shadow-sm rounded-none">
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="text-xs font-black text-slate-300 uppercase tracking-wide font-sans">Highlight current set</h3>
+            <p className="text-xs text-slate-400 leading-relaxed font-sans">
+              Highlights the working set you are currently logging and advances after selecting RPE.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={highlightCurrentSet}
+            onClick={() => {
+              const nextVal = !highlightCurrentSet;
+              setHighlightCurrentSet(nextVal);
+              storage.saveSettings({ highlightCurrentSet: nextVal });
+            }}
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+              highlightCurrentSet ? 'bg-indigo-600' : 'bg-slate-950 border border-slate-800'
+            }`}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                highlightCurrentSet ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
         </div>
       </div>
 

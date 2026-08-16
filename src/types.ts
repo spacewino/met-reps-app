@@ -35,6 +35,8 @@ export type SetEntry = {
   isDropSet?: boolean | null;
   isWarmup?: boolean | null;
   dropSubSets?: { weight?: number | null; reps?: number | null }[] | null;
+  isCompleted?: boolean;
+  isSkipped?: boolean;
 };
 
 export type ExerciseEntry = {
@@ -96,3 +98,7 @@ export type PlannedSession = {
   status: 'planned' | 'completed';
   completedDate?: string | null;
 };
+
+export interface AppSettings {
+  highlightCurrentSet: boolean;
+}

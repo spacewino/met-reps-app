@@ -108,8 +108,9 @@ export function evaluateAchievements(
     let logRpeTrackedSetsCount = 0;
 
     log.exercises.forEach(ex => {
+      if (ex.isSkipped) return;
       ex.sets.forEach(s => {
-        if (s.isWarmup) return; // Skip warmup sets
+        if (s.isWarmup || s.isSkipped === true || s.isCompleted === false) return; // Skip warmup, skipped, or uncompleted sets
 
         const r = s.reps || 0;
         const w = s.weight || 0;
@@ -160,6 +161,7 @@ export function evaluateAchievements(
     let sessionPRsCount = 0;
 
     log.exercises.forEach(ex => {
+      if (ex.isSkipped) return;
       const exKey = ex.name.trim().toLowerCase();
       if (!exKey) return;
 
@@ -173,7 +175,7 @@ export function evaluateAchievements(
       let beatRepAtSameWeight = false;
 
       ex.sets.forEach(s => {
-        if (s.isWarmup) return;
+        if (s.isWarmup || s.isSkipped === true || s.isCompleted === false) return;
         const w = s.weight || 0;
         const r = s.reps || 0;
         const rpe = s.rpe || 10;
@@ -207,7 +209,7 @@ export function evaluateAchievements(
           // Baseline establishment! Do NOT count as PR.
           const maxRepsAtWeightMap: Record<number, number> = {};
           ex.sets.forEach(s => {
-            if (!s.isWarmup && (s.weight || 0) > 0 && (s.reps || 0) > 0) {
+            if (!s.isWarmup && s.isSkipped !== true && s.isCompleted !== false && (s.weight || 0) > 0 && (s.reps || 0) > 0) {
               const wKg = log.unit === 'lb' ? s.weight! * 0.453592 : s.weight!;
               const roundedW = Math.round(wKg * 10) / 10;
               maxRepsAtWeightMap[roundedW] = Math.max(maxRepsAtWeightMap[roundedW] || 0, s.reps!);
@@ -239,7 +241,7 @@ export function evaluateAchievements(
 
           const maxRepsAtWeightMap: Record<number, number> = {};
           ex.sets.forEach(s => {
-            if (!s.isWarmup && (s.weight || 0) > 0 && (s.reps || 0) > 0) {
+            if (!s.isWarmup && s.isSkipped !== true && s.isCompleted !== false && (s.weight || 0) > 0 && (s.reps || 0) > 0) {
               const wKg = log.unit === 'lb' ? s.weight! * 0.453592 : s.weight!;
               const roundedW = Math.round(wKg * 10) / 10;
               maxRepsAtWeightMap[roundedW] = Math.max(maxRepsAtWeightMap[roundedW] || 0, s.reps!);
@@ -313,8 +315,9 @@ export function evaluateAchievements(
 
     windowLogs.forEach(log => {
       log.exercises.forEach(ex => {
+        if (ex.isSkipped) return;
         const mg = normalizeMuscleGroup(ex.muscleGroup);
-        const validSets = ex.sets.filter(s => !s.isWarmup && ((s.reps || 0) > 0 || (s.weight || 0) > 0)).length;
+        const validSets = ex.sets.filter(s => !s.isWarmup && s.isSkipped !== true && s.isCompleted !== false && ((s.reps || 0) > 0 || (s.weight || 0) > 0)).length;
 
         if (validSets > 0 && windowMuscleSets[mg] !== undefined) {
           windowMuscleSets[mg] += validSets;
