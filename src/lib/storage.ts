@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Program, WorkoutLog, PlannedSession, AppSettings } from '../types';
+import { Program, WorkoutLog, PlannedSession, AppSettings, WeightUnit } from '../types';
 import { getLocalDateString, calculateSessionDate } from './dateUtils';
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -190,10 +190,44 @@ export const storage = {
   },
 
   setBodyweight: (bw: number | null) => {
-    if (bw === null || isNaN(bw)) {
+    if (bw === null || isNaN(bw) || !Number.isFinite(bw) || bw <= 0) {
       localStorage.removeItem('userBodyweight');
+      localStorage.removeItem('userBodyweightUnit');
     } else {
       localStorage.setItem('userBodyweight', String(bw));
+    }
+  },
+
+  getBodyweightUnit: (): WeightUnit | null => {
+    const u = localStorage.getItem('userBodyweightUnit');
+    return u === 'kg' || u === 'lb' ? u : null;
+  },
+
+  setBodyweightUnit: (u: WeightUnit | null) => {
+    if (!u || (u !== 'kg' && u !== 'lb')) {
+      localStorage.removeItem('userBodyweightUnit');
+    } else {
+      localStorage.setItem('userBodyweightUnit', u);
+    }
+  },
+
+  getBodyweightWithUnit: (): { value: number; unit: WeightUnit } | null => {
+    const bw = localStorage.getItem('userBodyweight');
+    const unit = localStorage.getItem('userBodyweightUnit');
+    if (!bw || !unit) return null;
+    const num = Number(bw);
+    if (!Number.isFinite(num) || num <= 0 || isNaN(num)) return null;
+    if (unit !== 'kg' && unit !== 'lb') return null;
+    return { value: num, unit: unit as WeightUnit };
+  },
+
+  setBodyweightWithUnit: (bw: number | null, unit: WeightUnit | null) => {
+    if (bw === null || isNaN(bw) || !Number.isFinite(bw) || bw <= 0 || !unit || (unit !== 'kg' && unit !== 'lb')) {
+      localStorage.removeItem('userBodyweight');
+      localStorage.removeItem('userBodyweightUnit');
+    } else {
+      localStorage.setItem('userBodyweight', String(bw));
+      localStorage.setItem('userBodyweightUnit', unit);
     }
   },
 

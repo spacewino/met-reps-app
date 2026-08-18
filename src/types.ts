@@ -61,6 +61,11 @@ export type DailyRecoveryMetrics = {
   motivation?: number | null; // 1-5 or 1-10
 };
 
+export interface BodyweightSnapshot {
+  value: number;
+  unit: WeightUnit;
+}
+
 export type WorkoutLog = {
   id: string;
   date: string;            // "YYYY-MM-DD"
@@ -76,6 +81,7 @@ export type WorkoutLog = {
   notes?: string;
   objective?: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload';
   startTime?: string;
+  bodyweightSnapshot?: BodyweightSnapshot | null;
 };
 
 export type Program = {

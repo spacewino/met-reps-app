@@ -5,13 +5,25 @@
 
 import React, { useState, useEffect } from 'react';
 import { Dumbbell, Plus, Trash2, Check, ArrowLeft, Clock, Flame, Smile, Droplet, Coffee, Award, ChevronDown, ChevronUp, BookOpen, Pencil, History, Info, MoreVertical, Link, Lock, Unlock, ClipboardCheck, Gamepad2, Compass, Activity, X, AlertTriangle } from 'lucide-react';
-import { Program, WorkoutLog, ExerciseEntry, SetEntry, WeightUnit, DailyRecoveryMetrics, HydrationLevel, mapHydrationToLiters, mapLitersToHydration } from '../types';
+import { Program, WorkoutLog, ExerciseEntry, SetEntry, WeightUnit, DailyRecoveryMetrics, HydrationLevel, mapHydrationToLiters, mapLitersToHydration, BodyweightSnapshot } from '../types';
 import { storage, PREBUILT_TEMPLATES } from '../lib/storage';
 import { getTodayLocalDateString } from '../lib/dateUtils';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { WarmupIcon } from './WarmupIcon';
 import { calculateObjectiveSets, calculateAddedSetTarget, roundToNearest25, getRTSMultiplier, findMatchingTemplateExercise, syncAddedSetStructureToProgramDay, extractHistoricalBaselineE1RM, extractTemplateBaselineE1RM } from '../lib/objectiveMath';
+import { generateAssistedWarmupTargets, convertWeightUnit } from '../lib/assistedLoadMath';
+import {
+  validateBodyweightSnapshot,
+  cloneBodyweightSnapshot,
+  reconcileSessionSnapshot,
+  resolveSessionBodyweightInUnit,
+  generateBodyweightWarmupTargets,
+} from '../lib/bodyweightSessionMath';
+import {
+  validateAndGenerateAutoWarmup,
+  AUTO_WARMUP_TOAST_DURATION_MS,
+} from '../lib/autoWarmupValidation';
 import { calculateE1RMForSet } from '../lib/workoutClassifier';
 import { isEligibleStrengthMainMovement, getEligibleMainMovementCount, updateProgramDayMainMovement } from '../lib/programMetadata';
 import { useModalHistory } from '../lib/useModalHistory';
@@ -23,6 +35,7 @@ import {
   remapAfterExerciseMove,
   remapAfterSetMove,
   remapAfterSetInsert,
+  remapAfterWarmupChange,
 } from '../lib/workoutCompletion';
 import {
   PrescribedTargetSnapshotMap,
@@ -197,6 +210,41 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   // Exercises State
   const [exercises, setExercises] = useState<ExerciseEntry[]>([]);
   const [unit, setUnit] = useState<WeightUnit>(() => storage.getWeightUnit());
+
+  // Session Bodyweight Snapshot State (tri-state: BodyweightSnapshot | null | undefined)
+  const [bodyweightSnapshot, setBodyweightSnapshot] = useState<BodyweightSnapshot | null | undefined>(() => {
+    if (editLogId && existingLog) {
+      return existingLog.bodyweightSnapshot !== undefined
+        ? cloneBodyweightSnapshot(existingLog.bodyweightSnapshot)
+        : undefined;
+    }
+
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = isOneOff
+          ? draft.isOneOff === true
+          : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum));
+        if (matches && 'bodyweightSnapshot' in draft) {
+          const validatedDraft = draft.bodyweightSnapshot === null ? null : validateBodyweightSnapshot(draft.bodyweightSnapshot);
+          const settingsBw = storage.getBodyweightWithUnit();
+          return reconcileSessionSnapshot({
+            draftSnapshot: validatedDraft,
+            settingsSnapshot: settingsBw,
+            isEditMode: false,
+          });
+        }
+      }
+    } catch (_) {}
+
+    const settingsBw = storage.getBodyweightWithUnit();
+    return settingsBw ? validateBodyweightSnapshot(settingsBw) : null;
+  });
+
+  const sessionBodyweightInActiveUnit = React.useMemo(() => {
+    return resolveSessionBodyweightInUnit(bodyweightSnapshot, unit);
+  }, [bodyweightSnapshot, unit]);
 
   // Exercise library selector modal states
   const [isSelectorOpen, setIsSelectorOpen] = useState(false);
@@ -696,6 +744,11 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       if (existingLog.startTime) {
         setStartTime(existingLog.startTime);
       }
+      setBodyweightSnapshot(
+        existingLog.bodyweightSnapshot !== undefined
+          ? cloneBodyweightSnapshot(existingLog.bodyweightSnapshot)
+          : undefined
+      );
 
       // Initialize checked sets from existingLog (completed sets checked, legacy undefined sets default checked)
       const initialChecked: Record<string, boolean> = {};
@@ -777,6 +830,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           setCommittedLiveEvidenceBySet({});
           setLiveAdjustedSets({});
           setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(null, finalPre) : null);
+          const settingsBw = storage.getBodyweightWithUnit();
+          setBodyweightSnapshot(settingsBw ? validateBodyweightSnapshot(settingsBw) : null);
           setIsDraftLoaded(true);
           return;
         }
@@ -852,6 +907,16 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           if (draft.startTime) {
             setStartTime(draft.startTime);
           }
+          const draftBw = 'bodyweightSnapshot' in draft
+            ? (draft.bodyweightSnapshot === null ? null : validateBodyweightSnapshot(draft.bodyweightSnapshot))
+            : null;
+          const settingsBw = storage.getBodyweightWithUnit();
+          const reconciled = reconcileSessionSnapshot({
+            draftSnapshot: draftBw,
+            settingsSnapshot: settingsBw,
+            isEditMode: false,
+          });
+          setBodyweightSnapshot(reconciled);
           setHasExistingDraft(true);
           setIsDraftLoaded(true);
           return;
@@ -1016,6 +1081,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       prescribedTargetSnapshots,
       committedLiveEvidenceBySet,
       liveAdjustedSets,
+      bodyweightSnapshot,
     };
 
     if (highlightCurrentSet) {
@@ -1054,6 +1120,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     liveAdjustedSets,
     currentSetGuideKey,
     highlightCurrentSet,
+    bodyweightSnapshot,
   ]);
 
   const handleDiscardDraft = () => {
@@ -1194,6 +1261,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     setCheckedSets({});
     setCompletionTouchedSets({});
     setCollapsed({});
+    const settingsBw = storage.getBodyweightWithUnit();
+    setBodyweightSnapshot(settingsBw ? validateBodyweightSnapshot(settingsBw) : null);
 
     setTimeout(() => {
       setIsDraftLoaded(true);
@@ -1679,63 +1748,38 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const targetSet = currentEx.sets[setIdx];
     if (targetSet?.isSkipped) return;
 
+    const validationResult = validateAndGenerateAutoWarmup({
+      exercise: currentEx,
+      selectedSetIdx: setIdx,
+      bodyweightSnapshot,
+      activeUnit: unit,
+    });
+
+    if (validationResult.status === 'bypassed' || !validationResult.warmupTargets) {
+      showLiveAdjustmentToast(validationResult.message, AUTO_WARMUP_TOAST_DURATION_MS);
+      return;
+    }
+
+    const priorWarmupCount = currentEx.sets.filter(s => s.isWarmup).length;
+    const newWarmupCount = validationResult.warmupTargets.length;
     let nextCombinedSets: SetEntry[] | null = null;
+
     setExercises(prev => {
       const nextExs = prev.map((ex, i) => {
         if (i === exIdx) {
-          const workingWeight = targetSet?.weight && targetSet.weight > 0
-            ? targetSet.weight
-            : (ex.sets.find(s => !s.isWarmup && !s.isSkipped && s.weight && s.weight > 0)?.weight || 60);
-          const workingReps = targetSet?.reps && targetSet.reps > 0
-            ? targetSet.reps
-            : (ex.sets.find(s => !s.isWarmup && !s.isSkipped && s.reps && s.reps > 0)?.reps || 10);
-
-          // Strip existing warmup sets to prevent duplicate stacking
           const workingSetsOnly = ex.sets.filter(s => !s.isWarmup);
-
-          // Generate 3 exercise science warmup sets:
-          // Set 1: 50% weight x 100% working reps @ RPE 4.0
-          // Set 2: 70% weight x ~70% working reps @ RPE 6.0
-          // Set 3: 85% weight x ~35% working reps @ RPE 7.0
-          const w1Weight = roundToNearest25(workingWeight * 0.50);
-          const w1Reps = workingReps;
-
-          const w2Weight = roundToNearest25(workingWeight * 0.70);
-          const w2Reps = Math.max(5, Math.round(workingReps * 0.70));
-
-          const w3Weight = roundToNearest25(workingWeight * 0.85);
-          const w3Reps = Math.max(3, Math.round(workingReps * 0.35));
-
-          const autoWarmupSets: SetEntry[] = [
-            {
-              setNumber: 1,
-              weight: w1Weight,
-              reps: w1Reps,
-              rpe: 4.0,
-              form: 'standard',
-              isWarmup: true
-            },
-            {
-              setNumber: 2,
-              weight: w2Weight,
-              reps: w2Reps,
-              rpe: 6.0,
-              form: 'standard',
-              isWarmup: true
-            },
-            {
-              setNumber: 3,
-              weight: w3Weight,
-              reps: w3Reps,
-              rpe: 7.0,
-              form: 'standard',
-              isWarmup: true
-            }
-          ];
+          const autoWarmupSets: SetEntry[] = validationResult.warmupTargets.map((t, tIdx) => ({
+            setNumber: tIdx + 1,
+            weight: t.weight,
+            reps: t.reps,
+            rpe: t.rpe,
+            form: 'standard',
+            isWarmup: true,
+          }));
 
           const combined = [...autoWarmupSets, ...workingSetsOnly].map((s, idx) => ({
             ...s,
-            setNumber: idx + 1
+            setNumber: idx + 1,
           }));
           nextCombinedSets = combined;
 
@@ -1751,16 +1795,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       setCurrentSetGuideKey(current => reconcileGuideAfterWarmupChange(current, exIdx, currentEx.sets, nextCombinedSets!));
     }
 
-    const priorWarmupCount = currentEx.sets.filter(s => s.isWarmup).length;
-    const shift = 3 - priorWarmupCount;
-    if (shift > 0) {
-      setCheckedSets(prev => remapAfterSetInsert(prev, exIdx, priorWarmupCount, shift));
-      setUserTouchedSets(prev => remapAfterSetInsert(prev, exIdx, priorWarmupCount, shift));
-      setCompletionTouchedSets(prev => remapAfterSetInsert(prev, exIdx, priorWarmupCount, shift));
-      setPrescribedTargetSnapshots(prev => remapAfterSetInsert(prev, exIdx, priorWarmupCount, shift));
-      setCommittedLiveEvidenceBySet(prev => remapAfterSetInsert(prev, exIdx, priorWarmupCount, shift));
-      setLiveAdjustedSets(prev => remapAfterSetInsert(prev, exIdx, priorWarmupCount, shift));
-    }
+    setCheckedSets(prev => remapAfterWarmupChange(prev, exIdx, priorWarmupCount, newWarmupCount));
+    setUserTouchedSets(prev => remapAfterWarmupChange(prev, exIdx, priorWarmupCount, newWarmupCount));
+    setCompletionTouchedSets(prev => remapAfterWarmupChange(prev, exIdx, priorWarmupCount, newWarmupCount));
+    setPrescribedTargetSnapshots(prev => remapAfterWarmupChange(prev, exIdx, priorWarmupCount, newWarmupCount));
+    setCommittedLiveEvidenceBySet(prev => remapAfterWarmupChange(prev, exIdx, priorWarmupCount, newWarmupCount));
+    setLiveAdjustedSets(prev => remapAfterWarmupChange(prev, exIdx, priorWarmupCount, newWarmupCount));
   };
 
   const handleOpenCalc = (exIdx: number, setIdx: number) => {
@@ -2336,7 +2376,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const processedExercises = prepareExercisesForSave({
       exercises,
       checkedSets,
-      defaultBodyweight: storage.getBodyweight(),
+      defaultBodyweight: sessionBodyweightInActiveUnit ?? null,
       completionTouchedSets,
       isEditMode: !!(editLogId && existingLog),
     });
@@ -2355,6 +2395,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       notes: notes,
       objective: objective,
       startTime: startTime,
+      bodyweightSnapshot: editLogId && existingLog
+        ? (existingLog.bodyweightSnapshot !== undefined ? cloneBodyweightSnapshot(existingLog.bodyweightSnapshot) : (bodyweightSnapshot !== undefined ? cloneBodyweightSnapshot(bodyweightSnapshot) : undefined))
+        : (bodyweightSnapshot !== undefined ? cloneBodyweightSnapshot(bodyweightSnapshot) : null),
       recovery: {
         sleepHours: sleep === '' ? null : Number(sleep),
         hydrationLiters: mapHydrationToLiters(hydration),
@@ -2850,7 +2893,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                   min="0"
                                   step="0.1"
                                   disabled={isSetSkipped}
-                                  value={set.weight !== null && set.weight !== undefined && set.weight !== 0 ? set.weight : (storage.getBodyweight() ?? '')}
+                                  value={set.weight !== null && set.weight !== undefined && set.weight !== 0 ? set.weight : (sessionBodyweightInActiveUnit ?? '')}
                                   onFocus={() => {
                                     setFocusedSetKey(`${exIdx}-${setIdx}`);
                                     if (highlightCurrentSet && isRowEligibleForGuide(ex, set)) {
@@ -2867,7 +2910,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                     )
                                   }
                                   className={`bg-slate-950 text-base font-black text-center text-white border border-slate-800 rounded-none h-10 w-full focus:outline-none focus:border-indigo-500 font-mono ${isSetSkipped ? 'cursor-not-allowed opacity-75' : ''}`}
-                                  placeholder={storage.getBodyweight() ? String(storage.getBodyweight()) : 'BW'}
+                                  placeholder={sessionBodyweightInActiveUnit ? String(sessionBodyweightInActiveUnit) : 'BODYWT'}
                                 />
                               ) : (
                                 <input
@@ -3074,7 +3117,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                       type="number"
                                       min="0"
                                       step="0.1"
-                                      value={sub.weight !== null && sub.weight !== undefined && sub.weight !== 0 ? sub.weight : (storage.getBodyweight() ?? '')}
+                                      value={sub.weight !== null && sub.weight !== undefined && sub.weight !== 0 ? sub.weight : (sessionBodyweightInActiveUnit ?? '')}
                                       onFocus={() => setFocusedSetKey(`${exIdx}-${setIdx}`)}
                                       onBlur={() => setFocusedSetKey(prev => prev === `${exIdx}-${setIdx}` ? null : prev)}
                                       onChange={e =>
@@ -3087,7 +3130,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                         )
                                       }
                                       className={dsInputClass}
-                                      placeholder={storage.getBodyweight() ? String(storage.getBodyweight()) : 'BW'}
+                                      placeholder={sessionBodyweightInActiveUnit ? String(sessionBodyweightInActiveUnit) : 'BODYWT'}
                                     />
                                   ) : (
                                     <input

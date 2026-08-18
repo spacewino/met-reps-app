@@ -280,3 +280,61 @@ export function remapAfterSetInsert<T>(
   return nextRecord;
 }
 
+/**
+ * Remap `${exerciseIndex}-${setIndex}` keyed records after warm-up sets within exercise `targetExIdx`
+ * are replaced, changing the warm-up count from `priorWarmupCount` to `newWarmupCount`.
+ *
+ * Rules:
+ * - Keys belonging to other exercises (`exIdx !== targetExIdx`) remain unchanged.
+ * - For `targetExIdx`:
+ *   - Old warm-up keys (`sIdx < priorWarmupCount`) are discarded/removed so they never leak into working sets.
+ *   - Working set keys (`sIdx >= priorWarmupCount`) are shifted to their new position:
+ *     newSetIdx = sIdx - priorWarmupCount + newWarmupCount.
+ * - Handles zero -> N, N -> zero, N -> M, and same-count N -> N deterministically.
+ * - Malformed keys or invalid parameters return a safe shallow copy.
+ */
+export function remapAfterWarmupChange<T>(
+  record: Record<string, T>,
+  targetExIdx: number,
+  priorWarmupCount: number,
+  newWarmupCount: number
+): Record<string, T> {
+  if (
+    !record ||
+    typeof targetExIdx !== 'number' ||
+    isNaN(targetExIdx) ||
+    typeof priorWarmupCount !== 'number' ||
+    isNaN(priorWarmupCount) ||
+    priorWarmupCount < 0 ||
+    typeof newWarmupCount !== 'number' ||
+    isNaN(newWarmupCount) ||
+    newWarmupCount < 0
+  ) {
+    return { ...record };
+  }
+
+  const nextRecord: Record<string, T> = {};
+  const shift = newWarmupCount - priorWarmupCount;
+
+  for (const [key, val] of Object.entries(record)) {
+    const parts = key.split('-');
+    if (parts.length === 2) {
+      const exIdx = parseInt(parts[0], 10);
+      const sIdx = parseInt(parts[1], 10);
+      if (isNaN(exIdx) || isNaN(sIdx) || exIdx !== targetExIdx) {
+        nextRecord[key] = val;
+      } else if (sIdx < priorWarmupCount) {
+        // Discard old warmup keys
+        continue;
+      } else {
+        // Shift working set key
+        nextRecord[`${exIdx}-${sIdx + shift}`] = val;
+      }
+    } else {
+      nextRecord[key] = val;
+    }
+  }
+  return nextRecord;
+}
+
+

@@ -7,6 +7,7 @@ import React, { useState, useRef } from 'react';
 import { Settings, FileJson, Download, Upload, Trash2, ArrowLeft, RefreshCw, Check, AlertTriangle, Sparkles, X, Dumbbell } from 'lucide-react';
 import { Program, WorkoutLog } from '../types';
 import { storage } from '../lib/storage';
+import { convertWeightUnit } from '../lib/assistedLoadMath';
 import { ConfirmationModal } from './ConfirmationModal';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { useModalHistory } from '../lib/useModalHistory';
@@ -361,17 +362,30 @@ export function SettingsView({
   const handleUnitChange = (u: 'kg' | 'lb') => {
     setUnitPref(u);
     storage.setWeightUnit(u);
+
+    // If the global weight unit changes and a valid bodyweight value/unit record exists, convert the displayed bodyweight to the new unit and save the converted value with the new unit. Do not simply relabel the same number.
+    const currentBwWithUnit = storage.getBodyweightWithUnit();
+    if (currentBwWithUnit) {
+      if (currentBwWithUnit.unit !== u) {
+        const converted = convertWeightUnit(currentBwWithUnit.value, currentBwWithUnit.unit, u);
+        const rounded = Math.round(converted * 10) / 10;
+        storage.setBodyweightWithUnit(rounded, u);
+        setBodyweightVal(String(rounded));
+      }
+    }
     onRefresh();
   };
 
   const handleBodyweightChange = (val: string) => {
     setBodyweightVal(val);
-    if (val === '') {
-      storage.setBodyweight(null);
+    if (val === '' || val.trim() === '') {
+      storage.setBodyweightWithUnit(null, null);
     } else {
       const num = Number(val);
-      if (!isNaN(num)) {
-        storage.setBodyweight(num);
+      if (Number.isFinite(num) && num > 0) {
+        storage.setBodyweightWithUnit(num, unitPref);
+      } else {
+        storage.setBodyweightWithUnit(null, null);
       }
     }
     onRefresh();
@@ -392,6 +406,7 @@ export function SettingsView({
         })(),
         preferredWeightUnit: localStorage.getItem('preferredWeightUnit'),
         userBodyweight: localStorage.getItem('userBodyweight'),
+        userBodyweightUnit: localStorage.getItem('userBodyweightUnit'),
         theme: localStorage.getItem('metreps_theme'),
         checkedExercises: (() => {
           try {
@@ -458,6 +473,9 @@ export function SettingsView({
           if (parsed.userBodyweight) {
             localStorage.setItem('userBodyweight', parsed.userBodyweight);
           }
+          if (parsed.userBodyweightUnit) {
+            localStorage.setItem('userBodyweightUnit', parsed.userBodyweightUnit);
+          }
           if (parsed.theme) {
             localStorage.setItem('metreps_theme', parsed.theme);
           }
@@ -519,6 +537,7 @@ export function SettingsView({
     const currentLogs = localStorage.getItem('workoutLogs');
     const preferredUnit = localStorage.getItem('preferredWeightUnit');
     const userBodyweight = localStorage.getItem('userBodyweight');
+    const userBodyweightUnit = localStorage.getItem('userBodyweightUnit');
     const theme = localStorage.getItem('metreps_theme');
     const checkedEx = localStorage.getItem('metreps_checked_exercises');
     const hiddenDefs = localStorage.getItem('metreps_hidden_defaults');
@@ -529,6 +548,7 @@ export function SettingsView({
     if (currentLogs) localStorage.setItem('workoutLogs', currentLogs);
     if (preferredUnit) localStorage.setItem('preferredWeightUnit', preferredUnit);
     if (userBodyweight) localStorage.setItem('userBodyweight', userBodyweight);
+    if (userBodyweightUnit) localStorage.setItem('userBodyweightUnit', userBodyweightUnit);
     if (theme) localStorage.setItem('metreps_theme', theme);
     if (checkedEx) localStorage.setItem('metreps_checked_exercises', checkedEx);
     if (hiddenDefs) localStorage.setItem('metreps_hidden_defaults', hiddenDefs);
