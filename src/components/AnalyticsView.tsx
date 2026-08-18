@@ -868,6 +868,8 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
     return { linePath, dots: points };
   }, [processedHistory]);
 
+  const currentProgramId = storage.getCurrentProgramId();
+
   const reportPrograms = useMemo(() => {
     const list = storage.getPrograms();
     return list.filter(p => workoutLogs.some(l => l.programId === p.id));
@@ -1725,7 +1727,9 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-black text-white uppercase group-hover:text-indigo-400 transition">{prog.name}</span>
-                        <span className="px-1.5 py-0.5 text-[8px] font-mono font-bold tracking-wider uppercase border border-amber-500/30 text-amber-500 bg-amber-500/5 rounded-none">Active</span>
+                        {prog.id === currentProgramId && (
+                          <span className="px-1.5 py-0.5 text-[8px] font-mono font-bold tracking-wider uppercase border border-amber-500/30 text-amber-500 bg-amber-500/5 rounded-none">Active</span>
+                        )}
                       </div>
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-500 font-semibold uppercase">
                         <span>Obj: {prog.objective || 'Hypertrophy'}</span>

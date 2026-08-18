@@ -729,3 +729,48 @@ export function shouldShowLowRPEExplanation(input: ShouldShowLowRPEExplanationIn
   return true;
 }
 
+/**
+ * Timing constants for live adjustment and explanatory bottom toast notifications.
+ */
+export const LIVE_ADJUSTMENT_SUCCESS_TOAST_DURATION_MS = 5000;
+export const DEFAULT_TOAST_DURATION_MS = 2500;
+export const LOW_RPE_EXPLANATION_TOAST_DURATION_MS = 2500;
+
+export const LIVE_ADJUSTMENT_SUCCESS_MESSAGE = "Later-set targets adjusted for today's performance.";
+export const LOW_RPE_EXPLANATION_MESSAGE = "RPE below 6 was recorded but is not used for live target adjustments.";
+
+export interface ToastTimerHandle {
+  timer: any | null;
+}
+
+/**
+ * Manages showing a toast notification with timer reset and cancellation semantics.
+ * Clears any pending timer, sets the message, and schedules dismissal after durationMs.
+ */
+export function scheduleToastNotification(
+  handle: ToastTimerHandle,
+  setMessage: (msg: string | null) => void,
+  message: string = LIVE_ADJUSTMENT_SUCCESS_MESSAGE,
+  durationMs: number = DEFAULT_TOAST_DURATION_MS
+): void {
+  if (handle.timer) {
+    clearTimeout(handle.timer);
+    handle.timer = null;
+  }
+  setMessage(message);
+  handle.timer = setTimeout(() => {
+    setMessage(null);
+    handle.timer = null;
+  }, durationMs);
+}
+
+/**
+ * Safely cleans up any active toast timer on component unmount.
+ */
+export function cleanupToastNotification(handle: ToastTimerHandle): void {
+  if (handle.timer) {
+    clearTimeout(handle.timer);
+    handle.timer = null;
+  }
+}
+

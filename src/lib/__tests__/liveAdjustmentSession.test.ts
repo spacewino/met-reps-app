@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ExerciseEntry, SetEntry, Program, WorkoutLog } from '../../types';
 import { resolveEffectiveAlgorithmPolicyB } from '../../components/WorkoutLogger';
 import { storage } from '../storage';
@@ -15,6 +15,14 @@ import {
   canRestorePlannedTargets,
   restorePlannedTargetsForExercise,
   shouldShowLowRPEExplanation,
+  scheduleToastNotification,
+  cleanupToastNotification,
+  ToastTimerHandle,
+  LIVE_ADJUSTMENT_SUCCESS_TOAST_DURATION_MS,
+  DEFAULT_TOAST_DURATION_MS,
+  LOW_RPE_EXPLANATION_TOAST_DURATION_MS,
+  LIVE_ADJUSTMENT_SUCCESS_MESSAGE,
+  LOW_RPE_EXPLANATION_MESSAGE,
 } from '../liveAdjustmentSession';
 import { calculateLiveSetAdjustments } from '../liveAdjustmentMath';
 import {
@@ -2802,6 +2810,169 @@ describe('MetReps Phase 2B-2A-2 Live Adjustment Session Foundation Suite', () =>
 
       saveProgramSpy.mockRestore();
       saveLogSpy.mockRestore();
+    });
+  });
+
+  describe('Live Adjustment Toast Notification Timing Suite', () => {
+    let handle: ToastTimerHandle;
+    let toastState: string | null = null;
+    const setToast = (msg: string | null) => {
+      toastState = msg;
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      handle = { timer: null };
+      toastState = null;
+    });
+
+    afterEach(() => {
+      cleanupToastNotification(handle);
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    });
+
+    it('1. Successful live-adjustment notification uses 5000ms and remains active until 5000ms', () => {
+      expect(LIVE_ADJUSTMENT_SUCCESS_TOAST_DURATION_MS).toBe(5000);
+      expect(LIVE_ADJUSTMENT_SUCCESS_MESSAGE).toBe("Later-set targets adjusted for today's performance.");
+
+      scheduleToastNotification(
+        handle,
+        setToast,
+        LIVE_ADJUSTMENT_SUCCESS_MESSAGE,
+        LIVE_ADJUSTMENT_SUCCESS_TOAST_DURATION_MS
+      );
+
+      // Immediately visible
+      expect(toastState).toBe("Later-set targets adjusted for today's performance.");
+
+      // At 2500ms (previous default), it is still active
+      vi.advanceTimersByTime(2500);
+      expect(toastState).toBe("Later-set targets adjusted for today's performance.");
+
+      // At 4999ms, it is still active
+      vi.advanceTimersByTime(2499);
+      expect(toastState).toBe("Later-set targets adjusted for today's performance.");
+
+      // At 5000ms, it is dismissed
+      vi.advanceTimersByTime(1);
+      expect(toastState).toBeNull();
+      expect(handle.timer).toBeNull();
+    });
+
+    it('2. Re-triggering successful notification restarts the 5000ms timer', () => {
+      scheduleToastNotification(
+        handle,
+        setToast,
+        LIVE_ADJUSTMENT_SUCCESS_MESSAGE,
+        LIVE_ADJUSTMENT_SUCCESS_TOAST_DURATION_MS
+      );
+      expect(toastState).toBe("Later-set targets adjusted for today's performance.");
+
+      // Advance 3000ms
+      vi.advanceTimersByTime(3000);
+      expect(toastState).toBe("Later-set targets adjusted for today's performance.");
+
+      // Re-trigger before first timer expires
+      scheduleToastNotification(
+        handle,
+        setToast,
+        LIVE_ADJUSTMENT_SUCCESS_MESSAGE,
+        LIVE_ADJUSTMENT_SUCCESS_TOAST_DURATION_MS
+      );
+      expect(toastState).toBe("Later-set targets adjusted for today's performance.");
+
+      // At t = 5000ms total (2000ms after second trigger), still active (would have expired if not restarted)
+      vi.advanceTimersByTime(2000);
+      expect(toastState).toBe("Later-set targets adjusted for today's performance.");
+
+      // At t = 7999ms total (4999ms after second trigger), still active
+      vi.advanceTimersByTime(2999);
+      expect(toastState).toBe("Later-set targets adjusted for today's performance.");
+
+      // At t = 8000ms total (5000ms after second trigger), dismissed
+      vi.advanceTimersByTime(1);
+      expect(toastState).toBeNull();
+    });
+
+    it('3. An older timer cannot dismiss a newer notification prematurely', () => {
+      // First trigger: 5000ms live adjustment notification
+      scheduleToastNotification(
+        handle,
+        setToast,
+        LIVE_ADJUSTMENT_SUCCESS_MESSAGE,
+        LIVE_ADJUSTMENT_SUCCESS_TOAST_DURATION_MS
+      );
+      expect(toastState).toBe(LIVE_ADJUSTMENT_SUCCESS_MESSAGE);
+
+      // Advance 4000ms (1000ms remaining on first timer)
+      vi.advanceTimersByTime(4000);
+      expect(toastState).toBe(LIVE_ADJUSTMENT_SUCCESS_MESSAGE);
+
+      // Second trigger: newer notification (e.g. 5000ms duration)
+      scheduleToastNotification(
+        handle,
+        setToast,
+        "Second Notification",
+        5000
+      );
+      expect(toastState).toBe("Second Notification");
+
+      // Advance 1000ms (which is t=5000ms where first timer would have fired)
+      vi.advanceTimersByTime(1000);
+      // Older timer was cancelled, so newer notification is STILL visible
+      expect(toastState).toBe("Second Notification");
+
+      // Advance remaining 4000ms (5000ms after second trigger)
+      vi.advanceTimersByTime(4000);
+      expect(toastState).toBeNull();
+    });
+
+    it('4. Low-RPE informational notification retains its 2500ms duration', () => {
+      expect(LOW_RPE_EXPLANATION_TOAST_DURATION_MS).toBe(2500);
+      expect(DEFAULT_TOAST_DURATION_MS).toBe(2500);
+      expect(LOW_RPE_EXPLANATION_MESSAGE).toBe(
+        "RPE below 6 was recorded but is not used for live target adjustments."
+      );
+
+      // Trigger with default duration (2500ms)
+      scheduleToastNotification(
+        handle,
+        setToast,
+        LOW_RPE_EXPLANATION_MESSAGE
+      );
+      expect(toastState).toBe(LOW_RPE_EXPLANATION_MESSAGE);
+
+      // At 2499ms, still active
+      vi.advanceTimersByTime(2499);
+      expect(toastState).toBe(LOW_RPE_EXPLANATION_MESSAGE);
+
+      // At 2500ms, dismissed
+      vi.advanceTimersByTime(1);
+      expect(toastState).toBeNull();
+    });
+
+    it('5. Timer cleanup safely cancels pending timer on unmount', () => {
+      const mockSetToast = vi.fn();
+      scheduleToastNotification(
+        handle,
+        mockSetToast,
+        LIVE_ADJUSTMENT_SUCCESS_MESSAGE,
+        5000
+      );
+      expect(mockSetToast).toHaveBeenCalledWith(LIVE_ADJUSTMENT_SUCCESS_MESSAGE);
+      expect(handle.timer).not.toBeNull();
+
+      // Simulate unmount cleanup
+      cleanupToastNotification(handle);
+      expect(handle.timer).toBeNull();
+
+      // Advance time beyond duration
+      vi.advanceTimersByTime(10000);
+
+      // Dismissal callback was never invoked post-cleanup
+      expect(mockSetToast).toHaveBeenCalledTimes(1);
+      expect(mockSetToast).not.toHaveBeenCalledWith(null);
     });
   });
 });

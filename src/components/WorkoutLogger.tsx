@@ -36,6 +36,14 @@ import {
   restorePlannedTargetsForExercise,
   getWorkingSetRowIndex,
   shouldShowLowRPEExplanation,
+  scheduleToastNotification,
+  cleanupToastNotification,
+  ToastTimerHandle,
+  LIVE_ADJUSTMENT_SUCCESS_TOAST_DURATION_MS,
+  DEFAULT_TOAST_DURATION_MS,
+  LOW_RPE_EXPLANATION_TOAST_DURATION_MS,
+  LIVE_ADJUSTMENT_SUCCESS_MESSAGE,
+  LOW_RPE_EXPLANATION_MESSAGE,
 } from '../lib/liveAdjustmentSession';
 import { calculateLiveSetAdjustments } from '../lib/liveAdjustmentMath';
 import type { FatiguePriorProfile } from '../lib/setDistribution';
@@ -546,25 +554,24 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
   // Non-intrusive live adjustment toast notification
   const [liveAdjustmentToast, setLiveAdjustmentToast] = useState<string | null>(null);
-  const toastTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const toastTimerRef = React.useRef<ToastTimerHandle>({ timer: null });
 
   useEffect(() => {
     return () => {
-      if (toastTimerRef.current) {
-        clearTimeout(toastTimerRef.current);
-      }
+      cleanupToastNotification(toastTimerRef.current);
     };
   }, []);
 
-  const showLiveAdjustmentToast = (message: string = "Later-set targets adjusted for today's performance.") => {
-    if (toastTimerRef.current) {
-      clearTimeout(toastTimerRef.current);
-    }
-    setLiveAdjustmentToast(message);
-    toastTimerRef.current = setTimeout(() => {
-      setLiveAdjustmentToast(null);
-      toastTimerRef.current = null;
-    }, 2500);
+  const showLiveAdjustmentToast = (
+    message: string = LIVE_ADJUSTMENT_SUCCESS_MESSAGE,
+    durationMs: number = DEFAULT_TOAST_DURATION_MS
+  ) => {
+    scheduleToastNotification(
+      toastTimerRef.current,
+      setLiveAdjustmentToast,
+      message,
+      durationMs
+    );
   };
 
   // Collapsed states
@@ -2190,7 +2197,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         finalUpdatedLiveAdjustedSets = applicationOutput.updatedLiveAdjustedSets;
 
         if (applicationOutput.appliedChangeCount > 0 && adjustmentResult.shouldNotify) {
-          showLiveAdjustmentToast("Later-set targets adjusted for today's performance.");
+          showLiveAdjustmentToast(
+            LIVE_ADJUSTMENT_SUCCESS_MESSAGE,
+            LIVE_ADJUSTMENT_SUCCESS_TOAST_DURATION_MS
+          );
         } else if (
           shouldShowLowRPEExplanation({
             objective,
@@ -2199,7 +2209,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             rpe: newRpe,
           })
         ) {
-          showLiveAdjustmentToast("RPE below 6 was recorded but is not used for live target adjustments.");
+          showLiveAdjustmentToast(
+            LOW_RPE_EXPLANATION_MESSAGE,
+            LOW_RPE_EXPLANATION_TOAST_DURATION_MS
+          );
         }
       } else if (
         shouldShowLowRPEExplanation({
@@ -2209,7 +2222,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           rpe: newRpe,
         })
       ) {
-        showLiveAdjustmentToast("RPE below 6 was recorded but is not used for live target adjustments.");
+        showLiveAdjustmentToast(
+          LOW_RPE_EXPLANATION_MESSAGE,
+          LOW_RPE_EXPLANATION_TOAST_DURATION_MS
+        );
       }
     } else if (
       shouldShowLowRPEExplanation({
@@ -2219,7 +2235,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         rpe: newRpe,
       })
     ) {
-      showLiveAdjustmentToast("RPE below 6 was recorded but is not used for live target adjustments.");
+      showLiveAdjustmentToast(
+        LOW_RPE_EXPLANATION_MESSAGE,
+        LOW_RPE_EXPLANATION_TOAST_DURATION_MS
+      );
     }
 
     const nextExercises = exercises.map((ex, i) => i === exIdx ? finalUpdatedExercise : ex);
