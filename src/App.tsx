@@ -20,6 +20,8 @@ import { MetRepsLogo } from './components/MetRepsLogo';
 import { InfoView } from './components/InfoView';
 import { useModalHistory, initHomeGuard } from './lib/useModalHistory';
 import { ConfirmationModal } from './components/ConfirmationModal';
+import { WorkoutConflictModal } from './components/WorkoutConflictModal';
+import { resolveWorkoutNavigation, getWorkoutIdentityFromParams, getActiveWorkoutDraft, ActiveWorkoutIdentity } from './lib/navigationGuard';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<string>(() => {
@@ -138,6 +140,11 @@ export default function App() {
   // Unsaved changes failsafe states
   const [isBuilderDirty, setIsBuilderDirty] = useState<boolean>(false);
   const [pendingNavigation, setPendingNavigation] = useState<{ view: string; params: any } | null>(null);
+  const [activeWorkoutConflict, setActiveWorkoutConflict] = useState<{
+    activeIdentity: ActiveWorkoutIdentity;
+    rawDraft?: any;
+    resumeParams?: any;
+  } | null>(null);
 
   // Load state on mount and on trigger
   const loadData = () => {
@@ -155,6 +162,75 @@ export default function App() {
       return;
     }
 
+    if (!force && view === 'logger') {
+      // Determine active workout identity: prefer in-memory when logger is currently mounted, otherwise check saved draft
+      let activeIdentity: ActiveWorkoutIdentity | null = null;
+      let rawDraft: any = null;
+
+      if (currentView === 'logger' && viewParams) {
+        activeIdentity = getWorkoutIdentityFromParams(viewParams);
+      }
+      
+      const draftInfo = getActiveWorkoutDraft();
+      if (draftInfo) {
+        rawDraft = draftInfo.rawDraft;
+        if (!activeIdentity) {
+          activeIdentity = draftInfo.identity;
+        }
+      }
+
+      if (activeIdentity) {
+        const requestedIdentity = getWorkoutIdentityFromParams(params);
+        const decision = resolveWorkoutNavigation(activeIdentity, requestedIdentity);
+
+        if (decision === 'block') {
+          let resumeParams: any = null;
+          if (currentView === 'logger' && viewParams) {
+            resumeParams = viewParams;
+          } else if (rawDraft) {
+            if (rawDraft.editLogId) {
+              resumeParams = { editLogId: rawDraft.editLogId };
+            } else if (rawDraft.isOneOff) {
+              resumeParams = {
+                isOneOff: true,
+                redoFromLogId: rawDraft.redoFromLogId || rawDraft.workoutId || null,
+              };
+            } else {
+              resumeParams = {
+                programId: rawDraft.programId,
+                programName: rawDraft.programName,
+                week: String(rawDraft.weekNum !== undefined ? rawDraft.weekNum : rawDraft.week),
+                day: String(rawDraft.dayNum !== undefined ? rawDraft.dayNum : rawDraft.day),
+                scheduledDate: rawDraft.scheduledDate,
+                date: rawDraft.dateStr || rawDraft.date || getTodayLocalDateString(),
+              };
+            }
+          } else {
+            if (activeIdentity.kind === 'historical_edit') {
+              resumeParams = { editLogId: activeIdentity.workoutId };
+            } else if (activeIdentity.kind === 'one_off') {
+              resumeParams = { isOneOff: true, redoFromLogId: activeIdentity.workoutId || null };
+            } else {
+              resumeParams = {
+                programId: activeIdentity.programId,
+                programName: activeIdentity.programName,
+                week: String(activeIdentity.weekNum),
+                day: String(activeIdentity.dayNum),
+              };
+            }
+          }
+
+          setActiveWorkoutConflict({
+            activeIdentity,
+            rawDraft,
+            resumeParams,
+          });
+          return;
+        }
+      }
+    }
+
+    setActiveWorkoutConflict(null);
     setViewParams(params);
     setCurrentView(view);
     localStorage.setItem('metreps_current_view', view);
@@ -466,6 +542,21 @@ export default function App() {
                 }`} />
               </div>
             </div>
+          )}
+
+          {/* Workout Conflict / Draft Loss Protection Modal */}
+          {activeWorkoutConflict && (
+            <WorkoutConflictModal
+              isOpen={activeWorkoutConflict !== null}
+              activeIdentity={activeWorkoutConflict.activeIdentity}
+              themeId={themeId}
+              onClose={() => setActiveWorkoutConflict(null)}
+              onResumeActive={() => {
+                const resumeParams = activeWorkoutConflict.resumeParams;
+                setActiveWorkoutConflict(null);
+                handleNavigate('logger', resumeParams, true);
+              }}
+            />
           )}
 
           {/* Unsaved changes confirmation modal */}

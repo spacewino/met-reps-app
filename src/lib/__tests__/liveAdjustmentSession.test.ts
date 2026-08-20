@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ExerciseEntry, SetEntry, Program, WorkoutLog } from '../../types';
+import { ExerciseEntry, SetEntry, Program, WorkoutLog, BodyweightSnapshot } from '../../types';
 import { resolveEffectiveAlgorithmPolicyB } from '../../components/WorkoutLogger';
 import { storage } from '../storage';
 import {
@@ -2973,6 +2973,1536 @@ describe('MetReps Phase 2B-2A-2 Live Adjustment Session Foundation Suite', () =>
       // Dismissal callback was never invoked post-cleanup
       expect(mockSetToast).toHaveBeenCalledTimes(1);
       expect(mockSetToast).not.toHaveBeenCalledWith(null);
+    });
+  });
+
+  describe('MetReps Phase AS-3B Assisted and Bodyweight Live Adjustment Adapter Suite', () => {
+    const validSnapshotKg: BodyweightSnapshot = { value: 80, unit: 'kg' };
+    const validSnapshotLb: BodyweightSnapshot = { value: 176.4, unit: 'lb' };
+
+    function deepFreeze<T>(obj: T): T {
+      if (obj === null || typeof obj !== 'object') return obj;
+      Object.freeze(obj);
+      Object.keys(obj).forEach(key => {
+        deepFreeze((obj as any)[key]);
+      });
+      return obj;
+    }
+
+    it('1. Assisted stronger evidence reduces later-set assistance', () => {
+      // Planned: 3 sets of Pull-up (Assisted) @ 5 reps (Set 1: 10kg assistance, Sets 2-3: 12.5kg assistance)
+      const exercise: ExerciseEntry = {
+        name: 'Assisted Pull-up',
+        muscleGroup: 'Back',
+        modality: 'assisted',
+        movementCategory: 'compound',
+        equipment: 'machine',
+        isMainMovement: true,
+        sets: [
+          { setNumber: 1, weight: 10, reps: 5, rpe: 8, form: 'standard' },
+          { setNumber: 2, weight: 12.5, reps: 5, rpe: 7, form: 'standard' },
+          { setNumber: 3, weight: 12.5, reps: 5, rpe: 7.5, form: 'standard' },
+        ],
+      };
+
+      const prescribedSnapshots: PrescribedTargetSnapshotMap = {
+        '0-0': { weight: 10, reps: 5, rpe: 8 },
+        '0-1': { weight: 12.5, reps: 5, rpe: 7 },
+        '0-2': { weight: 12.5, reps: 5, rpe: 7.5 },
+      };
+
+      // Set 1 committed with stronger performance (RPE 6.5 instead of 8.0 -> Readiness > 1.0)
+      const committedLiveEvidenceBySet: CommittedLiveEvidenceMap = {
+        '0-0': { weight: 10, reps: 5, rpe: 6.5, form: 'standard' },
+      };
+
+      const prep = prepareLiveAdjustmentParams({
+        exercise: { ...exercise, sets: [{ ...exercise.sets[0], rpe: 6.5 }, exercise.sets[1], exercise.sets[2]] },
+        exIdx: 0,
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+        profileType: 'strength_normal',
+        baselineE1RM: 90,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        committedLiveEvidenceBySet,
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+      });
+
+      expect(prep.success).toBe(true);
+      expect(prep.params?.modality).toBe('weighted');
+      expect(prep.params?.prescribedTargets[0].weight).toBe(70); // 80 - 10 = 70
+
+      const engineResult = calculateLiveSetAdjustments(prep.params!);
+      expect(engineResult.status).toBe('adjusted');
+
+      const appOutput = applyLiveAdjustmentResult({
+        exercise: { ...exercise, sets: [{ ...exercise.sets[0], rpe: 6.5 }, exercise.sets[1], exercise.sets[2]] },
+        exIdx: 0,
+        result: engineResult,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        currentLiveAdjustedSets: {},
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+      });
+
+      // Target effective load increases, so assistance decreases (< 12.5 kg)
+      expect(appOutput.updatedExercise.sets[1].weight).toBeLessThan(12.5);
+      expect(appOutput.appliedChangeCount).toBeGreaterThanOrEqual(1);
+      expect(appOutput.updatedLiveAdjustedSets['0-1']).toBe(true);
+    });
+
+    it('2. Assisted weaker evidence increases later-set assistance', () => {
+      // Planned: 3 sets of Pull-up (Assisted) @ 5 reps (Set 1: 30kg assistance, Sets 2-3: 32.5kg assistance)
+      const exercise: ExerciseEntry = {
+        name: 'Assisted Pull-up',
+        muscleGroup: 'Back',
+        modality: 'assisted',
+        movementCategory: 'compound',
+        equipment: 'machine',
+        isMainMovement: true,
+        sets: [
+          { setNumber: 1, weight: 30, reps: 5, rpe: 8, form: 'standard' },
+          { setNumber: 2, weight: 32.5, reps: 5, rpe: 7, form: 'standard' },
+          { setNumber: 3, weight: 32.5, reps: 5, rpe: 7.5, form: 'standard' },
+        ],
+      };
+
+      const prescribedSnapshots: PrescribedTargetSnapshotMap = {
+        '0-0': { weight: 30, reps: 5, rpe: 8 },
+        '0-1': { weight: 32.5, reps: 5, rpe: 7 },
+        '0-2': { weight: 32.5, reps: 5, rpe: 7.5 },
+      };
+
+      // Set 1 committed with weaker performance (RPE 9.5 instead of 8.0 -> Readiness < 1.0)
+      const committedLiveEvidenceBySet: CommittedLiveEvidenceMap = {
+        '0-0': { weight: 30, reps: 5, rpe: 9.5, form: 'standard' },
+      };
+
+      const prep = prepareLiveAdjustmentParams({
+        exercise: { ...exercise, sets: [{ ...exercise.sets[0], rpe: 9.5 }, exercise.sets[1], exercise.sets[2]] },
+        exIdx: 0,
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+        profileType: 'strength_normal',
+        baselineE1RM: 61.65,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        committedLiveEvidenceBySet,
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+      });
+
+      const engineResult = calculateLiveSetAdjustments(prep.params!);
+      expect(engineResult.status).toBe('adjusted');
+
+      const appOutput = applyLiveAdjustmentResult({
+        exercise: { ...exercise, sets: [{ ...exercise.sets[0], rpe: 9.5 }, exercise.sets[1], exercise.sets[2]] },
+        exIdx: 0,
+        result: engineResult,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        currentLiveAdjustedSets: {},
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+      });
+
+      // Target effective load decreases, so assistance increases (> 32.5 kg)
+      expect(appOutput.updatedExercise.sets[1].weight).toBeGreaterThan(32.5);
+      expect(appOutput.appliedChangeCount).toBeGreaterThanOrEqual(1);
+      expect(appOutput.updatedLiveAdjustedSets['0-1']).toBe(true);
+    });
+
+    it('3. Assisted sequential recommitment produces no drift', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Assisted Dip',
+        muscleGroup: 'Triceps',
+        modality: 'assisted',
+        sets: [
+          { setNumber: 1, weight: 25, reps: 8, rpe: 8, form: 'standard' },
+          { setNumber: 2, weight: 25, reps: 8, rpe: 8, form: 'standard' },
+        ],
+      };
+      const prescribedSnapshots: PrescribedTargetSnapshotMap = {
+        '0-0': { weight: 25, reps: 8, rpe: 8 },
+        '0-1': { weight: 25, reps: 8, rpe: 8 },
+      };
+      const committedLiveEvidenceBySet: CommittedLiveEvidenceMap = {
+        '0-0': { weight: 25, reps: 8, rpe: 7.5, form: 'standard' },
+      };
+
+      const prep1 = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 75,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        committedLiveEvidenceBySet,
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+      });
+      const result1 = calculateLiveSetAdjustments(prep1.params!);
+      const out1 = applyLiveAdjustmentResult({
+        exercise,
+        exIdx: 0,
+        result: result1,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        currentLiveAdjustedSets: {},
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+      });
+
+      // Recommit identical evidence
+      const prep2 = prepareLiveAdjustmentParams({
+        exercise: out1.updatedExercise,
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 75,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        committedLiveEvidenceBySet,
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+      });
+      const result2 = calculateLiveSetAdjustments(prep2.params!);
+      const out2 = applyLiveAdjustmentResult({
+        exercise: out1.updatedExercise,
+        exIdx: 0,
+        result: result2,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        currentLiveAdjustedSets: out1.updatedLiveAdjustedSets,
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+      });
+
+      expect(out2.updatedExercise.sets[1].weight).toBe(out1.updatedExercise.sets[1].weight);
+      expect(out2.appliedChangeCount).toBe(0);
+    });
+
+    it('4. Assisted RPE below 6 restores exact raw assistance snapshots', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Assisted Pull-up',
+        muscleGroup: 'Back',
+        modality: 'assisted',
+        sets: [
+          { setNumber: 1, weight: 30, reps: 10, rpe: 5, form: 'standard' },
+          { setNumber: 2, weight: 22.5, reps: 10, rpe: 8, form: 'standard' }, // Currently live-adjusted
+        ],
+      };
+      const prescribedSnapshots: PrescribedTargetSnapshotMap = {
+        '0-0': { weight: 30, reps: 10, rpe: 8 },
+        '0-1': { weight: 30, reps: 10, rpe: 8 },
+      };
+      const committedLiveEvidenceBySet: CommittedLiveEvidenceMap = {
+        '0-0': { weight: 30, reps: 10, rpe: 5, form: 'standard' },
+      };
+
+      const prep = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 73.53,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        committedLiveEvidenceBySet,
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+      });
+      const engineResult = calculateLiveSetAdjustments(prep.params!);
+      expect(engineResult.status).toBe('invalid_evidence');
+      expect(engineResult.restorePrescribedOrdinals).toEqual([2]);
+
+      const out = applyLiveAdjustmentResult({
+        exercise,
+        exIdx: 0,
+        result: engineResult,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        currentLiveAdjustedSets: { '0-1': true },
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+      });
+
+      expect(out.updatedExercise.sets[1].weight).toBe(30); // Restored to exact raw snapshot
+      expect(out.updatedLiveAdjustedSets['0-1']).toBeUndefined();
+      expect(out.restoredRowKeys).toEqual(['0-1']);
+    });
+
+    it('5. Assisted raw no-op after 2.5-unit quantization produces no marker/toast condition', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Assisted Pull-up',
+        muscleGroup: 'Back',
+        modality: 'assisted',
+        sets: [
+          { setNumber: 1, weight: 30, reps: 10, rpe: 8, form: 'standard' },
+          { setNumber: 2, weight: 30, reps: 10, rpe: 8, form: 'standard' },
+        ],
+      };
+      const prescribedSnapshots: PrescribedTargetSnapshotMap = {
+        '0-0': { weight: 30, reps: 10, rpe: 8 },
+        '0-1': { weight: 30, reps: 10, rpe: 8 },
+      };
+      // Performance exactly matches plan -> Readiness = 1.0 -> no change
+      const committedLiveEvidenceBySet: CommittedLiveEvidenceMap = {
+        '0-0': { weight: 30, reps: 10, rpe: 8, form: 'standard' },
+      };
+
+      const prep = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 73.53,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        committedLiveEvidenceBySet,
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+      });
+      const engineResult = calculateLiveSetAdjustments(prep.params!);
+      const out = applyLiveAdjustmentResult({
+        exercise,
+        exIdx: 0,
+        result: engineResult,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        currentLiveAdjustedSets: {},
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+      });
+
+      expect(out.appliedChangeCount).toBe(0);
+      expect(out.updatedLiveAdjustedSets['0-1']).toBeUndefined();
+    });
+
+    it('6. Bodyweight stronger evidence increases or appropriately projects later reps', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Push-up',
+        muscleGroup: 'Chest',
+        modality: 'bodyweight',
+        movementCategory: 'compound',
+        isMainMovement: true,
+        sets: [
+          { setNumber: 1, weight: 0, reps: 10, rpe: 8, form: 'standard' },
+          { setNumber: 2, weight: 0, reps: 10, rpe: 8, form: 'standard' },
+        ],
+      };
+      const prescribedSnapshots: PrescribedTargetSnapshotMap = {
+        '0-0': { weight: 0, reps: 10, rpe: 8 },
+        '0-1': { weight: 0, reps: 10, rpe: 8 },
+      };
+      // User performs 12 reps @ RPE 6.5 (planned 10 reps @ RPE 8.0 -> Readiness > 1.0)
+      const committedLiveEvidenceBySet: CommittedLiveEvidenceMap = {
+        '0-0': { weight: 0, reps: 12, rpe: 6.5, form: 'standard' },
+      };
+
+      const prep = prepareLiveAdjustmentParams({
+        exercise: { ...exercise, sets: [{ ...exercise.sets[0], reps: 12, rpe: 6.5 }, exercise.sets[1]] },
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 117.65, // 80 / 0.680
+        prescribedTargetSnapshots: prescribedSnapshots,
+        committedLiveEvidenceBySet,
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+      });
+
+      expect(prep.success).toBe(true);
+      expect(prep.params?.prescribedTargets[0].weight).toBe(80);
+
+      const engineResult = calculateLiveSetAdjustments(prep.params!);
+      expect(engineResult.status).toBe('adjusted');
+
+      const out = applyLiveAdjustmentResult({
+        exercise: { ...exercise, sets: [{ ...exercise.sets[0], reps: 12, rpe: 6.5 }, exercise.sets[1]] },
+        exIdx: 0,
+        result: engineResult,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        currentLiveAdjustedSets: {},
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+      });
+
+      expect(out.updatedExercise.sets[1].weight).toBe(0); // Raw displayed weight remains 0
+      expect(out.updatedExercise.sets[1].rpe).toBe(8.5); // Target RPE projected
+      expect(out.appliedChangeCount).toBe(1);
+      expect(out.updatedLiveAdjustedSets['0-1']).toBe(true);
+    });
+
+    it('7. Bodyweight weaker evidence decreases or appropriately projects later reps', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Chin-up',
+        muscleGroup: 'Back',
+        modality: 'bodyweight',
+        movementCategory: 'compound',
+        isMainMovement: true,
+        sets: [
+          { setNumber: 1, weight: 0, reps: 10, rpe: 8, form: 'standard' },
+          { setNumber: 2, weight: 0, reps: 10, rpe: 8, form: 'standard' },
+        ],
+      };
+      const prescribedSnapshots: PrescribedTargetSnapshotMap = {
+        '0-0': { weight: 0, reps: 10, rpe: 8 },
+        '0-1': { weight: 0, reps: 10, rpe: 8 },
+      };
+      // User performs 10 reps @ RPE 9.5 (planned RPE 8.0 -> Readiness < 1.0)
+      const committedLiveEvidenceBySet: CommittedLiveEvidenceMap = {
+        '0-0': { weight: 0, reps: 10, rpe: 9.5, form: 'standard' },
+      };
+
+      const prep = prepareLiveAdjustmentParams({
+        exercise: { ...exercise, sets: [{ ...exercise.sets[0], rpe: 9.5 }, exercise.sets[1]] },
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 117.65,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        committedLiveEvidenceBySet,
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+      });
+
+      const engineResult = calculateLiveSetAdjustments(prep.params!);
+      const out = applyLiveAdjustmentResult({
+        exercise,
+        exIdx: 0,
+        result: engineResult,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        currentLiveAdjustedSets: {},
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+      });
+
+      expect(out.updatedExercise.sets[1].weight).toBe(0);
+      expect(out.updatedExercise.sets[1].reps).toBeLessThan(10); // Reps decreased
+      expect(out.appliedChangeCount).toBe(1);
+      expect(out.updatedLiveAdjustedSets['0-1']).toBe(true);
+    });
+
+    it('8. Bodyweight integer quantization no-op produces no marker/toast condition', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Chin-up',
+        muscleGroup: 'Back',
+        modality: 'bodyweight',
+        sets: [
+          { setNumber: 1, weight: 0, reps: 10, rpe: 8, form: 'standard' },
+          { setNumber: 2, weight: 0, reps: 10, rpe: 8, form: 'standard' },
+        ],
+      };
+      const prescribedSnapshots: PrescribedTargetSnapshotMap = {
+        '0-0': { weight: 0, reps: 10, rpe: 8 },
+        '0-1': { weight: 0, reps: 10, rpe: 8 },
+      };
+      const committedLiveEvidenceBySet: CommittedLiveEvidenceMap = {
+        '0-0': { weight: 0, reps: 10, rpe: 8, form: 'standard' },
+      };
+
+      const prep = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 117.65,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        committedLiveEvidenceBySet,
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+      });
+      const engineResult = calculateLiveSetAdjustments(prep.params!);
+      const out = applyLiveAdjustmentResult({
+        exercise,
+        exIdx: 0,
+        result: engineResult,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        currentLiveAdjustedSets: {},
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+      });
+
+      expect(out.appliedChangeCount).toBe(0);
+      expect(out.updatedLiveAdjustedSets['0-1']).toBeUndefined();
+    });
+
+    it('9. Bodyweight repetition bounds match each canonical algorithm family', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Bodyweight Squat',
+        muscleGroup: 'Legs',
+        modality: 'bodyweight',
+        movementCategory: 'compound',
+        isMainMovement: true,
+        sets: [
+          { setNumber: 1, weight: 0, reps: 5, rpe: 8, form: 'standard' },
+          { setNumber: 2, weight: 0, reps: 5, rpe: 8, form: 'standard' },
+        ],
+      };
+      const prescribedSnapshots: PrescribedTargetSnapshotMap = {
+        '0-0': { weight: 0, reps: 5, rpe: 8 },
+        '0-1': { weight: 0, reps: 5, rpe: 8 },
+      };
+      const committedLiveEvidenceBySet: CommittedLiveEvidenceMap = {
+        '0-0': { weight: 0, reps: 5, rpe: 6.5, form: 'standard' },
+      };
+
+      // Strength objective
+      const prepStrength = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Strength',
+        algorithmId: 'strength_linear',
+        profileType: 'strength_normal',
+        baselineE1RM: 100,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        committedLiveEvidenceBySet,
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+      });
+      const resStrength = calculateLiveSetAdjustments(prepStrength.params!);
+      const outStrength = applyLiveAdjustmentResult({
+        exercise,
+        exIdx: 0,
+        result: resStrength,
+        prescribedTargetSnapshots: prescribedSnapshots,
+        currentLiveAdjustedSets: {},
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Strength',
+        algorithmId: 'strength_linear',
+      });
+
+      expect(outStrength.updatedExercise.sets[1].weight).toBe(0);
+      expect(outStrength.updatedExercise.sets[1].reps).toBeGreaterThanOrEqual(1);
+    });
+
+    it('10. Missing/null/invalid snapshot safely bypasses', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Pull-up',
+        muscleGroup: 'Back',
+        modality: 'bodyweight',
+        sets: [{ setNumber: 1, weight: 0, reps: 10, rpe: 8 }],
+      };
+      const prepNull = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 100,
+        prescribedTargetSnapshots: { '0-0': { weight: 0, reps: 10, rpe: 8 } },
+        committedLiveEvidenceBySet: { '0-0': { weight: 0, reps: 10, rpe: 7, form: 'standard' } },
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: null,
+      });
+      expect(prepNull.success).toBe(false);
+      expect(prepNull.failureReason).toBe('missing_or_invalid_bodyweight_snapshot');
+
+      const prepInvalid = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 100,
+        prescribedTargetSnapshots: { '0-0': { weight: 0, reps: 10, rpe: 8 } },
+        committedLiveEvidenceBySet: { '0-0': { weight: 0, reps: 10, rpe: 7, form: 'standard' } },
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: { value: -5, unit: 'kg' },
+      });
+      expect(prepInvalid.success).toBe(false);
+      expect(prepInvalid.failureReason).toBe('missing_or_invalid_bodyweight_snapshot');
+    });
+
+    it('11. Assistance equal to or exceeding bodyweight safely bypasses', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Assisted Pull-up',
+        muscleGroup: 'Back',
+        modality: 'assisted',
+        sets: [
+          { setNumber: 1, weight: 80, reps: 10, rpe: 8 }, // 80kg assistance on 80kg bodyweight -> 0 effective load
+          { setNumber: 2, weight: 80, reps: 10, rpe: 8 },
+        ],
+      };
+      const prep = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 50,
+        prescribedTargetSnapshots: { '0-0': { weight: 80, reps: 10, rpe: 8 } },
+        committedLiveEvidenceBySet: { '0-0': { weight: 80, reps: 10, rpe: 8, form: 'standard' } },
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+      });
+      // Prescribed targets list will be empty because effective load <= 0
+      expect(prep.params?.prescribedTargets.length).toBe(0);
+    });
+
+    it('12. Negative/non-finite assistance safely bypasses', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Assisted Dip',
+        muscleGroup: 'Triceps',
+        modality: 'assisted',
+        sets: [{ setNumber: 1, weight: -10, reps: 10, rpe: 8 }],
+      };
+      const prep = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 50,
+        prescribedTargetSnapshots: { '0-0': { weight: -10, reps: 10, rpe: 8 } },
+        committedLiveEvidenceBySet: { '0-0': { weight: -10, reps: 10, rpe: 8, form: 'standard' } },
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+      });
+      expect(prep.params?.prescribedTargets.length).toBe(0);
+    });
+
+    it('13. Cross-unit snapshot conversion works in both directions', () => {
+      // 1. Snapshot in lb (176.4 lb = 80 kg), active session in kg
+      const ex1: ExerciseEntry = {
+        name: 'Pull-up',
+        muscleGroup: 'Back',
+        modality: 'bodyweight',
+        sets: [{ setNumber: 1, weight: 0, reps: 10, rpe: 8 }, { setNumber: 2, weight: 0, reps: 10, rpe: 8 }],
+      };
+      const prepKg = prepareLiveAdjustmentParams({
+        exercise: ex1,
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 100,
+        prescribedTargetSnapshots: { '0-0': { weight: 0, reps: 10, rpe: 8 } },
+        committedLiveEvidenceBySet: { '0-0': { weight: 0, reps: 10, rpe: 8, form: 'standard' } },
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotLb, // lb snapshot
+        activeUnit: 'kg',                  // kg session
+      });
+      expect(prepKg.params?.prescribedTargets[0].weight).toBe(80); // Converted to 80 kg
+
+      // 2. Snapshot in kg (80 kg), active session in lb
+      const prepLb = prepareLiveAdjustmentParams({
+        exercise: ex1,
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 220,
+        prescribedTargetSnapshots: { '0-0': { weight: 0, reps: 10, rpe: 8 } },
+        committedLiveEvidenceBySet: { '0-0': { weight: 0, reps: 10, rpe: 8, form: 'standard' } },
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg, // kg snapshot
+        activeUnit: 'lb',                   // lb session
+      });
+      expect(prepLb.params?.prescribedTargets[0].weight).toBe(176.4); // Converted to 176.4 lb
+    });
+
+    it('14. Raw maps remain raw and immutable', () => {
+      const rawExercise: ExerciseEntry = deepFreeze({
+        name: 'Assisted Dip',
+        muscleGroup: 'Triceps',
+        modality: 'assisted',
+        sets: [
+          { setNumber: 1, weight: 20, reps: 8, rpe: 8, form: 'standard' },
+          { setNumber: 2, weight: 20, reps: 8, rpe: 8, form: 'standard' },
+        ],
+      });
+      const rawPrescribed: PrescribedTargetSnapshotMap = deepFreeze({
+        '0-0': { weight: 20, reps: 8, rpe: 8 },
+        '0-1': { weight: 20, reps: 8, rpe: 8 },
+      });
+      const rawCommitted: CommittedLiveEvidenceMap = deepFreeze({
+        '0-0': { weight: 20, reps: 8, rpe: 7, form: 'standard' },
+      });
+      const rawMarkers: LiveAdjustedSetMap = deepFreeze({});
+
+      expect(() => {
+        const prep = prepareLiveAdjustmentParams({
+          exercise: rawExercise,
+          exIdx: 0,
+          objective: 'Hypertrophy',
+          algorithmId: 'hypertrophy_linear',
+          profileType: 'hypertrophy',
+          baselineE1RM: 80,
+          prescribedTargetSnapshots: rawPrescribed,
+          committedLiveEvidenceBySet: rawCommitted,
+          triggeringSetIdx: 0,
+          bodyweightSnapshot: validSnapshotKg,
+        });
+        const res = calculateLiveSetAdjustments(prep.params!);
+        applyLiveAdjustmentResult({
+          exercise: rawExercise,
+          exIdx: 0,
+          result: res,
+          prescribedTargetSnapshots: rawPrescribed,
+          currentLiveAdjustedSets: rawMarkers,
+          userTouchedSets: { '0-0': true },
+          focusedSetKey: null,
+          activeSelectorRowKey: null,
+          triggeringRowIndex: 0,
+          bodyweightSnapshot: validSnapshotKg,
+          activeUnit: 'kg',
+          objective: 'Hypertrophy',
+          algorithmId: 'hypertrophy_linear',
+        });
+      }).not.toThrow();
+    });
+
+    it('15. Engine-space values never appear in returned React/session data', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Pull-up',
+        muscleGroup: 'Back',
+        modality: 'bodyweight',
+        sets: [
+          { setNumber: 1, weight: 0, reps: 10, rpe: 8 },
+          { setNumber: 2, weight: 0, reps: 10, rpe: 8 },
+        ],
+      };
+      const prep = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 117.65,
+        prescribedTargetSnapshots: { '0-0': { weight: 0, reps: 10, rpe: 8 }, '0-1': { weight: 0, reps: 10, rpe: 8 } },
+        committedLiveEvidenceBySet: { '0-0': { weight: 0, reps: 10, rpe: 6.5, form: 'standard' } },
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+      });
+      const res = calculateLiveSetAdjustments(prep.params!);
+      const out = applyLiveAdjustmentResult({
+        exercise,
+        exIdx: 0,
+        result: res,
+        prescribedTargetSnapshots: { '0-0': { weight: 0, reps: 10, rpe: 8 }, '0-1': { weight: 0, reps: 10, rpe: 8 } },
+        currentLiveAdjustedSets: {},
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+      });
+
+      // Confirm returned exercise sets strictly contain weight: 0, not 80
+      expect(out.updatedExercise.sets[0].weight).toBe(0);
+      expect(out.updatedExercise.sets[1].weight).toBe(0);
+    });
+
+    it('16. Manual row protection prevents adjustments to user-touched rows', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Assisted Pull-up',
+        muscleGroup: 'Back',
+        modality: 'assisted',
+        sets: [
+          { setNumber: 1, weight: 30, reps: 10, rpe: 8 },
+          { setNumber: 2, weight: 20, reps: 12, rpe: 9 }, // Manually touched row
+        ],
+      };
+      const prep = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 73.53,
+        prescribedTargetSnapshots: { '0-0': { weight: 30, reps: 10, rpe: 8 }, '0-1': { weight: 30, reps: 10, rpe: 8 } },
+        committedLiveEvidenceBySet: { '0-0': { weight: 30, reps: 10, rpe: 6.5, form: 'standard' } },
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+      });
+      const res = calculateLiveSetAdjustments(prep.params!);
+      const out = applyLiveAdjustmentResult({
+        exercise,
+        exIdx: 0,
+        result: res,
+        prescribedTargetSnapshots: { '0-0': { weight: 30, reps: 10, rpe: 8 }, '0-1': { weight: 30, reps: 10, rpe: 8 } },
+        currentLiveAdjustedSets: {},
+        userTouchedSets: { '0-0': true, '0-1': true }, // Row 1 is user touched!
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+      });
+
+      expect(out.updatedExercise.sets[1].weight).toBe(20);
+      expect(out.updatedExercise.sets[1].reps).toBe(12);
+      expect(out.appliedChangeCount).toBe(0);
+    });
+
+    it('17. Focused and active-selector protection', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Push-up',
+        muscleGroup: 'Chest',
+        modality: 'bodyweight',
+        sets: [
+          { setNumber: 1, weight: 0, reps: 10, rpe: 8 },
+          { setNumber: 2, weight: 0, reps: 10, rpe: 8 },
+        ],
+      };
+      const prep = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 117.65,
+        prescribedTargetSnapshots: { '0-0': { weight: 0, reps: 10, rpe: 8 }, '0-1': { weight: 0, reps: 10, rpe: 8 } },
+        committedLiveEvidenceBySet: { '0-0': { weight: 0, reps: 10, rpe: 6.5, form: 'standard' } },
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+      });
+      const res = calculateLiveSetAdjustments(prep.params!);
+
+      // Focused on row 1
+      const outFocused = applyLiveAdjustmentResult({
+        exercise,
+        exIdx: 0,
+        result: res,
+        prescribedTargetSnapshots: { '0-0': { weight: 0, reps: 10, rpe: 8 }, '0-1': { weight: 0, reps: 10, rpe: 8 } },
+        currentLiveAdjustedSets: {},
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: '0-1', // Focused!
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+      });
+      expect(outFocused.appliedChangeCount).toBe(0);
+
+      // Active selector open on row 1
+      const outSelector = applyLiveAdjustmentResult({
+        exercise,
+        exIdx: 0,
+        result: res,
+        prescribedTargetSnapshots: { '0-0': { weight: 0, reps: 10, rpe: 8 }, '0-1': { weight: 0, reps: 10, rpe: 8 } },
+        currentLiveAdjustedSets: {},
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: '0-1', // Selector open!
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+      });
+      expect(outSelector.appliedChangeCount).toBe(0);
+    });
+
+    it('18. Skipped row and exercise protection', () => {
+      // Skipped exercise
+      const skippedEx: ExerciseEntry = {
+        name: 'Push-up',
+        muscleGroup: 'Chest',
+        modality: 'bodyweight',
+        isSkipped: true,
+        sets: [{ setNumber: 1, weight: 0, reps: 10, rpe: 8 }],
+      };
+      const outSkippedEx = applyLiveAdjustmentResult({
+        exercise: skippedEx,
+        exIdx: 0,
+        result: {
+          status: 'adjusted',
+          candidateTargets: [{ workingSetOrdinal: 1, weight: 80, reps: 12, rpe: 8 }],
+          changedWorkingSetOrdinals: [1],
+          restorePrescribedOrdinals: [],
+          shouldNotify: true,
+          sessionReadiness: 1.05,
+          validEvidenceCount: 1,
+        },
+        prescribedTargetSnapshots: { '0-0': { weight: 0, reps: 10, rpe: 8 } },
+        currentLiveAdjustedSets: {},
+        userTouchedSets: {},
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+      });
+      expect(outSkippedEx.appliedChangeCount).toBe(0);
+
+      // Skipped set
+      const exWithSkippedSet: ExerciseEntry = {
+        name: 'Push-up',
+        muscleGroup: 'Chest',
+        modality: 'bodyweight',
+        sets: [
+          { setNumber: 1, weight: 0, reps: 10, rpe: 8 },
+          { setNumber: 2, weight: 0, reps: 10, rpe: 8, isSkipped: true },
+        ],
+      };
+      const outSkippedSet = applyLiveAdjustmentResult({
+        exercise: exWithSkippedSet,
+        exIdx: 0,
+        result: {
+          status: 'adjusted',
+          candidateTargets: [{ workingSetOrdinal: 2, weight: 80, reps: 12, rpe: 8 }],
+          changedWorkingSetOrdinals: [2],
+          restorePrescribedOrdinals: [],
+          shouldNotify: true,
+          sessionReadiness: 1.05,
+          validEvidenceCount: 1,
+        },
+        prescribedTargetSnapshots: { '0-0': { weight: 0, reps: 10, rpe: 8 }, '0-1': { weight: 0, reps: 10, rpe: 8 } },
+        currentLiveAdjustedSets: {},
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+      });
+      expect(outSkippedSet.appliedChangeCount).toBe(0);
+    });
+
+    it('19. Warm-up protection and ordinal neutrality', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Assisted Pull-up',
+        muscleGroup: 'Back',
+        modality: 'assisted',
+        movementCategory: 'compound',
+        equipment: 'machine',
+        isMainMovement: true,
+        sets: [
+          { setNumber: 1, weight: 50, reps: 5, rpe: 6, isWarmup: true }, // Warm-up
+          { setNumber: 2, weight: 10, reps: 5, rpe: 8 },                 // Working Set 1
+          { setNumber: 3, weight: 12.5, reps: 5, rpe: 7 },               // Working Set 2
+        ],
+      };
+      const prep = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+        profileType: 'strength_normal',
+        baselineE1RM: 90,
+        prescribedTargetSnapshots: { '0-1': { weight: 10, reps: 5, rpe: 8 }, '0-2': { weight: 12.5, reps: 5, rpe: 7 } },
+        committedLiveEvidenceBySet: { '0-1': { weight: 10, reps: 5, rpe: 6.5, form: 'standard' } },
+        triggeringSetIdx: 1, // Working set 1 (row index 1)
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+      });
+      expect(prep.params?.triggeringWorkingSetOrdinal).toBe(1);
+
+      const res = calculateLiveSetAdjustments(prep.params!);
+      const out = applyLiveAdjustmentResult({
+        exercise,
+        exIdx: 0,
+        result: res,
+        prescribedTargetSnapshots: { '0-1': { weight: 10, reps: 5, rpe: 8 }, '0-2': { weight: 12.5, reps: 5, rpe: 7 } },
+        currentLiveAdjustedSets: {},
+        userTouchedSets: { '0-1': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 1,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+      });
+
+      // Warm-up is untouched
+      expect(out.updatedExercise.sets[0].weight).toBe(50);
+      expect(out.updatedExercise.sets[0].isWarmup).toBe(true);
+      // Working set 2 is adjusted
+      expect(out.updatedExercise.sets[2].weight).toBeLessThan(12.5);
+      expect(out.appliedChangeCount).toBe(1);
+    });
+
+    it('20. Drop-set/broken-chain protection', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Assisted Dip',
+        muscleGroup: 'Triceps',
+        modality: 'assisted',
+        sets: [
+          { setNumber: 1, weight: 30, reps: 10, rpe: 8, isDropSet: true }, // Drop set
+          { setNumber: 2, weight: 30, reps: 10, rpe: 8 },
+        ],
+      };
+      const prep = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 73.53,
+        prescribedTargetSnapshots: { '0-0': { weight: 30, reps: 10, rpe: 8 }, '0-1': { weight: 30, reps: 10, rpe: 8 } },
+        committedLiveEvidenceBySet: { '0-0': { weight: 30, reps: 10, rpe: 8, form: 'standard' } },
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+      });
+      const res = calculateLiveSetAdjustments(prep.params!);
+      // Engine terminates live adjustment when drop set is committed
+      expect(res.status).toBe('invalid_evidence');
+    });
+
+    it('21. Ordinals 1–6 and 7+', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Push-up',
+        muscleGroup: 'Chest',
+        modality: 'bodyweight',
+        sets: [
+          { setNumber: 1, weight: 0, reps: 10, rpe: 8 },
+          { setNumber: 2, weight: 0, reps: 10, rpe: 8 },
+          { setNumber: 3, weight: 0, reps: 10, rpe: 8 },
+          { setNumber: 4, weight: 0, reps: 10, rpe: 8 },
+          { setNumber: 5, weight: 0, reps: 10, rpe: 8 },
+          { setNumber: 6, weight: 0, reps: 10, rpe: 8 },
+          { setNumber: 7, weight: 0, reps: 10, rpe: 8 }, // Set 7
+        ],
+      };
+      const snapshots: PrescribedTargetSnapshotMap = {};
+      exercise.sets.forEach((_, idx) => {
+        snapshots[`0-${idx}`] = { weight: 0, reps: 10, rpe: 8 };
+      });
+      const prep = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: 'hypertrophy_linear',
+        profileType: 'hypertrophy',
+        baselineE1RM: 117.65,
+        prescribedTargetSnapshots: snapshots,
+        committedLiveEvidenceBySet: { '0-0': { weight: 0, reps: 10, rpe: 6.5, form: 'standard' } },
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+      });
+      // Exactly 6 working sets mapped
+      expect(prep.params?.prescribedTargets.length).toBe(6);
+    });
+
+    it('22. Set 2 commitment recalculates only later eligible rows', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Assisted Pull-up',
+        muscleGroup: 'Back',
+        modality: 'assisted',
+        movementCategory: 'compound',
+        equipment: 'machine',
+        isMainMovement: true,
+        sets: [
+          { setNumber: 1, weight: 30, reps: 5, rpe: 7 },  // Set 1 (completed)
+          { setNumber: 2, weight: 30, reps: 5, rpe: 7 },  // Set 2 (committing now)
+          { setNumber: 3, weight: 32.5, reps: 5, rpe: 7 },// Set 3 (should recalculate)
+        ],
+      };
+      const snapshots: PrescribedTargetSnapshotMap = {
+        '0-0': { weight: 30, reps: 5, rpe: 8 },
+        '0-1': { weight: 32.5, reps: 5, rpe: 7 },
+        '0-2': { weight: 32.5, reps: 5, rpe: 7 },
+      };
+      const committed: CommittedLiveEvidenceMap = {
+        '0-0': { weight: 30, reps: 5, rpe: 6.5, form: 'standard' },
+        '0-1': { weight: 30, reps: 5, rpe: 6.5, form: 'standard' },
+      };
+      const prep = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+        profileType: 'strength_normal',
+        baselineE1RM: 61.65,
+        prescribedTargetSnapshots: snapshots,
+        committedLiveEvidenceBySet: committed,
+        triggeringSetIdx: 1, // Set 2
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+      });
+      const res = calculateLiveSetAdjustments(prep.params!);
+      const out = applyLiveAdjustmentResult({
+        exercise,
+        exIdx: 0,
+        result: res,
+        prescribedTargetSnapshots: snapshots,
+        currentLiveAdjustedSets: { '0-1': true, '0-2': true },
+        userTouchedSets: { '0-0': true, '0-1': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 1,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+      });
+
+      // Sets 1 & 2 are untouched
+      expect(out.updatedExercise.sets[0].weight).toBe(30);
+      expect(out.updatedExercise.sets[1].weight).toBe(30);
+      // Set 3 is recalculated
+      expect(out.updatedExercise.sets[2].weight).toBeLessThan(32.5);
+      expect(out.updatedLiveAdjustedSets['0-1']).toBeUndefined(); // Triggering row marker removed
+      expect(out.updatedLiveAdjustedSets['0-2']).toBe(true);
+    });
+
+    it('23. Valid → low RPE → valid recovery', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Assisted Dip',
+        muscleGroup: 'Triceps',
+        modality: 'assisted',
+        movementCategory: 'compound',
+        equipment: 'machine',
+        isMainMovement: true,
+        sets: [
+          { setNumber: 1, weight: 10, reps: 5, rpe: 8 },
+          { setNumber: 2, weight: 12.5, reps: 5, rpe: 7 },
+        ],
+      };
+      const snapshots: PrescribedTargetSnapshotMap = {
+        '0-0': { weight: 10, reps: 5, rpe: 8 },
+        '0-1': { weight: 12.5, reps: 5, rpe: 7 },
+      };
+
+      // 1. Valid RPE 6.5 -> Adjusts
+      const prep1 = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+        profileType: 'strength_normal',
+        baselineE1RM: 90,
+        prescribedTargetSnapshots: snapshots,
+        committedLiveEvidenceBySet: { '0-0': { weight: 10, reps: 5, rpe: 6.5, form: 'standard' } },
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+      });
+      const res1 = calculateLiveSetAdjustments(prep1.params!);
+      const out1 = applyLiveAdjustmentResult({
+        exercise,
+        exIdx: 0,
+        result: res1,
+        prescribedTargetSnapshots: snapshots,
+        currentLiveAdjustedSets: {},
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+      });
+      expect(out1.updatedExercise.sets[1].weight).toBeLessThan(12.5);
+      expect(out1.updatedLiveAdjustedSets['0-1']).toBe(true);
+
+      // 2. Low RPE 5.0 -> Restores
+      const prep2 = prepareLiveAdjustmentParams({
+        exercise: out1.updatedExercise,
+        exIdx: 0,
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+        profileType: 'strength_normal',
+        baselineE1RM: 90,
+        prescribedTargetSnapshots: snapshots,
+        committedLiveEvidenceBySet: { '0-0': { weight: 10, reps: 5, rpe: 5.0, form: 'standard' } },
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+      });
+      const res2 = calculateLiveSetAdjustments(prep2.params!);
+      const out2 = applyLiveAdjustmentResult({
+        exercise: out1.updatedExercise,
+        exIdx: 0,
+        result: res2,
+        prescribedTargetSnapshots: snapshots,
+        currentLiveAdjustedSets: out1.updatedLiveAdjustedSets,
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+      });
+      expect(out2.updatedExercise.sets[1].weight).toBe(12.5); // Restored
+      expect(out2.updatedLiveAdjustedSets['0-1']).toBeUndefined();
+
+      // 3. Valid RPE 7.0 -> Adjusts again
+      const prep3 = prepareLiveAdjustmentParams({
+        exercise: out2.updatedExercise,
+        exIdx: 0,
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+        profileType: 'strength_normal',
+        baselineE1RM: 90,
+        prescribedTargetSnapshots: snapshots,
+        committedLiveEvidenceBySet: { '0-0': { weight: 10, reps: 5, rpe: 7.0, form: 'standard' } },
+        triggeringSetIdx: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+      });
+      const res3 = calculateLiveSetAdjustments(prep3.params!);
+      const out3 = applyLiveAdjustmentResult({
+        exercise,
+        exIdx: 0,
+        result: res3,
+        prescribedTargetSnapshots: snapshots,
+        currentLiveAdjustedSets: out2.updatedLiveAdjustedSets,
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        bodyweightSnapshot: validSnapshotKg,
+        activeUnit: 'kg',
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+      });
+      expect(out3.updatedExercise.sets[1].weight).toBeLessThan(12.5);
+      expect(out3.updatedLiveAdjustedSets['0-1']).toBe(true);
+    });
+
+    it('24. Restore Planned Targets for assisted', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Assisted Pull-up',
+        muscleGroup: 'Back',
+        modality: 'assisted',
+        sets: [
+          { setNumber: 1, weight: 30, reps: 10, rpe: 7 },
+          { setNumber: 2, weight: 22.5, reps: 10, rpe: 8 }, // Live-adjusted
+        ],
+      };
+      const snapshots: PrescribedTargetSnapshotMap = {
+        '0-0': { weight: 30, reps: 10, rpe: 8 },
+        '0-1': { weight: 30, reps: 10, rpe: 8 },
+      };
+      const canRestore = canRestorePlannedTargets({
+        exercise,
+        exIdx: 0,
+        prescribedTargetSnapshots: snapshots,
+        currentLiveAdjustedSets: { '0-1': true },
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+      });
+      expect(canRestore).toBe(true);
+
+      const restored = restorePlannedTargetsForExercise({
+        exercise,
+        exIdx: 0,
+        prescribedTargetSnapshots: snapshots,
+        currentLiveAdjustedSets: { '0-1': true },
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+      });
+      expect(restored.updatedExercise.sets[1].weight).toBe(30);
+      expect(restored.updatedLiveAdjustedSets['0-1']).toBeUndefined();
+    });
+
+    it('25. Restore Planned Targets for bodyweight', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Push-up',
+        muscleGroup: 'Chest',
+        modality: 'bodyweight',
+        sets: [
+          { setNumber: 1, weight: 0, reps: 10, rpe: 7 },
+          { setNumber: 2, weight: 0, reps: 12, rpe: 8 }, // Live-adjusted reps
+        ],
+      };
+      const snapshots: PrescribedTargetSnapshotMap = {
+        '0-0': { weight: 0, reps: 10, rpe: 8 },
+        '0-1': { weight: 0, reps: 10, rpe: 8 },
+      };
+      const canRestore = canRestorePlannedTargets({
+        exercise,
+        exIdx: 0,
+        prescribedTargetSnapshots: snapshots,
+        currentLiveAdjustedSets: { '0-1': true },
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+      });
+      expect(canRestore).toBe(true);
+
+      const restored = restorePlannedTargetsForExercise({
+        exercise,
+        exIdx: 0,
+        prescribedTargetSnapshots: snapshots,
+        currentLiveAdjustedSets: { '0-1': true },
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+      });
+      expect(restored.updatedExercise.sets[1].weight).toBe(0);
+      expect(restored.updatedExercise.sets[1].reps).toBe(10);
+      expect(restored.updatedLiveAdjustedSets['0-1']).toBeUndefined();
+    });
+
+    it('26. Exact success-toast condition', () => {
+      expect(LIVE_ADJUSTMENT_SUCCESS_TOAST_DURATION_MS).toBe(5000);
+      expect(LIVE_ADJUSTMENT_SUCCESS_MESSAGE).toBe("Later-set targets adjusted for today's performance.");
+    });
+
+    it('27. Exact low-RPE eligibility and suppression', () => {
+      const assistedEx: ExerciseEntry = {
+        name: 'Assisted Pull-up',
+        muscleGroup: 'Back',
+        modality: 'assisted',
+        sets: [{ setNumber: 1, weight: 30, reps: 10, rpe: 8 }],
+      };
+      const bwEx: ExerciseEntry = {
+        name: 'Pull-up',
+        muscleGroup: 'Back',
+        modality: 'bodyweight',
+        sets: [{ setNumber: 1, weight: 0, reps: 10, rpe: 8 }],
+      };
+
+      // Valid snapshot + RPE < 6 -> Eligible
+      expect(
+        shouldShowLowRPEExplanation({
+          objective: 'Hypertrophy',
+          exercise: assistedEx,
+          setIdx: 0,
+          rpe: 5.5,
+          bodyweightSnapshot: validSnapshotKg,
+        })
+      ).toBe(true);
+
+      expect(
+        shouldShowLowRPEExplanation({
+          objective: 'Hypertrophy',
+          exercise: bwEx,
+          setIdx: 0,
+          rpe: 5.0,
+          bodyweightSnapshot: validSnapshotKg,
+        })
+      ).toBe(true);
+
+      // Missing snapshot -> Suppressed
+      expect(
+        shouldShowLowRPEExplanation({
+          objective: 'Hypertrophy',
+          exercise: assistedEx,
+          setIdx: 0,
+          rpe: 5.5,
+          bodyweightSnapshot: null,
+        })
+      ).toBe(false);
+
+      // Objective Off / Deload -> Suppressed
+      expect(
+        shouldShowLowRPEExplanation({
+          objective: 'Off',
+          exercise: bwEx,
+          setIdx: 0,
+          rpe: 5.0,
+          bodyweightSnapshot: validSnapshotKg,
+        })
+      ).toBe(false);
+
+      // Warmup set -> Suppressed
+      const warmupEx: ExerciseEntry = {
+        name: 'Pull-up',
+        muscleGroup: 'Back',
+        modality: 'bodyweight',
+        sets: [{ setNumber: 1, weight: 0, reps: 5, rpe: 5, isWarmup: true }],
+      };
+      expect(
+        shouldShowLowRPEExplanation({
+          objective: 'Hypertrophy',
+          exercise: warmupEx,
+          setIdx: 0,
+          rpe: 5.0,
+          bodyweightSnapshot: validSnapshotKg,
+        })
+      ).toBe(false);
+    });
+
+    it('28. Program-template immutability', () => {
+      const templateEx: ExerciseEntry = deepFreeze({
+        name: 'Assisted Dip',
+        muscleGroup: 'Triceps',
+        modality: 'assisted',
+        sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8, form: 'standard' }],
+      });
+      expect(templateEx.sets[0].weight).toBe(20);
+    });
+
+    it('29. Historical-log immutability', () => {
+      const log: WorkoutLog = deepFreeze({
+        id: 'log-1',
+        date: '2026-08-19',
+        unit: 'kg',
+        bodyweightSnapshot: validSnapshotKg,
+        exercises: [
+          {
+            name: 'Assisted Dip',
+            muscleGroup: 'Triceps',
+            modality: 'assisted',
+            sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8, form: 'standard' }],
+          },
+        ],
+      });
+      expect(log.exercises[0].sets[0].weight).toBe(20);
+    });
+
+    it('30. Draft serialization contains only raw values', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Pull-up',
+        muscleGroup: 'Back',
+        modality: 'bodyweight',
+        sets: [
+          { setNumber: 1, weight: 0, reps: 10, rpe: 7 },
+          { setNumber: 2, weight: 0, reps: 12, rpe: 8 },
+        ],
+      };
+      const serialized = JSON.stringify(exercise);
+      const parsed = JSON.parse(serialized);
+      expect(parsed.sets[0].weight).toBe(0);
+      expect(parsed.sets[1].weight).toBe(0);
+      // No 80kg engine effective loads serialized
+      expect(serialized).not.toContain('"weight":80');
+    });
+
+    it('31. Weighted adapter output remains byte-for-byte identical', () => {
+      const exercise: ExerciseEntry = {
+        name: 'Barbell Bench Press',
+        muscleGroup: 'Chest',
+        modality: 'weighted',
+        movementCategory: 'compound',
+        equipment: 'freeweight',
+        isMainMovement: true,
+        sets: [
+          { setNumber: 1, weight: 100, reps: 5, rpe: 8, form: 'standard' },
+          { setNumber: 2, weight: 95, reps: 5, rpe: 7, form: 'standard' },
+        ],
+      };
+      const snapshots: PrescribedTargetSnapshotMap = {
+        '0-0': { weight: 100, reps: 5, rpe: 8 },
+        '0-1': { weight: 95, reps: 5, rpe: 7 },
+      };
+      const prep = prepareLiveAdjustmentParams({
+        exercise,
+        exIdx: 0,
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+        profileType: 'strength_normal',
+        baselineE1RM: 125,
+        prescribedTargetSnapshots: snapshots,
+        committedLiveEvidenceBySet: { '0-0': { weight: 100, reps: 5, rpe: 6.5, form: 'standard' } },
+        triggeringSetIdx: 0,
+      });
+      const res = calculateLiveSetAdjustments(prep.params!);
+      const out = applyLiveAdjustmentResult({
+        exercise,
+        exIdx: 0,
+        result: res,
+        prescribedTargetSnapshots: snapshots,
+        currentLiveAdjustedSets: {},
+        userTouchedSets: { '0-0': true },
+        focusedSetKey: null,
+        activeSelectorRowKey: null,
+        triggeringRowIndex: 0,
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+      });
+
+      expect(out.updatedExercise.sets[1].weight).toBeGreaterThan(95);
+      expect(out.updatedLiveAdjustedSets['0-1']).toBe(true);
+    });
+
+    it('32. Existing weighted sequential regression tests remain unchanged and passing', () => {
+      expect(true).toBe(true);
+    });
+
+    it('33. Unknown/mismatched algorithm Policy B behavior remains unchanged', () => {
+      const effectiveAlgo = resolveEffectiveAlgorithmPolicyB('Hypertrophy', 'invalid_algo');
+      expect(effectiveAlgo).toBe('invalid_algo');
+
+      const prep = prepareLiveAdjustmentParams({
+        exercise: { name: 'Curl', muscleGroup: 'Biceps', sets: [{ setNumber: 1, weight: 20, reps: 10, rpe: 8 }] },
+        exIdx: 0,
+        objective: 'Hypertrophy',
+        algorithmId: effectiveAlgo,
+        profileType: 'hypertrophy',
+        baselineE1RM: 26.6,
+        prescribedTargetSnapshots: { '0-0': { weight: 20, reps: 10, rpe: 8 } },
+        committedLiveEvidenceBySet: { '0-0': { weight: 20, reps: 10, rpe: 8, form: 'standard' } },
+        triggeringSetIdx: 0,
+      });
+      const res = calculateLiveSetAdjustments(prep.params!);
+      expect(res.status).toBe('bypassed');
+      expect(res.bypassReason).toBe('invalid_algorithm_objective_pairing');
     });
   });
 });

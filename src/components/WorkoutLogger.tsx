@@ -807,6 +807,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
               previousLogs: storage.getWorkoutLogs(),
               userTouchedSets: {},
               checkedSets: {},
+              bodyweightSnapshot,
+              activeUnit: unit,
             });
             return { ...ex, sets: calculated };
           });
@@ -984,6 +986,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             checkedSets: {},
             algorithmId: activeProgLocal.algorithmId,
             templateExercise: templateEx,
+            bodyweightSnapshot,
+            activeUnit: unit,
           });
           return { ...ex, sets: calculated };
         });
@@ -1034,6 +1038,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           previousLogs: storage.getWorkoutLogs(),
           userTouchedSets: {},
           checkedSets: {},
+          bodyweightSnapshot,
+          activeUnit: unit,
         });
         return { ...ex, sets: calculated };
       });
@@ -1182,6 +1188,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             checkedSets: {},
             algorithmId: activeProgLocal.algorithmId,
             templateExercise: templateEx,
+            bodyweightSnapshot,
+            activeUnit: unit,
           });
           return { ...ex, sets: calculated };
         });
@@ -1236,6 +1244,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           previousLogs: storage.getWorkoutLogs(),
           userTouchedSets: {},
           checkedSets: {},
+          bodyweightSnapshot,
+          activeUnit: unit,
         });
         return { ...ex, sets: calculated };
       });
@@ -1304,6 +1314,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         checkedSets,
         algorithmId: activeProg?.algorithmId,
         templateExercise: templateEx,
+        bodyweightSnapshot,
+        activeUnit: unit,
       });
 
       return { ...ex, sets: calculated };
@@ -1484,6 +1496,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       previousLogs: storage.getWorkoutLogs(),
       userTouchedSets,
       checkedSets,
+      bodyweightSnapshot,
+      activeUnit: unit,
     });
     const finalNew = { ...newItem, sets: calculatedSets };
 
@@ -2008,6 +2022,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       previousLogs: storage.getWorkoutLogs(),
       algorithmId: activeProg?.algorithmId,
       templateExercise: templateEx,
+      bodyweightSnapshot,
+      activeUnit: unit,
     });
 
     const isPrescribed = targetResult.isPrescribed && !!targetResult.target;
@@ -2054,9 +2070,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         }
         return ex;
       });
-      syncAddedSetStructureToActiveProgram(currentEx, exIdx);
       return nextExs;
     });
+
+    syncAddedSetStructureToActiveProgram(currentEx, exIdx);
   };
 
   const handleDeleteSet = (exIdx: number, setIdx: number) => {
@@ -2145,10 +2162,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const rawWeight = targetSet?.weight;
     const isBw = targetEx.modality === 'bodyweight';
     const effectiveWeight =
-      rawWeight !== null && rawWeight !== undefined && rawWeight !== 0
-        ? rawWeight
-        : isBw
-        ? storage.getBodyweight() ?? 0
+      isBw
+        ? 0
         : typeof rawWeight === 'number'
         ? rawWeight
         : null;
@@ -2179,8 +2194,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       : undefined;
 
     const previousLogs = storage.getWorkoutLogs();
-    const historicalE1RM = extractHistoricalBaselineE1RM(targetEx.name, previousLogs);
-    const baselineE1RM = historicalE1RM > 0 ? historicalE1RM : extractTemplateBaselineE1RM(templateEx);
+    const historicalE1RM = extractHistoricalBaselineE1RM(targetEx.name, previousLogs, targetEx.modality, unit);
+    const baselineE1RM = historicalE1RM > 0 ? historicalE1RM : extractTemplateBaselineE1RM(templateEx, bodyweightSnapshot, unit);
 
     // Resolve profile type
     let profileType: FatiguePriorProfile = 'hypertrophy';
@@ -2215,6 +2230,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         prescribedTargetSnapshots,
         committedLiveEvidenceBySet: nextCommittedLiveEvidence,
         triggeringSetIdx: setIdx,
+        bodyweightSnapshot,
+        activeUnit: unit,
       });
 
       if (adapterPrep.success && adapterPrep.params) {
@@ -2231,6 +2248,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           focusedSetKey,
           activeSelectorRowKey,
           triggeringRowIndex: setIdx,
+          bodyweightSnapshot,
+          activeUnit: unit,
+          objective,
+          algorithmId: effectiveAlgorithmId,
         });
 
         finalUpdatedExercise = applicationOutput.updatedExercise;
@@ -2247,6 +2268,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             exercise: targetEx,
             setIdx,
             rpe: newRpe,
+            bodyweightSnapshot,
           })
         ) {
           showLiveAdjustmentToast(
@@ -2260,6 +2282,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           exercise: targetEx,
           setIdx,
           rpe: newRpe,
+          bodyweightSnapshot,
         })
       ) {
         showLiveAdjustmentToast(
@@ -2273,6 +2296,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         exercise: targetEx,
         setIdx,
         rpe: newRpe,
+        bodyweightSnapshot,
       })
     ) {
       showLiveAdjustmentToast(

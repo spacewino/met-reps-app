@@ -1,4 +1,4 @@
-import { ExerciseEntry, SetEntry } from '../types';
+import { ExerciseEntry, SetEntry, BodyweightSnapshot, WeightUnit } from '../types';
 import type { FatiguePriorProfile } from './setDistribution';
 import {
   LiveAdjustmentParams,
@@ -6,6 +6,10 @@ import {
   CommittedLiveEvidence,
   LiveAdjustmentResult,
 } from './liveAdjustmentMath';
+import { getRTSMultiplier } from './rpeMath';
+import { projectAssistedTarget, solveBodyweightRepTarget } from './modalityTargetMath';
+import { getPermittedRepetitionBounds } from './objectiveMath';
+import { resolveSessionBodyweightInUnit, validateBodyweightSnapshot } from './bodyweightSessionMath';
 
 /**
  * Immutable snapshot value of a prescribed target.
@@ -56,9 +60,9 @@ export function createCommittedLiveEvidenceValue(
   }
 
   return {
-    weight: typeof weight === 'number' ? weight : null,
-    reps: typeof reps === 'number' ? reps : null,
-    rpe: typeof rpe === 'number' ? rpe : null,
+    weight: typeof weight === 'number' && Number.isFinite(weight) ? weight : null,
+    reps: typeof reps === 'number' && Number.isFinite(reps) ? reps : null,
+    rpe: typeof rpe === 'number' && Number.isFinite(rpe) ? rpe : null,
     form: normalizedForm,
   };
 }
@@ -68,7 +72,10 @@ export function createCommittedLiveEvidenceValue(
  * Rules:
  * - Scans working sets (skips warm-ups and ordinals > 6).
  * - Checks touchedSetsRecord; if row is touched, preserves existing snapshot without promoting touched row values.
- * - If untouched, captures weight, reps, rpe if valid (weight > 0, reps > 0, rpe >= 6.0 && rpe <= 10.0, !isSkipped).
+ * - If untouched, captures weight, reps, rpe if valid:
+ *   - For bodyweight / assisted: weight >= 0 is allowed.
+ *   - For weighted: weight > 0 is required.
+ *   - Reps > 0, rpe >= 6.0 && rpe <= 10.0, !isSkipped.
  * - Immutably returns a new PrescribedTargetSnapshotMap without mutating inputs.
  */
 export function capturePrescribedSnapshotsFromExercises(
@@ -86,6 +93,7 @@ export function capturePrescribedSnapshotsFromExercises(
   exerciseList.forEach((ex, i) => {
     if (!ex || !ex.sets) return;
     const exIdx = startExIdx + i;
+    const isZeroWeightAllowed = ex.modality === 'bodyweight' || ex.modality === 'assisted';
 
     let workingOrdinal = 0;
     ex.sets.forEach((s, sIdx) => {
@@ -100,20 +108,28 @@ export function capturePrescribedSnapshotsFromExercises(
         return;
       }
 
+      const weight = s.weight;
+      const reps = s.reps;
+      const rpe = s.rpe;
+
+      const isWeightValid =
+        typeof weight === 'number' &&
+        Number.isFinite(weight) &&
+        (isZeroWeightAllowed ? weight >= 0 : weight > 0);
+
       if (
-        typeof s.weight === 'number' &&
-        s.weight > 0 &&
-        typeof s.reps === 'number' &&
-        s.reps > 0 &&
-        typeof s.rpe === 'number' &&
-        s.rpe >= 6.0 &&
-        s.rpe <= 10.0 &&
+        isWeightValid &&
+        typeof reps === 'number' &&
+        reps > 0 &&
+        typeof rpe === 'number' &&
+        rpe >= 6.0 &&
+        rpe <= 10.0 &&
         !s.isSkipped
       ) {
         result[key] = {
-          weight: s.weight,
-          reps: s.reps,
-          rpe: s.rpe,
+          weight,
+          reps,
+          rpe,
         };
       }
     });
@@ -135,6 +151,8 @@ export interface PrepareLiveAdjustmentParamsInput {
   prescribedTargetSnapshots: PrescribedTargetSnapshotMap;
   committedLiveEvidenceBySet: CommittedLiveEvidenceMap;
   triggeringSetIdx: number;
+  bodyweightSnapshot?: BodyweightSnapshot | null;
+  activeUnit?: WeightUnit;
 }
 
 /**
@@ -202,7 +220,8 @@ export function getWorkingSetRowIndex(sets: SetEntry[], targetOrdinal: number): 
  * - Attaches current isWarmup, isSkipped, isDropSet, and dropSubSets metadata to committed evidence.
  * - Maps prescribed snapshots to their current working-set ordinals.
  * - Maps active displayed values into currentTargets.
- * - Returns triggering working-set ordinal.
+ * - For assisted exercises: translates raw assistance into ephemeral effective load = (sessionBW - assistance).
+ * - For bodyweight exercises: translates raw weight into ephemeral effective load = sessionBW.
  * - Leaves ordinals above 6 unsupported.
  * - Never mutates inputs.
  */
@@ -219,6 +238,8 @@ export function prepareLiveAdjustmentParams(
     prescribedTargetSnapshots,
     committedLiveEvidenceBySet,
     triggeringSetIdx,
+    bodyweightSnapshot,
+    activeUnit = 'kg',
   } = input;
 
   if (!exercise || !exercise.sets || exercise.sets.length === 0) {
@@ -229,9 +250,22 @@ export function prepareLiveAdjustmentParams(
     return { success: false, failureReason: 'unsupported_objective' };
   }
 
+  const mod = exercise.modality || 'weighted';
+  if (mod !== 'weighted' && mod !== 'assisted' && mod !== 'bodyweight') {
+    return { success: false, failureReason: 'unsupported_modality' };
+  }
+
   const triggeringOrdinal = deriveWorkingSetOrdinal(exercise.sets, triggeringSetIdx);
   if (triggeringOrdinal === null || triggeringOrdinal < 1 || triggeringOrdinal > 6) {
     return { success: false, failureReason: 'invalid_or_warmup_triggering_set' };
+  }
+
+  let sessionBW: number | null = null;
+  if (mod === 'assisted' || mod === 'bodyweight') {
+    sessionBW = resolveSessionBodyweightInUnit(bodyweightSnapshot, activeUnit);
+    if (sessionBW === null || sessionBW <= 0 || !Number.isFinite(sessionBW)) {
+      return { success: false, failureReason: 'missing_or_invalid_bodyweight_snapshot' };
+    }
   }
 
   const prescribedTargets: LiveTargetSnapshot[] = [];
@@ -253,78 +287,244 @@ export function prepareLiveAdjustmentParams(
     }
 
     const setKey = `${exIdx}-${sIdx}`;
-
-    // 1. Prescribed snapshot mapping
     const snapshot = prescribedTargetSnapshots[setKey];
-    if (
-      snapshot &&
-      typeof snapshot.weight === 'number' &&
-      snapshot.weight > 0 &&
-      typeof snapshot.reps === 'number' &&
-      snapshot.reps > 0 &&
-      typeof snapshot.rpe === 'number' &&
-      snapshot.rpe >= 6.0 &&
-      snapshot.rpe <= 10.0
-    ) {
-      prescribedTargets.push({
-        workingSetOrdinal: currentOrdinal,
-        weight: snapshot.weight,
-        reps: snapshot.reps,
-        rpe: snapshot.rpe,
-      });
-    }
 
-    // 2. Current active targets mapping
-    if (
-      typeof s.weight === 'number' &&
-      s.weight > 0 &&
-      typeof s.reps === 'number' &&
-      s.reps > 0 &&
-      typeof s.rpe === 'number' &&
-      s.rpe >= 6.0 &&
-      s.rpe <= 10.0
-    ) {
-      currentTargets.push({
-        workingSetOrdinal: currentOrdinal,
-        weight: s.weight,
-        reps: s.reps,
-        rpe: s.rpe,
-      });
-    }
+    if (mod === 'assisted') {
+      const bw = sessionBW!;
 
-    // 3. Committed evidence mapping
-    const committed = committedLiveEvidenceBySet[setKey];
-    if (committed !== undefined) {
-      const dropSubSetsFormatted = s.dropSubSets && s.dropSubSets.length > 0
-        ? s.dropSubSets.map(sub => ({
-            reps: typeof sub.reps === 'number' ? sub.reps : 0,
-            weight: typeof sub.weight === 'number' ? sub.weight : 0,
-            rpe: 10,
-          }))
-        : null;
+      // 1. Prescribed snapshot mapping (Assisted)
+      if (
+        snapshot &&
+        typeof snapshot.weight === 'number' &&
+        Number.isFinite(snapshot.weight) &&
+        snapshot.weight >= 0 &&
+        snapshot.weight < bw &&
+        typeof snapshot.reps === 'number' &&
+        snapshot.reps > 0 &&
+        typeof snapshot.rpe === 'number' &&
+        snapshot.rpe >= 6.0 &&
+        snapshot.rpe <= 10.0
+      ) {
+        const effLoad = bw - snapshot.weight;
+        if (effLoad > 0) {
+          prescribedTargets.push({
+            workingSetOrdinal: currentOrdinal,
+            weight: effLoad,
+            reps: snapshot.reps,
+            rpe: snapshot.rpe,
+          });
+        }
+      }
 
-      committedEvidence.push({
-        workingSetOrdinal: currentOrdinal,
-        weight: committed.weight,
-        reps: committed.reps,
-        rpe: committed.rpe,
-        form: committed.form,
-        isWarmup: s.isWarmup ?? false,
-        isSkipped: s.isSkipped ?? false,
-        isDropSet: s.isDropSet ?? false,
-        dropSubSets: dropSubSetsFormatted,
-      });
+      // 2. Current active targets mapping (Assisted)
+      if (
+        typeof s.weight === 'number' &&
+        Number.isFinite(s.weight) &&
+        s.weight >= 0 &&
+        s.weight < bw &&
+        typeof s.reps === 'number' &&
+        s.reps > 0 &&
+        typeof s.rpe === 'number' &&
+        s.rpe >= 6.0 &&
+        s.rpe <= 10.0
+      ) {
+        const effLoad = bw - s.weight;
+        if (effLoad > 0) {
+          currentTargets.push({
+            workingSetOrdinal: currentOrdinal,
+            weight: effLoad,
+            reps: s.reps,
+            rpe: s.rpe,
+          });
+        }
+      }
+
+      // 3. Committed evidence mapping (Assisted)
+      const committed = committedLiveEvidenceBySet[setKey];
+      if (committed !== undefined) {
+        let effLoad: number | null = null;
+        if (
+          typeof committed.weight === 'number' &&
+          Number.isFinite(committed.weight) &&
+          committed.weight >= 0 &&
+          committed.weight < bw
+        ) {
+          const calculatedLoad = bw - committed.weight;
+          if (calculatedLoad > 0) {
+            effLoad = calculatedLoad;
+          }
+        }
+
+        const dropSubSetsFormatted = s.dropSubSets && s.dropSubSets.length > 0
+          ? s.dropSubSets.map(sub => {
+              const subWeight = typeof sub.weight === 'number' && sub.weight >= 0 && sub.weight < bw
+                ? Math.max(0, bw - sub.weight)
+                : 0;
+              return {
+                reps: typeof sub.reps === 'number' ? sub.reps : 0,
+                weight: subWeight,
+                rpe: 10,
+              };
+            })
+          : null;
+
+        committedEvidence.push({
+          workingSetOrdinal: currentOrdinal,
+          weight: effLoad,
+          reps: committed.reps,
+          rpe: committed.rpe,
+          form: committed.form,
+          isWarmup: s.isWarmup ?? false,
+          isSkipped: s.isSkipped ?? false,
+          isDropSet: s.isDropSet ?? false,
+          dropSubSets: dropSubSetsFormatted,
+        });
+      }
+    } else if (mod === 'bodyweight') {
+      const bw = sessionBW!;
+
+      // 1. Prescribed snapshot mapping (Bodyweight)
+      if (
+        snapshot &&
+        typeof snapshot.weight === 'number' &&
+        typeof snapshot.reps === 'number' &&
+        snapshot.reps > 0 &&
+        typeof snapshot.rpe === 'number' &&
+        snapshot.rpe >= 6.0 &&
+        snapshot.rpe <= 10.0
+      ) {
+        prescribedTargets.push({
+          workingSetOrdinal: currentOrdinal,
+          weight: bw,
+          reps: snapshot.reps,
+          rpe: snapshot.rpe,
+        });
+      }
+
+      // 2. Current active targets mapping (Bodyweight)
+      if (
+        typeof s.reps === 'number' &&
+        s.reps > 0 &&
+        typeof s.rpe === 'number' &&
+        s.rpe >= 6.0 &&
+        s.rpe <= 10.0
+      ) {
+        currentTargets.push({
+          workingSetOrdinal: currentOrdinal,
+          weight: bw,
+          reps: s.reps,
+          rpe: s.rpe,
+        });
+      }
+
+      // 3. Committed evidence mapping (Bodyweight)
+      const committed = committedLiveEvidenceBySet[setKey];
+      if (committed !== undefined) {
+        let effLoad: number | null = null;
+        if (
+          typeof committed.reps === 'number' &&
+          committed.reps > 0 &&
+          typeof committed.rpe === 'number' &&
+          committed.rpe >= 6.0
+        ) {
+          effLoad = bw;
+        }
+
+        const dropSubSetsFormatted = s.dropSubSets && s.dropSubSets.length > 0
+          ? s.dropSubSets.map(sub => ({
+              reps: typeof sub.reps === 'number' ? sub.reps : 0,
+              weight: bw,
+              rpe: 10,
+            }))
+          : null;
+
+        committedEvidence.push({
+          workingSetOrdinal: currentOrdinal,
+          weight: effLoad,
+          reps: committed.reps,
+          rpe: committed.rpe,
+          form: committed.form,
+          isWarmup: s.isWarmup ?? false,
+          isSkipped: s.isSkipped ?? false,
+          isDropSet: s.isDropSet ?? false,
+          dropSubSets: dropSubSetsFormatted,
+        });
+      }
+    } else {
+      // Modality is 'weighted' (or undefined)
+
+      // 1. Prescribed snapshot mapping (Weighted)
+      if (
+        snapshot &&
+        typeof snapshot.weight === 'number' &&
+        snapshot.weight > 0 &&
+        typeof snapshot.reps === 'number' &&
+        snapshot.reps > 0 &&
+        typeof snapshot.rpe === 'number' &&
+        snapshot.rpe >= 6.0 &&
+        snapshot.rpe <= 10.0
+      ) {
+        prescribedTargets.push({
+          workingSetOrdinal: currentOrdinal,
+          weight: snapshot.weight,
+          reps: snapshot.reps,
+          rpe: snapshot.rpe,
+        });
+      }
+
+      // 2. Current active targets mapping (Weighted)
+      if (
+        typeof s.weight === 'number' &&
+        s.weight > 0 &&
+        typeof s.reps === 'number' &&
+        s.reps > 0 &&
+        typeof s.rpe === 'number' &&
+        s.rpe >= 6.0 &&
+        s.rpe <= 10.0
+      ) {
+        currentTargets.push({
+          workingSetOrdinal: currentOrdinal,
+          weight: s.weight,
+          reps: s.reps,
+          rpe: s.rpe,
+        });
+      }
+
+      // 3. Committed evidence mapping (Weighted)
+      const committed = committedLiveEvidenceBySet[setKey];
+      if (committed !== undefined) {
+        const dropSubSetsFormatted = s.dropSubSets && s.dropSubSets.length > 0
+          ? s.dropSubSets.map(sub => ({
+              reps: typeof sub.reps === 'number' ? sub.reps : 0,
+              weight: typeof sub.weight === 'number' ? sub.weight : 0,
+              rpe: 10,
+            }))
+          : null;
+
+        committedEvidence.push({
+          workingSetOrdinal: currentOrdinal,
+          weight: committed.weight,
+          reps: committed.reps,
+          rpe: committed.rpe,
+          form: committed.form,
+          isWarmup: s.isWarmup ?? false,
+          isSkipped: s.isSkipped ?? false,
+          isDropSet: s.isDropSet ?? false,
+          dropSubSets: dropSubSetsFormatted,
+        });
+      }
     }
   }
 
+  // Ensure ephemeral params identify as weighted so the core engine processes it cleanly
   const params: LiveAdjustmentParams = {
-    objective,
+    objective: objective === 'Strength' ? 'Strength' : 'Hypertrophy',
     algorithmId,
     profileType,
     baselineE1RM,
     movementCategory: exercise.movementCategory,
     equipment: exercise.equipment,
-    modality: exercise.modality,
+    modality: 'weighted',
     isMainMovement: exercise.isMainMovement ?? false,
     prescribedTargets,
     currentTargets,
@@ -351,6 +551,10 @@ export interface ApplyLiveAdjustmentResultParams {
   focusedSetKey: string | null;
   activeSelectorRowKey: string | null;
   triggeringRowIndex: number;
+  bodyweightSnapshot?: BodyweightSnapshot | null;
+  activeUnit?: WeightUnit;
+  objective?: 'Hypertrophy' | 'Strength' | string;
+  algorithmId?: string;
 }
 
 /**
@@ -370,13 +574,17 @@ export interface ApplyLiveAdjustmentResultOutput {
  * Rules:
  * - Dynamically maps working-set ordinals to row indices.
  * - Protects triggering row (removes its own liveAdjustedSets marker, never overwrites it).
+ * - Projects engine candidate targets back into raw UI space before comparison or marker setting:
+ *   - Weighted: candidate target unmodified.
+ *   - Assisted: candidate effective load projected to machine assistance pin via projectAssistedTarget.
+ *   - Bodyweight: candidate effective load solved to discrete repetitions at bodyweight via solveBodyweightRepTarget.
  * - Applies candidate targets to eligible future rows (ordinal > triggeringOrdinal, ordinal <= 6,
  *   !isWarmup, !isSkipped, !exercise.isSkipped, !userTouched, key !== focusedSetKey, key !== activeSelectorRowKey).
  * - Updates only weight, reps, and RPE for eligible rows, preserving all other fields verbatim.
  * - If new weight/reps/rpe differs from prescribedTargetSnapshot, sets liveAdjustedSets[key] = true.
  * - If new weight/reps/rpe matches prescribedTargetSnapshot, removes liveAdjustedSets[key].
  * - If new weight/reps/rpe equals currently displayed row, does not rewrite row.
- * - Handles invalid_evidence with restorePrescribedOrdinals by restoring marked eligible rows.
+ * - Handles invalid_evidence with restorePrescribedOrdinals by restoring marked eligible rows directly from raw prescribedTargetSnapshots.
  * - Never marks future rows as user-touched.
  * - Returns immutable updatedExercise, updatedLiveAdjustedSets, changedRowKeys, restoredRowKeys, and appliedChangeCount.
  */
@@ -393,6 +601,10 @@ export function applyLiveAdjustmentResult(
     focusedSetKey,
     activeSelectorRowKey,
     triggeringRowIndex,
+    bodyweightSnapshot,
+    activeUnit = 'kg',
+    objective = 'Hypertrophy',
+    algorithmId,
   } = params;
 
   const triggeringKey = `${exIdx}-${triggeringRowIndex}`;
@@ -413,12 +625,119 @@ export function applyLiveAdjustmentResult(
   }
 
   const triggeringOrdinal = deriveWorkingSetOrdinal(exercise.sets, triggeringRowIndex);
+  const mod = exercise.modality || 'weighted';
 
   // Case A: Engine returned candidate targets (status: 'adjusted' or non-empty candidateTargets)
   if (result.candidateTargets && result.candidateTargets.length > 0 && result.status !== 'invalid_evidence') {
     const candidateMap = new Map<number, LiveTargetSnapshot>();
-    for (const cand of result.candidateTargets) {
-      candidateMap.set(cand.workingSetOrdinal, cand);
+
+    if (mod === 'assisted') {
+      const sessionBW = resolveSessionBodyweightInUnit(bodyweightSnapshot, activeUnit);
+      if (sessionBW === null || sessionBW <= 0 || !Number.isFinite(sessionBW)) {
+        // Atomic bypass on invalid snapshot
+        return {
+          updatedExercise: exercise,
+          updatedLiveAdjustedSets,
+          changedRowKeys: [],
+          restoredRowKeys: [],
+          appliedChangeCount: 0,
+        };
+      }
+
+      for (const cand of result.candidateTargets) {
+        const proj = projectAssistedTarget({
+          targetEffectiveLoad: cand.weight,
+          sessionBodyweight: sessionBW,
+          targetReps: cand.reps,
+          targetRPE: cand.rpe,
+          unit: activeUnit,
+          increment: 2.5,
+        });
+
+        if (proj.status === 'bypassed') {
+          // Atomic failure: bypass application completely
+          return {
+            updatedExercise: exercise,
+            updatedLiveAdjustedSets,
+            changedRowKeys: [],
+            restoredRowKeys: [],
+            appliedChangeCount: 0,
+          };
+        }
+
+        candidateMap.set(cand.workingSetOrdinal, {
+          workingSetOrdinal: cand.workingSetOrdinal,
+          weight: proj.assistanceWeight,
+          reps: proj.reps,
+          rpe: proj.rpe,
+        });
+      }
+    } else if (mod === 'bodyweight') {
+      const sessionBW = resolveSessionBodyweightInUnit(bodyweightSnapshot, activeUnit);
+      if (sessionBW === null || sessionBW <= 0 || !Number.isFinite(sessionBW)) {
+        // Atomic bypass on invalid snapshot
+        return {
+          updatedExercise: exercise,
+          updatedLiveAdjustedSets,
+          changedRowKeys: [],
+          restoredRowKeys: [],
+          appliedChangeCount: 0,
+        };
+      }
+
+      for (const cand of result.candidateTargets) {
+        const mult = getRTSMultiplier(cand.reps, cand.rpe);
+        if (mult === null || mult <= 0) {
+          return {
+            updatedExercise: exercise,
+            updatedLiveAdjustedSets,
+            changedRowKeys: [],
+            restoredRowKeys: [],
+            appliedChangeCount: 0,
+          };
+        }
+
+        const candidateTargetE1RM = cand.weight / mult;
+        const bounds = getPermittedRepetitionBounds({
+          objective: objective === 'Strength' ? 'Strength' : 'Hypertrophy',
+          algorithmId: algorithmId as any,
+          isIsolation: exercise.movementCategory === 'isolation',
+          isMachine: exercise.equipment === 'machine',
+          anchorReps: cand.reps,
+        });
+
+        const solved = solveBodyweightRepTarget({
+          targetE1RM: candidateTargetE1RM,
+          sessionBodyweight: sessionBW,
+          targetRPE: cand.rpe,
+          anchorReps: cand.reps,
+          minReps: bounds.minReps,
+          maxReps: bounds.maxReps,
+          unit: activeUnit,
+        });
+
+        if (solved.status === 'bypassed') {
+          return {
+            updatedExercise: exercise,
+            updatedLiveAdjustedSets,
+            changedRowKeys: [],
+            restoredRowKeys: [],
+            appliedChangeCount: 0,
+          };
+        }
+
+        candidateMap.set(cand.workingSetOrdinal, {
+          workingSetOrdinal: cand.workingSetOrdinal,
+          weight: 0,
+          reps: solved.reps,
+          rpe: solved.rpe,
+        });
+      }
+    } else {
+      // Weighted
+      for (const cand of result.candidateTargets) {
+        candidateMap.set(cand.workingSetOrdinal, cand);
+      }
     }
 
     const newSets = exercise.sets.map((s, sIdx) => {
@@ -670,10 +989,11 @@ export function restorePlannedTargetsForExercise(
  * Parameters for evaluating whether a low-RPE informational message should be displayed.
  */
 export interface ShouldShowLowRPEExplanationInput {
-  objective: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload';
+  objective: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload' | string;
   exercise?: ExerciseEntry;
   setIdx: number;
   rpe: number;
+  bodyweightSnapshot?: BodyweightSnapshot | null;
 }
 
 /**
@@ -683,14 +1003,16 @@ export interface ShouldShowLowRPEExplanationInput {
  * - Triggered only when RPE is below 6.0 (e.g., 4, 4.5, 5, 5.5). RPE 6.0 and above return false.
  * - Objective must be Hypertrophy or Strength (Off and Deload return false).
  * - Exercise must exist and not be skipped (exercise.isSkipped !== true).
- * - Modality must be weighted (exercise.modality === undefined || exercise.modality === 'weighted').
- *   Non-weighted modalities (bodyweight, assisted, timed, distance, distance_loaded) return false.
+ * - Modality check:
+ *   - Weighted (or undefined) is allowed.
+ *   - Assisted and Bodyweight are allowed only if a valid bodyweightSnapshot is provided.
+ *   - Other modalities (timed, distance, distance_loaded) return false.
  * - In Strength objective, only main movements participate in live adjustments (exercise.isMainMovement === true).
  * - Set must exist, not be a warm-up, and not be skipped (set.isWarmup !== true && set.isSkipped !== true).
  * - Set must be within working-set ordinals 1..6.
  */
 export function shouldShowLowRPEExplanation(input: ShouldShowLowRPEExplanationInput): boolean {
-  const { objective, exercise, setIdx, rpe } = input;
+  const { objective, exercise, setIdx, rpe, bodyweightSnapshot } = input;
 
   if (typeof rpe !== 'number' || isNaN(rpe) || rpe >= 6.0) {
     return false;
@@ -704,8 +1026,15 @@ export function shouldShowLowRPEExplanation(input: ShouldShowLowRPEExplanationIn
     return false;
   }
 
-  if (exercise.modality !== undefined && exercise.modality !== 'weighted') {
+  const mod = exercise.modality;
+  if (mod !== undefined && mod !== 'weighted' && mod !== 'assisted' && mod !== 'bodyweight') {
     return false;
+  }
+
+  if (mod === 'assisted' || mod === 'bodyweight') {
+    if (!bodyweightSnapshot || !validateBodyweightSnapshot(bodyweightSnapshot)) {
+      return false;
+    }
   }
 
   if (objective === 'Strength' && exercise.isMainMovement !== true) {
@@ -773,4 +1102,3 @@ export function cleanupToastNotification(handle: ToastTimerHandle): void {
     handle.timer = null;
   }
 }
-

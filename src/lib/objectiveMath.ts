@@ -1,4 +1,4 @@
-import { ExerciseEntry, SetEntry, WorkoutLog } from '../types';
+import { ExerciseEntry, SetEntry, WorkoutLog, BodyweightSnapshot, WeightUnit } from '../types';
 import { getExerciseClassification } from './exerciseClassification';
 import {
   DEFAULT_RTS_STYLE_PERCENT_1RM,
@@ -10,11 +10,15 @@ import {
 import { roundToNearest25 } from './weightMath';
 import {
   distributeMultiSetTargets,
+  getFatiguePrior,
   SessionAnchor,
   FatiguePriorProfile,
   MultiSetDistributionResult,
   GeneratedWorkingSetTarget,
 } from './setDistribution';
+import { extractSetPerformanceEvidence } from './progressionEvidence';
+import { projectAssistedTarget, solveBodyweightRepTarget } from './modalityTargetMath';
+import { resolveSessionBodyweightInUnit, validateBodyweightSnapshot } from './bodyweightSessionMath';
 
 // Re-export roundToNearest25 for backward compatibility with existing imports
 export { roundToNearest25 } from './weightMath';
@@ -26,6 +30,58 @@ interface StrengthProfileWeek {
   reps: number;
   target1RMPercent: number;
   targetRPE: number;
+}
+
+/**
+ * Approved bodyweight-projection repetition envelopes policy derived from the existing algorithm profiles:
+ * - Hypertrophy compound: [5, 15]
+ * - Hypertrophy isolation: [8, 20]
+ * - Strength Undulating main movement: [1, 6]
+ * - Strength Linear main movement: [1, 8]
+ * - Deload: [1, 15]
+ * - Machine/isolation modifiers alter anchor reps before projection but do not create an unbounded range.
+ * - Strength non-main accessories remain bypassed.
+ */
+export function getPermittedRepetitionBounds(params: {
+  objective: 'Hypertrophy' | 'Strength' | 'Deload';
+  algorithmId?: 'hypertrophy_linear' | 'hypertrophy_step' | 'strength_undulating' | 'strength_linear' | 'none';
+  isIsolation: boolean;
+  isMachine: boolean;
+  anchorReps: number;
+}): { minReps: number; maxReps: number } {
+  const { objective, algorithmId, isIsolation, anchorReps } = params;
+  if (objective === 'Hypertrophy') {
+    if (isIsolation) {
+      return {
+        minReps: Math.min(8, anchorReps),
+        maxReps: Math.max(20, anchorReps),
+      };
+    } else {
+      return {
+        minReps: Math.min(5, anchorReps),
+        maxReps: Math.max(15, anchorReps),
+      };
+    }
+  } else if (objective === 'Strength') {
+    if (algorithmId === 'strength_linear') {
+      return {
+        minReps: 1,
+        maxReps: Math.max(8, anchorReps),
+      };
+    } else {
+      // strength_undulating
+      return {
+        minReps: 1,
+        maxReps: Math.max(6, anchorReps),
+      };
+    }
+  } else {
+    // Deload
+    return {
+      minReps: 1,
+      maxReps: Math.max(15, anchorReps),
+    };
+  }
 }
 
 const STRENGTH_PROFILES: Record<number, Record<number, StrengthProfileWeek>> = {
@@ -113,24 +169,14 @@ function normalizeName(name: string): string {
 }
 
 /**
- * Extracts the user's historical baseline e1RM from previous workout logs using strict precedence:
- * 1. Match exercise names using normalized case-insensitive matching.
- * 2. Ignore skipped exercises.
- * 3. Ignore warm-up sets completely (isWarmup === true).
- * 4. Ignore sets with non-positive or invalid weight/reps.
- * 5. Collect valid sets with recorded RPE from 6.0 through 10.0.
- * 6. If any valid RPE-bearing sets exist, calculate their e1RM via rpeMath (weight / getRTSMultiplier)
- *    and select the maximum e1RM.
- * 7. If NO valid RPE-bearing sets exist, check completed working sets with missing RPE (null, undefined, 0)
- *    and calculate e1RM via pure reps-only Epley: weight * (1 + reps / 30).
- * 8. Explicitly recorded RPE below 6.0 or above 10.0 is excluded (never used).
- * 9. Never substitute RPE 8 for completed historical sets.
- * 10. Never fall back to warm-up sets.
- * Returns 0 if no valid historical baseline sets are found.
+ * Extracts historical baseline e1RM from previous completed workout logs.
+ * Integrates canonical extractSetPerformanceEvidence for weighted, assisted, and bodyweight modalities.
  */
 export function extractHistoricalBaselineE1RM(
   exerciseName: string,
-  logs: WorkoutLog[]
+  logs: WorkoutLog[],
+  modality?: ExerciseEntry['modality'],
+  activeUnit: WeightUnit = 'kg'
 ): number {
   if (!logs || logs.length === 0) return 0;
 
@@ -157,24 +203,32 @@ export function extractHistoricalBaselineE1RM(
         // Exclude explicitly uncompleted non-skipped sets from contributing evidence
         if (s.isCompleted === false) continue;
 
-        const weight = s.weight;
-        const reps = s.reps;
-        if (typeof weight !== 'number' || !Number.isFinite(weight) || weight <= 0) continue;
-        if (typeof reps !== 'number' || !Number.isFinite(reps) || reps < 1 || !Number.isInteger(reps)) continue;
+        // Validate snapshot to normalize unit ('lbs' -> 'lb') and verify bounds
+        const validatedSnapshot = log.bodyweightSnapshot
+          ? validateBodyweightSnapshot(log.bodyweightSnapshot)
+          : null;
 
-        const rpe = s.rpe;
-        if (rpe === null || rpe === undefined || rpe === 0) {
-          // Missing RPE candidate -> Reps-only Epley
-          const e1rm = weight * (1 + reps / 30);
-          missingRpeE1rms.push(e1rm);
-        } else if (isValidRPE(rpe)) {
-          // Valid RPE candidate -> rpeMath calculation
-          const e1rm = rpeMathCalculateE1RMForSet(weight, reps, rpe);
-          if (e1rm !== null && e1rm > 0) {
-            rpeE1rms.push(e1rm);
+        // Normalize source unit ('lbs' -> 'lb')
+        const rawLogUnit = log.unit || 'kg';
+        const sourceUnit: WeightUnit = ((rawLogUnit as unknown as string) === 'lbs' ? 'lb' : rawLogUnit) as WeightUnit;
+
+        const evidence = extractSetPerformanceEvidence({
+          context: 'historical',
+          modality: ex.modality || 'weighted',
+          set: s,
+          bodyweightSnapshot: validatedSnapshot,
+          targetUnit: ((activeUnit as unknown as string) === 'lbs' ? 'lb' : activeUnit) as WeightUnit,
+          exerciseIsSkipped: ex.isSkipped,
+          sourceUnit,
+        });
+
+        if (evidence.status === 'valid') {
+          if (evidence.rpe !== null) {
+            rpeE1rms.push(evidence.e1RM);
+          } else {
+            missingRpeE1rms.push(evidence.e1RM);
           }
         }
-        // Explicitly out-of-range RPE (< 6.0 or > 10.0) is completely excluded
       }
     }
   }
@@ -206,59 +260,142 @@ export function getPreviousE1RMForExercise(
 /**
  * Calculates baseline e1RM from an immutable program template exercise.
  * Rules:
- * - Finds the first non-warm-up template set with positive weight and reps.
+ * - For weighted: finds the first non-warm-up template set with positive weight and reps.
+ * - For bodyweight: finds first non-warm-up template set with positive reps; uses active session bodyweight snapshot.
+ * - For assisted: finds first non-warm-up template set with non-negative assistance and positive reps; uses active session bodyweight snapshot.
  * - If that template set has a valid RPE (6.0..10.0), calculates e1RM using that RPE.
  * - If that template set has missing RPE (null, undefined, 0), uses an explicit cold-start
  *   template assumption of RPE 8.0 (does not write it back into template/draft/logs).
  * - If that template set has explicitly invalid RPE (< 6.0 or > 10.0), rejects it (returns 0).
- * - Returns 0 if no valid template baseline set exists.
+ * - Returns 0 if no valid template baseline set exists or if required snapshot is missing/invalid.
  */
-export function extractTemplateBaselineE1RM(templateExercise?: ExerciseEntry): number {
+export function extractTemplateBaselineE1RM(
+  templateExercise?: ExerciseEntry,
+  bodyweightSnapshot?: BodyweightSnapshot | null,
+  activeUnit: WeightUnit = 'kg'
+): number {
   if (!templateExercise || !templateExercise.sets || templateExercise.sets.length === 0) {
     return 0;
   }
 
-  const workingSet = templateExercise.sets.find(
-    s => !s.isWarmup && typeof s.weight === 'number' && s.weight > 0 && typeof s.reps === 'number' && s.reps > 0
-  );
-  if (!workingSet || !workingSet.weight || !workingSet.reps) {
+  const mod = templateExercise.modality || 'weighted';
+
+  if (mod === 'weighted') {
+    const workingSet = templateExercise.sets.find(
+      s => !s.isWarmup && typeof s.weight === 'number' && s.weight > 0 && typeof s.reps === 'number' && s.reps > 0
+    );
+    if (!workingSet || !workingSet.weight || !workingSet.reps) {
+      return 0;
+    }
+
+    const weight = workingSet.weight;
+    const reps = Math.round(workingSet.reps);
+    const rpe = workingSet.rpe;
+
+    if (rpe === null || rpe === undefined || rpe === 0) {
+      const multiplier = rpeMathGetRTSMultiplier(reps, 8.0);
+      return multiplier ? weight / multiplier : 0;
+    }
+
+    if (isValidRPE(rpe)) {
+      const e1rm = rpeMathCalculateE1RMForSet(weight, reps, rpe);
+      return e1rm && e1rm > 0 ? e1rm : 0;
+    }
+
     return 0;
   }
 
-  const weight = workingSet.weight;
-  const reps = Math.round(workingSet.reps);
-  const rpe = workingSet.rpe;
+  if (mod === 'bodyweight') {
+    if (!bodyweightSnapshot || !validateBodyweightSnapshot(bodyweightSnapshot)) {
+      return 0;
+    }
+    const sessionBW = resolveSessionBodyweightInUnit(bodyweightSnapshot, activeUnit);
+    if (!sessionBW || sessionBW <= 0) {
+      return 0;
+    }
 
-  if (rpe === null || rpe === undefined || rpe === 0) {
-    // Explicit cold-start assumption of RPE 8.0 for pristine template defaults
-    const multiplier = rpeMathGetRTSMultiplier(reps, 8.0);
-    return multiplier ? weight / multiplier : 0;
+    const workingSet = templateExercise.sets.find(
+      s => !s.isWarmup && typeof s.reps === 'number' && s.reps > 0
+    );
+    if (!workingSet || !workingSet.reps) {
+      return 0;
+    }
+
+    const reps = Math.round(workingSet.reps);
+    const rpe = workingSet.rpe;
+
+    if (rpe === null || rpe === undefined || rpe === 0) {
+      const multiplier = rpeMathGetRTSMultiplier(reps, 8.0);
+      return multiplier ? sessionBW / multiplier : 0;
+    }
+
+    if (isValidRPE(rpe)) {
+      const e1rm = rpeMathCalculateE1RMForSet(sessionBW, reps, rpe);
+      return e1rm && e1rm > 0 ? e1rm : 0;
+    }
+
+    return 0;
   }
 
-  if (isValidRPE(rpe)) {
-    const e1rm = rpeMathCalculateE1RMForSet(weight, reps, rpe);
-    return e1rm && e1rm > 0 ? e1rm : 0;
+  if (mod === 'assisted') {
+    if (!bodyweightSnapshot || !validateBodyweightSnapshot(bodyweightSnapshot)) {
+      return 0;
+    }
+    const sessionBW = resolveSessionBodyweightInUnit(bodyweightSnapshot, activeUnit);
+    if (!sessionBW || sessionBW <= 0) {
+      return 0;
+    }
+
+    const workingSet = templateExercise.sets.find(
+      s => !s.isWarmup && typeof s.weight === 'number' && s.weight >= 0 && typeof s.reps === 'number' && s.reps > 0
+    );
+    if (!workingSet || workingSet.weight === undefined || workingSet.weight === null || !workingSet.reps) {
+      return 0;
+    }
+
+    const assistance: number = workingSet.weight;
+    if (assistance >= sessionBW) {
+      return 0;
+    }
+    const effectiveLoad = sessionBW - assistance;
+    if (effectiveLoad <= 0) {
+      return 0;
+    }
+
+    const reps = Math.round(workingSet.reps);
+    const rpe = workingSet.rpe;
+
+    if (rpe === null || rpe === undefined || rpe === 0) {
+      const multiplier = rpeMathGetRTSMultiplier(reps, 8.0);
+      return multiplier ? effectiveLoad / multiplier : 0;
+    }
+
+    if (isValidRPE(rpe)) {
+      const e1rm = rpeMathCalculateE1RMForSet(effectiveLoad, reps, rpe);
+      return e1rm && e1rm > 0 ? e1rm : 0;
+    }
+
+    return 0;
   }
 
-  // Explicitly invalid RPE in template is rejected
   return 0;
 }
 
 /**
- * Safely finds a matching template exercise from program day templates:
+ * Safely finds the matching template exercise index from program day templates:
  * 1. Inspects the template at activeIndex (if provided).
  * 2. Uses it only if its normalized exercise name matches the active exercise's normalized name (or matching stable ID if present).
- * 3. Otherwise searches the full day templates for a normalized-name match (or ID match).
- * 4. Returns undefined if no match exists.
- * 5. Never returns a differently named exercise merely because it occupies the same array index.
+ * 3. Otherwise searches by matching stable ID if present.
+ * 4. Otherwise searches by normalized name; if exactly one match exists, uses it.
+ * 5. Returns -1 if no match exists or if duplicate matches exist without a disambiguating ID/index.
  */
-export function findMatchingTemplateExercise(
+export function findMatchingTemplateExerciseIndex(
   activeExercise: { name: string; id?: string } | ExerciseEntry,
   dayTemplates?: ExerciseEntry[] | null,
   activeIndex?: number
-): ExerciseEntry | undefined {
+): number {
   if (!dayTemplates || !dayTemplates.length || !activeExercise) {
-    return undefined;
+    return -1;
   }
 
   const rawActiveName = activeExercise.name || '';
@@ -266,7 +403,7 @@ export function findMatchingTemplateExercise(
   const activeId = (activeExercise as any).id;
 
   if (!activeName && !activeId) {
-    return undefined;
+    return -1;
   }
 
   // 1. Inspect template at same index first
@@ -275,26 +412,46 @@ export function findMatchingTemplateExercise(
     if (candidate) {
       const candidateId = (candidate as any).id;
       if (activeId && candidateId && activeId === candidateId) {
-        return candidate;
+        return activeIndex;
       }
       const candidateName = (candidate.name || '').trim().toLowerCase();
       if (candidateName && candidateName === activeName) {
-        return candidate;
+        return activeIndex;
       }
     }
   }
 
-  // 2. Search full day template: prefer ID match if available, then normalized name match
+  // 2. Search by activeId if provided
   if (activeId) {
-    const idMatch = dayTemplates.find(t => (t as any).id === activeId);
-    if (idMatch) return idMatch;
+    const idIndex = dayTemplates.findIndex(t => (t as any).id === activeId);
+    if (idIndex !== -1) return idIndex;
   }
 
-  const nameMatch = dayTemplates.find(
-    t => (t.name || '').trim().toLowerCase() === activeName
-  );
+  // 3. Search by normalized name
+  const nameIndices: number[] = [];
+  dayTemplates.forEach((t, i) => {
+    if ((t.name || '').trim().toLowerCase() === activeName) {
+      nameIndices.push(i);
+    }
+  });
 
-  return nameMatch || undefined;
+  if (nameIndices.length === 1) {
+    return nameIndices[0];
+  }
+
+  return -1;
+}
+
+/**
+ * Safely finds a matching template exercise from program day templates.
+ */
+export function findMatchingTemplateExercise(
+  activeExercise: { name: string; id?: string } | ExerciseEntry,
+  dayTemplates?: ExerciseEntry[] | null,
+  activeIndex?: number
+): ExerciseEntry | undefined {
+  const idx = findMatchingTemplateExerciseIndex(activeExercise, dayTemplates, activeIndex);
+  return idx !== -1 && dayTemplates ? dayTemplates[idx] : undefined;
 }
 
 /**
@@ -304,7 +461,7 @@ export function findMatchingTemplateExercise(
  * - Only increments the set count for the matching exercise by appending a sanitized structural SetEntry
  *   ({ setNumber, weight: 0, reps: 0, rpe: 8, form: 'standard' }).
  * - Never copies active generated targets, completion status, skipped status, session comments, or drop sets into the template.
- * - If no matching template exercise exists, leaves the dayTemplates unchanged.
+ * - If no matching template exercise exists (or multiple ambiguous matches without ID/index), leaves the dayTemplates unchanged.
  */
 export function syncAddedSetStructureToProgramDay(
   dayTemplates: ExerciseEntry[],
@@ -315,13 +472,13 @@ export function syncAddedSetStructureToProgramDay(
     return dayTemplates || [];
   }
 
-  const matched = findMatchingTemplateExercise(activeExercise, dayTemplates, activeExerciseIndex);
-  if (!matched) {
+  const targetIndex = findMatchingTemplateExerciseIndex(activeExercise, dayTemplates, activeExerciseIndex);
+  if (targetIndex === -1 || targetIndex >= dayTemplates.length) {
     return dayTemplates;
   }
 
-  return dayTemplates.map(t => {
-    if (t !== matched) {
+  return dayTemplates.map((t, idx) => {
+    if (idx !== targetIndex) {
       return t;
     }
 
@@ -465,6 +622,8 @@ export function resolveSessionDistribution(params: {
   previousLogs?: WorkoutLog[];
   algorithmId?: 'hypertrophy_linear' | 'hypertrophy_step' | 'strength_undulating' | 'strength_linear' | 'none';
   templateExercise?: ExerciseEntry;
+  bodyweightSnapshot?: BodyweightSnapshot | null;
+  activeUnit?: WeightUnit;
 }): SessionDistributionResolution {
   const {
     objective,
@@ -475,6 +634,8 @@ export function resolveSessionDistribution(params: {
     previousLogs = [],
     algorithmId,
     templateExercise,
+    bodyweightSnapshot,
+    activeUnit = 'kg',
   } = params;
 
   if (objective === 'Off' || objective === 'Deload') {
@@ -486,8 +647,6 @@ export function resolveSessionDistribution(params: {
   }
 
   if (
-    exercise.modality === 'bodyweight' ||
-    exercise.modality === 'assisted' ||
     exercise.modality === 'timed' ||
     exercise.modality === 'distance' ||
     exercise.modality === 'distance_loaded'
@@ -495,12 +654,18 @@ export function resolveSessionDistribution(params: {
     return { isBypassed: true };
   }
 
+  if (exercise.modality === 'bodyweight' || exercise.modality === 'assisted') {
+    if (!bodyweightSnapshot || !validateBodyweightSnapshot(bodyweightSnapshot)) {
+      return { isBypassed: true };
+    }
+  }
+
   if (objective === 'Strength' && !exercise.isMainMovement) {
     return { isBypassed: true };
   }
 
-  const historicalE1RM = extractHistoricalBaselineE1RM(exercise.name, previousLogs);
-  const baselineE1RM = historicalE1RM > 0 ? historicalE1RM : extractTemplateBaselineE1RM(templateExercise);
+  const historicalE1RM = extractHistoricalBaselineE1RM(exercise.name, previousLogs, exercise.modality, activeUnit);
+  const baselineE1RM = historicalE1RM > 0 ? historicalE1RM : extractTemplateBaselineE1RM(templateExercise, bodyweightSnapshot, activeUnit);
 
   if (baselineE1RM <= 0) {
     return { isBypassed: true };
@@ -640,7 +805,7 @@ export function resolveSessionDistribution(params: {
     workingSetCount,
     movementCategory: classification.category,
     equipment: classification.equipment,
-    modality: exercise.modality || 'weighted',
+    modality: 'weighted', // Execute multi-set distribution in effective-load space
     isSkipped: exercise.isSkipped || false,
   };
 
@@ -660,6 +825,302 @@ export function resolveSessionDistribution(params: {
   };
 }
 
+export interface CanonicalTargetEntry {
+  weight: number;
+  reps: number;
+  rpe: number;
+  form: 'standard' | 'strict';
+}
+
+/**
+ * Pure helper to generate canonical ordinal target mappings for 1..workingSetCount.
+ * Shared by calculateObjectiveSets and calculateAddedSetTarget to guarantee single-authority consistency.
+ */
+export function generateSessionTargetMap(params: {
+  objective: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload';
+  exercise: ExerciseEntry;
+  workingSetCount: number;
+  weekNum: number;
+  programDuration?: number;
+  previousLogs?: WorkoutLog[];
+  algorithmId?: 'hypertrophy_linear' | 'hypertrophy_step' | 'strength_undulating' | 'strength_linear' | 'none';
+  templateExercise?: ExerciseEntry | null;
+  bodyweightSnapshot?: BodyweightSnapshot | null;
+  activeUnit?: WeightUnit;
+}): Map<number, CanonicalTargetEntry> | null {
+  const {
+    objective,
+    exercise,
+    workingSetCount,
+    weekNum,
+    programDuration = 8,
+    previousLogs = [],
+    algorithmId,
+    templateExercise,
+    bodyweightSnapshot,
+    activeUnit = 'kg',
+  } = params;
+
+  // 1. Objective Off or skipped exercise returns unprescribed
+  if (objective === 'Off' || exercise.isSkipped) {
+    return null;
+  }
+
+  // 2. Modality support check: unsupported non-weighted and corrupted modalities are bypassed
+  const mod = exercise.modality;
+  const isSupported = mod === undefined || mod === 'weighted' || mod === 'assisted' || mod === 'bodyweight';
+  if (!isSupported) {
+    return null;
+  }
+
+  // 3. Assisted and bodyweight modalities strictly require a valid active session bodyweight snapshot
+  if (mod === 'assisted' || mod === 'bodyweight') {
+    if (!bodyweightSnapshot || !validateBodyweightSnapshot(bodyweightSnapshot)) {
+      return null;
+    }
+  }
+
+  // 4. For Strength objective, only main movements receive prescribed progression
+  if (objective === 'Strength' && !exercise.isMainMovement) {
+    return null;
+  }
+
+  if (workingSetCount <= 0) {
+    return null;
+  }
+
+  // 5. Baseline Extraction: Historical logs first (with log's own snapshot), then pristine template fallback (with active snapshot)
+  const historicalE1RM = extractHistoricalBaselineE1RM(exercise.name, previousLogs, mod, activeUnit);
+  const baselineE1RM = historicalE1RM > 0 ? historicalE1RM : extractTemplateBaselineE1RM(templateExercise || undefined, bodyweightSnapshot, activeUnit);
+
+  if (baselineE1RM <= 0) {
+    return null;
+  }
+
+  // 6. Deload Handling
+  if (objective === 'Deload') {
+    const templateReps = templateExercise?.sets?.find(s => !s.isWarmup && typeof s.reps === 'number' && s.reps > 0)?.reps;
+    const firstSet = (exercise.sets || []).filter(s => !s.isWarmup)[0];
+    const workingTargetReps = templateReps
+      ? Math.max(1, Math.round(templateReps * 0.6))
+      : (firstSet && (firstSet.form === 'strict' || firstSet.rpe === 5.0) && typeof firstSet.reps === 'number' && firstSet.reps > 0)
+      ? firstSet.reps
+      : Math.max(1, Math.round(((firstSet && typeof firstSet.reps === 'number' && firstSet.reps > 0 ? firstSet.reps : 8)) * 0.6));
+
+    if (mod === 'assisted') {
+      const sessionBW = resolveSessionBodyweightInUnit(bodyweightSnapshot, activeUnit);
+      if (!sessionBW || sessionBW <= 0) {
+        return null;
+      }
+      const baseEffectiveLoad = baselineE1RM * 0.70;
+      const targetEffectiveLoad = baseEffectiveLoad * 0.5;
+
+      const proj = projectAssistedTarget({
+        targetEffectiveLoad,
+        sessionBodyweight: sessionBW,
+        targetReps: workingTargetReps,
+        targetRPE: 6.0,
+        unit: activeUnit,
+        increment: 2.5,
+      });
+
+      if (proj.status === 'bypassed') {
+        return null;
+      }
+
+      const map = new Map<number, CanonicalTargetEntry>();
+      for (let ord = 1; ord <= workingSetCount; ord++) {
+        map.set(ord, {
+          weight: proj.assistanceWeight,
+          reps: proj.reps,
+          rpe: 5.0,
+          form: 'strict',
+        });
+      }
+      return map;
+    }
+
+    if (mod === 'bodyweight') {
+      const sessionBW = resolveSessionBodyweightInUnit(bodyweightSnapshot, activeUnit);
+      if (!sessionBW || sessionBW <= 0) {
+        return null;
+      }
+      const baseEffectiveLoad = baselineE1RM * 0.70;
+      const targetEffectiveLoad = baseEffectiveLoad * 0.5;
+
+      const multiplier = rpeMathGetRTSMultiplier(workingTargetReps, 6.0) ?? 1;
+      const targetE1RM = targetEffectiveLoad / multiplier;
+
+      const bounds = getPermittedRepetitionBounds({
+        objective: 'Deload',
+        algorithmId,
+        isIsolation: false,
+        isMachine: false,
+        anchorReps: workingTargetReps,
+      });
+
+      const solved = solveBodyweightRepTarget({
+        targetE1RM,
+        sessionBodyweight: sessionBW,
+        targetRPE: 6.0,
+        anchorReps: workingTargetReps,
+        minReps: bounds.minReps,
+        maxReps: bounds.maxReps,
+        unit: activeUnit,
+      });
+
+      if (solved.status === 'bypassed') {
+        return null;
+      }
+
+      const map = new Map<number, CanonicalTargetEntry>();
+      for (let ord = 1; ord <= workingSetCount; ord++) {
+        map.set(ord, {
+          weight: 0,
+          reps: solved.reps,
+          rpe: 5.0,
+          form: 'strict',
+        });
+      }
+      return map;
+    }
+
+    // Weighted modality Deload
+    let baseWeight = 0;
+    if (baselineE1RM > 0) {
+      baseWeight = baselineE1RM * 0.70;
+    } else if (templateExercise?.sets?.[0]?.weight) {
+      baseWeight = templateExercise.sets[0].weight;
+    } else {
+      baseWeight = (exercise.sets || [])[0]?.weight || 0;
+    }
+
+    const workingTargetWeight = baseWeight > 0 ? roundToNearest25(baseWeight * 0.5) : 0;
+    const map = new Map<number, CanonicalTargetEntry>();
+    for (let ord = 1; ord <= workingSetCount; ord++) {
+      map.set(ord, {
+        weight: workingTargetWeight,
+        reps: workingTargetReps,
+        rpe: 5.0,
+        form: 'strict',
+      });
+    }
+    return map;
+  }
+
+  // 7. Non-Deload resolution via resolveSessionDistribution
+  const resolution = resolveSessionDistribution({
+    objective,
+    exercise,
+    workingSetCount,
+    weekNum,
+    programDuration,
+    previousLogs,
+    algorithmId,
+    templateExercise: templateExercise || undefined,
+    bodyweightSnapshot,
+    activeUnit,
+  });
+
+  if (resolution.isBypassed || !resolution.distributionResult || !resolution.anchor) {
+    return null;
+  }
+
+  const { distributionResult, anchor } = resolution;
+  const targetsByOrdinal = new Map<number, CanonicalTargetEntry>();
+  const learnedRatios = distributionResult.learnedRatios || [];
+  const defaultPriors = getFatiguePrior(anchor.profileType);
+
+  for (const t of distributionResult.targets) {
+    const ord = t.workingSetOrdinal;
+    const targetReps = t.reps;
+    const targetRPE = t.rpe;
+
+    const Fi = learnedRatios[ord - 1]?.blendedRatio ?? (defaultPriors[ord - 1] ?? 1.0);
+    const capacity_i = baselineE1RM * Fi;
+
+    let rawEffectiveLoad_i = 0;
+    if (ord === 1) {
+      rawEffectiveLoad_i = anchor.rawAnchorWeight;
+    } else {
+      const mult = rpeMathGetRTSMultiplier(targetReps, targetRPE) ?? 1;
+      rawEffectiveLoad_i = capacity_i * mult;
+    }
+
+    if (mod === 'assisted') {
+      const sessionBW = resolveSessionBodyweightInUnit(bodyweightSnapshot, activeUnit);
+      if (!sessionBW || sessionBW <= 0) {
+        return null;
+      }
+      const proj = projectAssistedTarget({
+        targetEffectiveLoad: rawEffectiveLoad_i,
+        sessionBodyweight: sessionBW,
+        targetReps,
+        targetRPE,
+        unit: activeUnit,
+        increment: 2.5,
+      });
+
+      if (proj.status === 'bypassed') {
+        return null;
+      }
+
+      targetsByOrdinal.set(ord, {
+        weight: proj.assistanceWeight,
+        reps: proj.reps,
+        rpe: proj.rpe,
+        form: 'standard',
+      });
+    } else if (mod === 'bodyweight') {
+      const sessionBW = resolveSessionBodyweightInUnit(bodyweightSnapshot, activeUnit);
+      if (!sessionBW || sessionBW <= 0) {
+        return null;
+      }
+      const mult = rpeMathGetRTSMultiplier(targetReps, targetRPE) ?? 1;
+      const targetE1RM_i = rawEffectiveLoad_i / mult;
+
+      const bounds = getPermittedRepetitionBounds({
+        objective,
+        algorithmId: anchor.algorithmId,
+        isIsolation: anchor.movementCategory === 'isolation',
+        isMachine: anchor.equipment === 'machine',
+        anchorReps: targetReps,
+      });
+
+      const solved = solveBodyweightRepTarget({
+        targetE1RM: targetE1RM_i,
+        sessionBodyweight: sessionBW,
+        targetRPE,
+        anchorReps: targetReps,
+        minReps: bounds.minReps,
+        maxReps: bounds.maxReps,
+        unit: activeUnit,
+      });
+
+      if (solved.status === 'bypassed') {
+        return null;
+      }
+
+      targetsByOrdinal.set(ord, {
+        weight: 0,
+        reps: solved.reps,
+        rpe: solved.rpe,
+        form: 'standard',
+      });
+    } else {
+      // Weighted modality
+      targetsByOrdinal.set(ord, {
+        weight: t.weight,
+        reps: t.reps,
+        rpe: t.rpe,
+        form: 'standard',
+      });
+    }
+  }
+
+  return targetsByOrdinal;
+}
+
 export interface CalculateObjectiveSetsParams {
   objective: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload';
   exercise: ExerciseEntry;
@@ -672,6 +1133,8 @@ export interface CalculateObjectiveSetsParams {
   checkedSets?: Record<string, boolean>;
   algorithmId?: 'hypertrophy_linear' | 'hypertrophy_step' | 'strength_undulating' | 'strength_linear' | 'none';
   templateExercise?: ExerciseEntry;
+  bodyweightSnapshot?: BodyweightSnapshot | null;
+  activeUnit?: WeightUnit;
 }
 
 /**
@@ -694,98 +1157,22 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
     userTouchedSets = {},
     checkedSets = {},
     algorithmId,
-    templateExercise
+    templateExercise,
+    bodyweightSnapshot,
+    activeUnit = 'kg',
   } = params;
 
-  // 1. If objective is Off, return exercise.sets unchanged
-  if (objective === 'Off') {
+  if (objective === 'Off' || exercise.isSkipped) {
     return exercise.sets;
   }
 
-  // 2. If exercise is actively skipped, return exercise.sets unchanged
-  if (exercise.isSkipped) {
-    return exercise.sets;
-  }
-
-  // 3. Omit bodyweight, assisted, timed, distance, and distance_loaded modalities from algorithm changes
-  if (
-    exercise.modality === 'bodyweight' ||
-    exercise.modality === 'assisted' ||
-    exercise.modality === 'timed' ||
-    exercise.modality === 'distance' ||
-    exercise.modality === 'distance_loaded'
-  ) {
-    return exercise.sets;
-  }
-
-  // 4. Strength objective ONLY alters the main movement
-  if (objective === 'Strength' && !exercise.isMainMovement) {
-    return exercise.sets;
-  }
-
-  // 5. Baseline Extraction: Historical logs first, then pristine template fallback
-  const historicalE1RM = extractHistoricalBaselineE1RM(exercise.name, previousLogs);
-  const baselineE1RM = historicalE1RM > 0 ? historicalE1RM : extractTemplateBaselineE1RM(templateExercise);
-
-  // 6. Deload Handling (Preserves existing scalar deload behavior without Phase 2A distribution)
-  if (objective === 'Deload') {
-    const warmupSets = exercise.sets.filter(s => s.isWarmup);
-    return exercise.sets.map((set, setIdx) => {
-      const key = `${exerciseIndex}-${setIdx}`;
-      if (userTouchedSets[key] || checkedSets[key]) {
-        return set;
-      }
-
-      let baseWeight = 0;
-      if (baselineE1RM > 0) {
-        baseWeight = baselineE1RM * 0.70; // ~70% of e1RM as standard load reference
-      } else if (templateExercise?.sets?.[0]?.weight) {
-        baseWeight = templateExercise.sets[0].weight;
-      } else {
-        baseWeight = set.weight || 0;
-      }
-
-      const baseReps = set.reps || 8;
-      const workingTargetWeight = baseWeight > 0 ? roundToNearest25(baseWeight * 0.5) : 0;
-      const workingTargetReps = Math.max(1, Math.round(baseReps * 0.6));
-
-      if (set.isWarmup) {
-        const wIdx = warmupSets.indexOf(set);
-        const activeWIdx = wIdx >= 0 ? wIdx : 0;
-        const targetWeight = workingTargetWeight > 0 ? roundToNearest25(workingTargetWeight * (0.5 + activeWIdx * 0.2)) : 0;
-        return {
-          ...set,
-          reps: workingTargetReps,
-          rpe: 4.0,
-          weight: targetWeight,
-          form: 'strict' as const
-        };
-      }
-
-      return {
-        ...set,
-        reps: workingTargetReps,
-        rpe: 5.0,
-        weight: workingTargetWeight,
-        form: 'strict' as const
-      };
-    });
-  }
-
-  // 7. Cold start guard: If no baseline capacity exists, return sets unchanged
-  if (baselineE1RM <= 0) {
-    return exercise.sets;
-  }
-
-  // 8. Working set count check
-  const nonWarmupSets = exercise.sets.filter(s => !s.isWarmup);
+  const nonWarmupSets = (exercise.sets || []).filter(s => !s.isWarmup);
   const workingSetCount = nonWarmupSets.length;
   if (workingSetCount <= 0) {
     return exercise.sets;
   }
 
-  // 9. Multi-set distribution resolution
-  const resolution = resolveSessionDistribution({
+  const targetsByOrdinal = generateSessionTargetMap({
     objective,
     exercise,
     workingSetCount,
@@ -794,23 +1181,29 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
     previousLogs,
     algorithmId,
     templateExercise,
+    bodyweightSnapshot,
+    activeUnit,
   });
 
-  if (resolution.isBypassed || !resolution.distributionResult) {
+  if (!targetsByOrdinal) {
     return exercise.sets;
   }
 
-  const { distributionResult, roundedAnchorWeight = 0, anchorReps = 10 } = resolution;
-
-  // 10. Map generated targets by ordinal
-  const targetsByOrdinal = new Map<number, { weight: number; reps: number; rpe: number }>();
-  for (const t of distributionResult.targets) {
-    targetsByOrdinal.set(t.workingSetOrdinal, {
-      weight: t.weight,
-      reps: t.reps,
-      rpe: t.rpe,
-    });
-  }
+  // Derive anchor information for warmup calculation on weighted exercises
+  const resolution = objective !== 'Deload' ? resolveSessionDistribution({
+    objective,
+    exercise,
+    workingSetCount,
+    weekNum,
+    programDuration,
+    previousLogs,
+    algorithmId,
+    templateExercise,
+    bodyweightSnapshot,
+    activeUnit,
+  }) : null;
+  const roundedAnchorWeight = resolution?.roundedAnchorWeight || (targetsByOrdinal.get(1)?.weight || 0);
+  const anchorReps = resolution?.anchorReps || (targetsByOrdinal.get(1)?.reps || 10);
 
   const warmupSets = exercise.sets.filter(s => s.isWarmup);
   const warmupCount = warmupSets.length;
@@ -818,7 +1211,7 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
   let workingOrdinalCounter = 0;
   let warmupIndexCounter = 0;
 
-  // 11. Target-only merge into exercise sets preserving all other metadata
+  // Target-only merge into exercise sets preserving all other metadata
   return exercise.sets.map((set, setIdx) => {
     const key = `${exerciseIndex}-${setIdx}`;
 
@@ -836,6 +1229,25 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
     if (set.isWarmup) {
       const activeWIdx = warmupIndexCounter;
       warmupIndexCounter += 1;
+
+      if (exercise.modality === 'bodyweight' || exercise.modality === 'assisted') {
+        // Keep warmups ordinal-neutral
+        return set;
+      }
+
+      if (objective === 'Deload') {
+        const workingTargetWeight = targetsByOrdinal.get(1)?.weight || 0;
+        const workingTargetReps = targetsByOrdinal.get(1)?.reps || 8;
+        const targetWeight = workingTargetWeight > 0 ? roundToNearest25(workingTargetWeight * (0.5 + activeWIdx * 0.2)) : 0;
+        return {
+          ...set,
+          reps: workingTargetReps,
+          rpe: 4.0,
+          weight: targetWeight,
+          form: 'strict' as const,
+        };
+      }
+
       const warmupTarget = calculateWarmupSetTarget(
         activeWIdx,
         warmupCount,
@@ -861,6 +1273,7 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
         weight: target.weight,
         reps: target.reps,
         rpe: target.rpe,
+        form: objective === 'Deload' ? 'strict' : set.form,
       };
     }
 
@@ -876,7 +1289,9 @@ export interface CalculateAddedSetTargetParams {
   programDuration?: number;
   previousLogs?: WorkoutLog[];
   algorithmId?: 'hypertrophy_linear' | 'hypertrophy_step' | 'strength_undulating' | 'strength_linear' | 'none';
-  templateExercise?: ExerciseEntry;
+  templateExercise?: ExerciseEntry | null;
+  bodyweightSnapshot?: BodyweightSnapshot | null;
+  activeUnit?: WeightUnit;
 }
 
 export interface AddedSetTargetResult {
@@ -891,17 +1306,15 @@ export interface AddedSetTargetResult {
 }
 
 /**
- * Calculates the prescribed target for an added working set (Phase 2B-1).
- * Uses the existing weekly prescription and multi-set distribution engine.
+ * Calculates the prescribed target for an added working set (Phase 2B-1 / Stage 2B).
+ * Delegates directly to canonical Stage 2A target generation path to guarantee parity.
  * Does not mutate or recalculate existing sets.
  *
  * Rules:
  * 1. Determines the added working-set ordinal (ignores warmups).
  * 2. If ordinal > 6, returns unprescribed default (isPrescribed: false).
- * 3. If objective is Off or bypassed (skipped, non-weighted, strength accessory, invalid algorithm, cold start),
- *    returns unprescribed default (isPrescribed: false).
- * 4. In Deload mode, generates the deload target for the added set.
- * 5. In Hypertrophy / Strength mode, distributes up to ordinal N, extracting ONLY the target for ordinal N.
+ * 3. Asks canonical target generation path for target sequence up through targetWorkingOrdinal.
+ * 4. Extracts ONLY the target for targetWorkingOrdinal.
  */
 export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): AddedSetTargetResult {
   const {
@@ -912,13 +1325,15 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
     previousLogs = [],
     algorithmId,
     templateExercise,
+    bodyweightSnapshot,
+    activeUnit = 'kg',
   } = params;
 
   // 1. Calculate the new working-set ordinal (warmups do not consume working-set ordinals)
   const currentWorkingSets = (exercise.sets || []).filter(s => !s.isWarmup);
   const targetWorkingOrdinal = currentWorkingSets.length + 1;
 
-  // 2. Safe ceiling check: distribution engine supports up to 6 working sets
+  // 2. Safe ceiling check: maximum 6 prescribed working sets
   if (targetWorkingOrdinal > 6) {
     return {
       isPrescribed: false,
@@ -926,84 +1341,8 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
     };
   }
 
-  // 3. Bypass checks: Objective Off or exercise skipped
-  if (objective === 'Off' || exercise.isSkipped) {
-    return {
-      isPrescribed: false,
-      workingSetOrdinal: targetWorkingOrdinal,
-    };
-  }
-
-  // 4. Modality check: non-weighted modalities are bypassed
-  if (
-    exercise.modality === 'bodyweight' ||
-    exercise.modality === 'assisted' ||
-    exercise.modality === 'timed' ||
-    exercise.modality === 'distance' ||
-    exercise.modality === 'distance_loaded'
-  ) {
-    return {
-      isPrescribed: false,
-      workingSetOrdinal: targetWorkingOrdinal,
-    };
-  }
-
-  // 5. Strength objective: accessories that are not Main Movement are bypassed
-  if (objective === 'Strength' && !exercise.isMainMovement) {
-    return {
-      isPrescribed: false,
-      workingSetOrdinal: targetWorkingOrdinal,
-    };
-  }
-
-  // 6. Baseline extraction (Authoritative inputs: history first, pristine template fallback)
-  const historicalE1RM = extractHistoricalBaselineE1RM(exercise.name, previousLogs);
-  const baselineE1RM = historicalE1RM > 0 ? historicalE1RM : extractTemplateBaselineE1RM(templateExercise);
-
-  // 7. Deload mode handling
-  if (objective === 'Deload') {
-    let baseWeight = 0;
-    if (baselineE1RM > 0) {
-      baseWeight = baselineE1RM * 0.70;
-    } else if (templateExercise?.sets?.[0]?.weight) {
-      baseWeight = templateExercise.sets[0].weight;
-    } else {
-      baseWeight = 0;
-    }
-
-    if (baseWeight <= 0) {
-      return {
-        isPrescribed: false,
-        workingSetOrdinal: targetWorkingOrdinal,
-      };
-    }
-
-    const baseReps = templateExercise?.sets?.[0]?.reps || 8;
-    const workingTargetWeight = roundToNearest25(baseWeight * 0.5);
-    const workingTargetReps = Math.max(1, Math.round(baseReps * 0.6));
-
-    return {
-      isPrescribed: true,
-      target: {
-        weight: workingTargetWeight,
-        reps: workingTargetReps,
-        rpe: 5.0,
-        form: 'strict',
-      },
-      workingSetOrdinal: targetWorkingOrdinal,
-    };
-  }
-
-  // 8. Cold start check (if no valid baseline, added set remains unprescribed)
-  if (baselineE1RM <= 0) {
-    return {
-      isPrescribed: false,
-      workingSetOrdinal: targetWorkingOrdinal,
-    };
-  }
-
-  // 9. Multi-set distribution resolution for proposed working-set count
-  const resolution = resolveSessionDistribution({
+  // 3. Delegate directly to the canonical Stage 2A target generation path
+  const targetMap = generateSessionTargetMap({
     objective,
     exercise,
     workingSetCount: targetWorkingOrdinal,
@@ -1012,19 +1351,18 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
     previousLogs,
     algorithmId,
     templateExercise,
+    bodyweightSnapshot,
+    activeUnit,
   });
 
-  if (resolution.isBypassed || !resolution.distributionResult) {
+  if (!targetMap) {
     return {
       isPrescribed: false,
       workingSetOrdinal: targetWorkingOrdinal,
     };
   }
 
-  const target = resolution.distributionResult.targets.find(
-    (t: GeneratedWorkingSetTarget) => t.workingSetOrdinal === targetWorkingOrdinal
-  );
-
+  const target = targetMap.get(targetWorkingOrdinal);
   if (!target) {
     return {
       isPrescribed: false,
@@ -1038,7 +1376,7 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
       weight: target.weight,
       reps: target.reps,
       rpe: target.rpe,
-      form: 'standard',
+      form: target.form,
     },
     workingSetOrdinal: targetWorkingOrdinal,
   };

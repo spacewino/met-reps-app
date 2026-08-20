@@ -9,7 +9,6 @@ import { Program, WorkoutLog } from '../types';
 import { storage } from '../lib/storage';
 import { getLocalDateString, getTodayLocalDateString, parseLocalDate } from '../lib/dateUtils';
 import { MetRepsLogo } from './MetRepsLogo';
-import { useModalHistory } from '../lib/useModalHistory';
 
 interface HomeViewProps {
   currentProgram: Program | null;
@@ -31,16 +30,7 @@ export function HomeView({
   const isTodaySelected = selectedDate === getTodayLocalDateString();
   const [displayedMonth, setDisplayedMonth] = useState(new Date());
 
-  // Conflict popup state
-  const [conflictingDraft, setConflictingDraft] = useState<any>(null);
-
-  const { dismiss: dismissConflictPopup } = useModalHistory(
-    conflictingDraft !== null,
-    () => setConflictingDraft(null),
-    'draft-conflict-popup'
-  );
-
-  // Read active workout draft from localStorage
+  // Read active workout draft from localStorage for card in-progress highlighting
   const activeDraftData = useMemo(() => {
     try {
       const draftStr = localStorage.getItem('metreps_workout_draft');
@@ -54,39 +44,6 @@ export function HomeView({
   }, [selectedDate, currentProgram]);
 
   const handleStartWorkout = (params: any) => {
-    try {
-      const draftStr = localStorage.getItem('metreps_workout_draft');
-      if (draftStr) {
-        const draft = JSON.parse(draftStr);
-        let isSame = false;
-        
-        if (params.isOneOff) {
-          if (draft.isOneOff) {
-            isSame = true;
-          }
-        } else if (params.redoFromLogId || params.editLogId) {
-          isSame = false;
-        } else {
-          if (!draft.isOneOff &&
-              draft.programId === params.programId &&
-              String(draft.weekNum) === String(params.week) &&
-              String(draft.dayNum) === String(params.day)) {
-            isSame = true;
-          }
-        }
-
-        if (!isSame) {
-          setConflictingDraft({
-            draft,
-            targetParams: params
-          });
-          return;
-        }
-      }
-    } catch (e) {
-      console.error('Error checking draft conflict:', e);
-    }
-
     onNavigate('logger', params);
   };
 
@@ -631,125 +588,6 @@ export function HomeView({
           );
         })()}
       </div>
-
-      {/* Draft Conflict Safety Warning Modal */}
-      {conflictingDraft && (
-        <div
-          className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150 font-sans text-left"
-          onClick={dismissConflictPopup}
-        >
-          <div
-            className={`w-full max-w-md overflow-hidden flex flex-col shadow-2xl rounded-none border transition-all duration-150 animate-in fade-in zoom-in-95 ${
-              isAmber 
-                ? 'bg-[#FAF5F0] border-amber-600/60 text-slate-900 shadow-amber-950/10' 
-                : 'bg-slate-900 border-slate-800 text-slate-100 shadow-indigo-950/40'
-            }`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className={`p-4 border-b flex items-center justify-between gap-3 ${
-              isAmber ? 'bg-[#F2EAE1] border-amber-200/50' : 'bg-slate-950 border-slate-850'
-            }`}>
-              <div>
-                <h3 className="text-sm font-black uppercase tracking-wider leading-snug flex items-center gap-2">
-                  <Info className={`w-4 h-4 font-bold ${isAmber ? 'text-amber-700' : 'text-indigo-400'}`} /> 
-                  Workout In Progress
-                </h3>
-                <p className={`text-[10px] font-mono uppercase tracking-widest leading-none mt-1 ${
-                  isAmber ? 'text-amber-700/80' : 'text-indigo-400'
-                }`}>
-                  Unsaved Draft Protection
-                </p>
-              </div>
-              <button
-                onClick={dismissConflictPopup}
-                className={`p-1.5 rounded-none border transition cursor-pointer shrink-0 text-slate-300 ${
-                  isAmber 
-                    ? 'bg-[#FDFCFB] hover:bg-amber-100/50 border-amber-200' 
-                    : 'bg-slate-900 hover:bg-slate-800 border-slate-800'
-                }`}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="p-5 space-y-4 text-xs sm:text-sm leading-relaxed">
-              <p className="text-slate-300 font-semibold leading-relaxed">
-                You must finish and save your current workout in progress before commencing a new one today.
-              </p>
-
-              <div className={`p-3.5 border ${
-                isAmber 
-                  ? 'bg-amber-500/5 border-amber-200/60' 
-                  : 'bg-indigo-950/20 border-indigo-900/30'
-              }`}>
-                <h4 className={`font-extrabold uppercase text-xs tracking-wider font-mono mb-1 ${
-                  isAmber ? 'text-amber-800' : 'text-indigo-400'
-                }`}>
-                  Current Active Draft:
-                </h4>
-                <p className="text-xs text-slate-300">
-                  {conflictingDraft.draft.isOneOff ? (
-                    <span className="font-bold flex items-center gap-1">
-                      <Plus className="w-3.5 h-3.5 inline text-indigo-400" /> One-Off Workout
-                    </span>
-                  ) : (
-                    <span className="font-bold">
-                      {conflictingDraft.draft.programName || 'Programmed Workout'}
-                      <span className="block text-[11px] font-mono text-slate-400 mt-0.5">
-                        Week {conflictingDraft.draft.weekNum}, Day {conflictingDraft.draft.dayNum}
-                      </span>
-                    </span>
-                  )}
-                </p>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className={`p-3 border-t flex flex-col sm:flex-row gap-2 justify-end ${
-              isAmber ? 'bg-[#F2EAE1] border-amber-200/50' : 'bg-slate-950 border-slate-850'
-            }`}>
-              <button
-                onClick={dismissConflictPopup}
-                className={`font-extrabold text-xs py-2 px-4 rounded-none border transition cursor-pointer text-slate-300 ${
-                  isAmber 
-                    ? 'bg-[#FDFCFB] hover:bg-amber-100/50 border-amber-200' 
-                    : 'bg-slate-900 hover:bg-slate-800 border-slate-800'
-                }`}
-              >
-                Go Back
-              </button>
-              <button
-                onClick={() => {
-                  dismissConflictPopup();
-                  // Navigate directly to the draft
-                  const draft = conflictingDraft.draft;
-                  if (draft.isOneOff) {
-                    onNavigate('logger', { isOneOff: true });
-                  } else {
-                    onNavigate('logger', {
-                      programId: draft.programId,
-                      programName: draft.programName,
-                      week: String(draft.weekNum),
-                      day: String(draft.dayNum),
-                      scheduledDate: draft.scheduledDate,
-                      date: draft.dateStr || getTodayLocalDateString(),
-                    });
-                  }
-                }}
-                className={`font-extrabold text-xs py-2 px-4 rounded-none border transition cursor-pointer text-white shadow ${
-                  isAmber 
-                    ? 'bg-amber-600 hover:bg-amber-500 border-amber-700 shadow-amber-900/10' 
-                    : 'bg-indigo-600 hover:bg-indigo-500 border-indigo-700 shadow-indigo-900/20'
-                }`}
-              >
-                Resume Active Draft
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

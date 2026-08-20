@@ -1,6 +1,7 @@
 import { ExerciseEntry, WorkoutLog } from '../types';
-import { calculateE1RMForSet, getRTSMultiplier, isValidRPE } from './rpeMath';
+import { getRTSMultiplier, isValidRPE } from './rpeMath';
 import { roundToNearest25 } from './weightMath';
+import { extractSetPerformanceEvidence } from './progressionEvidence';
 
 export type FatiguePriorProfile = 'hypertrophy' | 'strength_normal' | 'strength_post_test';
 
@@ -124,7 +125,14 @@ export function extractObservedFatigueRatios(
       if (!ex || typeof ex !== 'object') continue;
       if (!ex.name || ex.name.trim().toLowerCase() !== normalizedTarget) continue;
       if (ex.isSkipped === true) continue;
-      if (ex.modality !== undefined && ex.modality !== 'weighted') continue;
+      if (
+        ex.modality !== undefined &&
+        ex.modality !== 'weighted' &&
+        ex.modality !== 'bodyweight' &&
+        ex.modality !== 'assisted'
+      ) {
+        continue;
+      }
       if (!Array.isArray(ex.sets)) continue;
 
       // 1. Filter out warm-up rows to establish immutable working-set ordinals
@@ -133,28 +141,30 @@ export function extractObservedFatigueRatios(
 
       // 2. Validate Working Set 1
       const set1 = nonWarmupSets[0];
-      if (
-        set1.isCompleted !== true ||
-        set1.isSkipped === true ||
-        typeof set1.weight !== 'number' ||
-        !Number.isFinite(set1.weight) ||
-        set1.weight <= 0 ||
-        typeof set1.reps !== 'number' ||
-        !Number.isInteger(set1.reps) ||
-        set1.reps < 1 ||
-        typeof set1.rpe !== 'number' ||
-        !isValidRPE(set1.rpe) ||
-        set1.form === 'loose' ||
-        set1.isDropSet === true ||
-        (Array.isArray(set1.dropSubSets) && set1.dropSubSets.length > 0)
-      ) {
-        // Working Set 1 is invalid or skipped -> entire session is dropped
+      if (set1.isCompleted !== true) {
+        // Working Set 1 must be explicitly completed (provenance gating)
+        continue;
+      }
+
+      const logUnit = log.unit || 'kg';
+      const evidence1 = extractSetPerformanceEvidence({
+        context: 'historical',
+        modality: ex.modality,
+        set: set1,
+        bodyweightSnapshot: log.bodyweightSnapshot,
+        targetUnit: logUnit,
+        sourceUnit: logUnit,
+        exerciseIsSkipped: ex.isSkipped,
+      });
+
+      if (evidence1.status !== 'valid' || evidence1.rpe === null) {
+        // Working Set 1 is invalid or lacks explicit valid RPE -> entire session is dropped
         continue;
       }
 
       // Check profile match for Strength peak single vs normal
       if (log.objective === 'Strength') {
-        const isPeakSingle = set1.reps === 1 && set1.rpe >= 9.5;
+        const isPeakSingle = evidence1.reps === 1 && evidence1.rpe >= 9.5;
         if (profile === 'strength_post_test' && !isPeakSingle) continue;
         if (profile === 'strength_normal' && isPeakSingle) continue;
         if (profile === 'hypertrophy') continue;
@@ -162,7 +172,7 @@ export function extractObservedFatigueRatios(
         if (profile !== 'hypertrophy') continue;
       }
 
-      const e1RM_1 = calculateE1RMForSet(set1.weight, set1.reps, set1.rpe);
+      const e1RM_1 = evidence1.e1RM;
       if (!e1RM_1 || !Number.isFinite(e1RM_1) || e1RM_1 <= 0) continue;
 
       const ratiosByOrdinal: Record<number, number> = { 1: 1.000 };
@@ -175,25 +185,24 @@ export function extractObservedFatigueRatios(
           // Contiguous suffix: stop learning further ratios at the first skipped set
           break;
         }
-        if (
-          s.isCompleted === true &&
-          typeof s.weight === 'number' &&
-          Number.isFinite(s.weight) &&
-          s.weight > 0 &&
-          typeof s.reps === 'number' &&
-          Number.isInteger(s.reps) &&
-          s.reps >= 1 &&
-          typeof s.rpe === 'number' &&
-          isValidRPE(s.rpe) &&
-          s.form !== 'loose' &&
-          s.isDropSet !== true &&
-          !(Array.isArray(s.dropSubSets) && s.dropSubSets.length > 0)
-        ) {
-          const e1RM_i = calculateE1RMForSet(s.weight, s.reps, s.rpe);
-          if (e1RM_i && Number.isFinite(e1RM_i) && e1RM_i > 0) {
-            const rawRatio = e1RM_i / e1RM_1;
-            const clampedRatio = Math.max(0.70, Math.min(1.00, rawRatio));
-            ratiosByOrdinal[ord] = clampedRatio;
+        if (s.isCompleted === true) {
+          const evidence_i = extractSetPerformanceEvidence({
+            context: 'historical',
+            modality: ex.modality,
+            set: s,
+            bodyweightSnapshot: log.bodyweightSnapshot,
+            targetUnit: logUnit,
+            sourceUnit: logUnit,
+            exerciseIsSkipped: ex.isSkipped,
+          });
+
+          if (evidence_i.status === 'valid' && evidence_i.rpe !== null) {
+            const e1RM_i = evidence_i.e1RM;
+            if (e1RM_i && Number.isFinite(e1RM_i) && e1RM_i > 0) {
+              const rawRatio = e1RM_i / e1RM_1;
+              const clampedRatio = Math.max(0.70, Math.min(1.00, rawRatio));
+              ratiosByOrdinal[ord] = clampedRatio;
+            }
           }
         }
       }

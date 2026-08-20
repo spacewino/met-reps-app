@@ -6,7 +6,7 @@ import {
   syncAddedSetStructureToProgramDay,
 } from '../objectiveMath';
 import { hasSkippedWorkingSets } from '../setSkipRules';
-import { WorkoutLog, ExerciseEntry, SetEntry } from '../../types';
+import { WorkoutLog, ExerciseEntry, SetEntry, BodyweightSnapshot } from '../../types';
 
 describe('MetReps Phase 2B-1 — Target-Aware Add Set Using Existing Session Prescription', () => {
   // Test fixture: Completed historical working set of 100 kg x 10 reps @ RPE 8.0
@@ -566,10 +566,10 @@ describe('MetReps Phase 2B-1 — Target-Aware Add Set Using Existing Session Pre
       expect(res.target).toBeUndefined();
     });
 
-    it('Non-weighted modalities preserve bypass behavior', () => {
-      const modalities: ExerciseEntry['modality'][] = ['bodyweight', 'assisted', 'timed', 'distance', 'distance_loaded'];
+    it('Unsupported modalities (timed, distance, distance_loaded) preserve bypass behavior', () => {
+      const unsupportedModalities: ExerciseEntry['modality'][] = ['timed', 'distance', 'distance_loaded'];
 
-      for (const mod of modalities) {
+      for (const mod of unsupportedModalities) {
         const ex = createTestExercise({ modality: mod });
         const res = calculateAddedSetTarget({
           objective: 'Hypertrophy',
@@ -577,10 +577,44 @@ describe('MetReps Phase 2B-1 — Target-Aware Add Set Using Existing Session Pre
           weekNum: 2,
           programDuration: 8,
           previousLogs: standardHistoricalLogs,
+          bodyweightSnapshot: { value: 80, unit: 'kg' },
         });
 
         expect(res.isPrescribed).toBe(false);
         expect(res.target).toBeUndefined();
+      }
+    });
+
+    it('Assisted and bodyweight modalities bypass when bodyweight snapshot is missing or invalid', () => {
+      const modalities: ExerciseEntry['modality'][] = ['bodyweight', 'assisted'];
+
+      for (const mod of modalities) {
+        const ex = createTestExercise({ modality: mod });
+        // Missing snapshot
+        const resMissing = calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          exercise: ex,
+          weekNum: 2,
+          programDuration: 8,
+          previousLogs: standardHistoricalLogs,
+          bodyweightSnapshot: undefined,
+        });
+
+        expect(resMissing.isPrescribed).toBe(false);
+        expect(resMissing.target).toBeUndefined();
+
+        // Invalid snapshot (zero weight)
+        const resInvalid = calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          exercise: ex,
+          weekNum: 2,
+          programDuration: 8,
+          previousLogs: standardHistoricalLogs,
+          bodyweightSnapshot: { value: 0, unit: 'kg' },
+        });
+
+        expect(resInvalid.isPrescribed).toBe(false);
+        expect(resInvalid.target).toBeUndefined();
       }
     });
 
@@ -1016,6 +1050,830 @@ describe('MetReps Phase 2B-1 — Target-Aware Add Set Using Existing Session Pre
       });
 
       expect(JSON.stringify(standardHistoricalLogs)).toBe(historicalLogsSnapshot);
+    });
+  });
+
+  describe('9. MetReps Stage 2B — Canonical Parity Direct 10-Combination Matrix', () => {
+    const sessionBW: BodyweightSnapshot = { value: 80, unit: 'kg' };
+
+    const assistedHistLogs: WorkoutLog[] = [
+      {
+        id: 'hist-assisted-log',
+        date: '2026-01-01',
+        unit: 'kg',
+        bodyweightSnapshot: { value: 80, unit: 'kg' },
+        exercises: [
+          {
+            name: 'Assisted Pull-up',
+            muscleGroup: 'Back',
+            modality: 'assisted',
+            isMainMovement: true,
+            movementCategory: 'compound',
+            equipment: 'machine',
+            sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8.0, isCompleted: true }],
+          },
+        ],
+      },
+    ];
+
+    const bodyweightHistLogs: WorkoutLog[] = [
+      {
+        id: 'hist-bw-log',
+        date: '2026-01-01',
+        unit: 'kg',
+        bodyweightSnapshot: { value: 80, unit: 'kg' },
+        exercises: [
+          {
+            name: 'Push-up',
+            muscleGroup: 'Chest',
+            modality: 'bodyweight',
+            isMainMovement: true,
+            movementCategory: 'compound',
+            equipment: 'freeweight',
+            sets: [{ setNumber: 1, weight: 0, reps: 10, rpe: 8.0, isCompleted: true }],
+          },
+        ],
+      },
+    ];
+
+    const combinations: Array<{
+      id: string;
+      name: string;
+      modality: 'assisted' | 'bodyweight';
+      objective: 'Hypertrophy' | 'Strength' | 'Deload';
+      algorithmId?: 'hypertrophy_linear' | 'hypertrophy_step' | 'strength_undulating' | 'strength_linear' | 'none';
+      logs: WorkoutLog[];
+      exName: string;
+    }> = [
+      { id: '1', name: 'Assisted + Hypertrophy Linear', modality: 'assisted', objective: 'Hypertrophy', algorithmId: 'hypertrophy_linear', logs: assistedHistLogs, exName: 'Assisted Pull-up' },
+      { id: '2', name: 'Bodyweight + Hypertrophy Linear', modality: 'bodyweight', objective: 'Hypertrophy', algorithmId: 'hypertrophy_linear', logs: bodyweightHistLogs, exName: 'Push-up' },
+      { id: '3', name: 'Assisted + Hypertrophy Step', modality: 'assisted', objective: 'Hypertrophy', algorithmId: 'hypertrophy_step', logs: assistedHistLogs, exName: 'Assisted Pull-up' },
+      { id: '4', name: 'Bodyweight + Hypertrophy Step', modality: 'bodyweight', objective: 'Hypertrophy', algorithmId: 'hypertrophy_step', logs: bodyweightHistLogs, exName: 'Push-up' },
+      { id: '5', name: 'Assisted + Strength Undulating Main Movement', modality: 'assisted', objective: 'Strength', algorithmId: 'strength_undulating', logs: assistedHistLogs, exName: 'Assisted Pull-up' },
+      { id: '6', name: 'Bodyweight + Strength Undulating Main Movement', modality: 'bodyweight', objective: 'Strength', algorithmId: 'strength_undulating', logs: bodyweightHistLogs, exName: 'Push-up' },
+      { id: '7', name: 'Assisted + Strength Linear Main Movement', modality: 'assisted', objective: 'Strength', algorithmId: 'strength_linear', logs: assistedHistLogs, exName: 'Assisted Pull-up' },
+      { id: '8', name: 'Bodyweight + Strength Linear Main Movement', modality: 'bodyweight', objective: 'Strength', algorithmId: 'strength_linear', logs: bodyweightHistLogs, exName: 'Push-up' },
+      { id: '9', name: 'Assisted Deload', modality: 'assisted', objective: 'Deload', logs: assistedHistLogs, exName: 'Assisted Pull-up' },
+      { id: '10', name: 'Bodyweight Deload', modality: 'bodyweight', objective: 'Deload', logs: bodyweightHistLogs, exName: 'Push-up' },
+    ];
+
+    combinations.forEach(combo => {
+      it(`Canonical Parity [${combo.id}/10]: ${combo.name} matches calculateObjectiveSets for ordinals 1, 2, 3, 6, and 7+`, () => {
+        const testOrdinals = [1, 2, 3, 6];
+
+        for (const ord of testOrdinals) {
+          // 1. Build full exercise with `ord` sets and run calculateObjectiveSets
+          const fullEx: ExerciseEntry = {
+            name: combo.exName,
+            muscleGroup: combo.modality === 'assisted' ? 'Back' : 'Chest',
+            modality: combo.modality,
+            isMainMovement: true,
+            movementCategory: 'compound',
+            equipment: combo.modality === 'assisted' ? 'machine' : 'freeweight',
+            sets: Array.from({ length: ord }, (_, i) => ({
+              setNumber: i + 1,
+              weight: 0,
+              reps: 0,
+              rpe: 8.0,
+              form: 'standard',
+            })),
+          };
+
+          const fullPrescribedSets = calculateObjectiveSets({
+            objective: combo.objective,
+            exercise: fullEx,
+            exerciseIndex: 0,
+            totalExercises: 1,
+            weekNum: 2,
+            programDuration: 8,
+            previousLogs: combo.logs,
+            userTouchedSets: {},
+            checkedSets: {},
+            algorithmId: combo.algorithmId,
+            bodyweightSnapshot: sessionBW,
+            activeUnit: 'kg',
+          });
+
+          const expectedTarget = fullPrescribedSets[ord - 1];
+
+          // 2. Build exercise with `ord - 1` sets and run calculateAddedSetTarget for next ordinal
+          const existingEx: ExerciseEntry = {
+            ...fullEx,
+            sets: Array.from({ length: ord - 1 }, (_, i) => ({
+              setNumber: i + 1,
+              weight: fullPrescribedSets[i]?.weight ?? 0,
+              reps: fullPrescribedSets[i]?.reps ?? 0,
+              rpe: fullPrescribedSets[i]?.rpe ?? 8.0,
+              form: 'standard',
+            })),
+          };
+
+          const addSetResult = calculateAddedSetTarget({
+            objective: combo.objective,
+            exercise: existingEx,
+            weekNum: 2,
+            programDuration: 8,
+            previousLogs: combo.logs,
+            algorithmId: combo.algorithmId,
+            bodyweightSnapshot: sessionBW,
+            activeUnit: 'kg',
+          });
+
+          expect(addSetResult.isPrescribed).toBe(true);
+          expect(addSetResult.workingSetOrdinal).toBe(ord);
+          expect(addSetResult.target).toBeDefined();
+          expect(addSetResult.target!.weight).toBe(expectedTarget.weight);
+          expect(addSetResult.target!.reps).toBe(expectedTarget.reps);
+          expect(addSetResult.target!.rpe).toBe(expectedTarget.rpe);
+          if (combo.objective === 'Deload') {
+            expect(addSetResult.target!.form).toBe('strict');
+          } else {
+            expect(addSetResult.target!.form).toBe('standard');
+          }
+        }
+
+        // Ordinal 7+ check: unprescribed fallback
+        const ex6Sets: ExerciseEntry = {
+          name: combo.exName,
+          muscleGroup: combo.modality === 'assisted' ? 'Back' : 'Chest',
+          modality: combo.modality,
+          isMainMovement: true,
+          movementCategory: 'compound',
+          equipment: combo.modality === 'assisted' ? 'machine' : 'freeweight',
+          sets: Array.from({ length: 6 }, (_, i) => ({
+            setNumber: i + 1,
+            weight: 0,
+            reps: 0,
+            rpe: 8.0,
+            form: 'standard',
+          })),
+        };
+
+        const addSet7Result = calculateAddedSetTarget({
+          objective: combo.objective,
+          exercise: ex6Sets,
+          weekNum: 2,
+          programDuration: 8,
+          previousLogs: combo.logs,
+          algorithmId: combo.algorithmId,
+          bodyweightSnapshot: sessionBW,
+          activeUnit: 'kg',
+        });
+
+        expect(addSet7Result.isPrescribed).toBe(false);
+        expect(addSet7Result.workingSetOrdinal).toBe(7);
+        expect(addSet7Result.target).toBeUndefined();
+      });
+    });
+  });
+
+  describe('10. MetReps Stage 2B — Direct Assisted Modality Add Set Tests', () => {
+    const sessionBW: BodyweightSnapshot = { value: 80, unit: 'kg' };
+
+    const assistedLogs: WorkoutLog[] = [
+      {
+        id: 'assisted-log-1',
+        date: '2026-01-01',
+        unit: 'kg',
+        bodyweightSnapshot: { value: 80, unit: 'kg' },
+        exercises: [
+          {
+            name: 'Assisted Dip',
+            muscleGroup: 'Triceps',
+            modality: 'assisted',
+            movementCategory: 'compound',
+            equipment: 'machine',
+            sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8.0, isCompleted: true }],
+          },
+        ],
+      },
+    ];
+
+    it('Assistance increases on later fatigue-distributed sets (ordinals 1, 2, 3, 4)', () => {
+      // Baseline e1RM = (80 - 20) / 0.739 = 60 / 0.739 = 81.19 kg
+      // Set 1 (ordinal 1): RPE 8.0 -> raw effective load = 81.19 * 0.739 = 60.0 kg -> assistance = 80 - 60 = 20.0 kg
+      // Set 2 (ordinal 2): RPE 8.5, fatigue ratio 0.96 -> capacity = 81.19 * 0.96 = 77.94 kg -> target load = 77.94 * 0.716 = 55.80 kg -> assistance = 80 - 55.80 = 24.20 -> 22.5 / 25.0 kg
+      // Set 3 (ordinal 3): RPE 9.0, fatigue ratio 0.92 -> capacity = 81.19 * 0.92 = 74.69 kg -> target load = 74.69 * 0.694 = 51.83 kg -> assistance = 80 - 51.83 = 28.17 -> 30.0 kg
+      const ex: ExerciseEntry = {
+        name: 'Assisted Dip',
+        muscleGroup: 'Triceps',
+        modality: 'assisted',
+        movementCategory: 'compound',
+        equipment: 'machine',
+        sets: [
+          { setNumber: 1, weight: 20.0, reps: 8, rpe: 8.0 },
+          { setNumber: 2, weight: 22.5, reps: 8, rpe: 8.5 },
+        ],
+      };
+
+      const set3Res = calculateAddedSetTarget({
+        objective: 'Hypertrophy',
+        exercise: ex,
+        weekNum: 1,
+        programDuration: 8,
+        previousLogs: assistedLogs,
+        algorithmId: 'hypertrophy_linear',
+        bodyweightSnapshot: sessionBW,
+        activeUnit: 'kg',
+      });
+
+      expect(set3Res.isPrescribed).toBe(true);
+      expect(set3Res.workingSetOrdinal).toBe(3);
+      expect(set3Res.target?.weight).toBe(30.0);
+      expect(set3Res.target?.weight).toBeGreaterThanOrEqual(ex.sets[1].weight!);
+    });
+
+    it('Stronger baseline produces less assistance for the added set', () => {
+      // Stronger lifter used 10 kg assistance instead of 20 kg
+      const strongerLogs: WorkoutLog[] = [
+        {
+          id: 'stronger-assisted-log',
+          date: '2026-01-01',
+          unit: 'kg',
+          bodyweightSnapshot: { value: 80, unit: 'kg' },
+          exercises: [
+            {
+              name: 'Assisted Dip',
+              muscleGroup: 'Triceps',
+              modality: 'assisted',
+              sets: [{ setNumber: 1, weight: 10, reps: 8, rpe: 8.0, isCompleted: true }],
+            },
+          ],
+        },
+      ];
+
+      const ex: ExerciseEntry = {
+        name: 'Assisted Dip',
+        muscleGroup: 'Triceps',
+        modality: 'assisted',
+        sets: [{ setNumber: 1, weight: 10, reps: 8, rpe: 8.0 }],
+      };
+
+      const set2Standard = calculateAddedSetTarget({
+        objective: 'Hypertrophy',
+        exercise: ex,
+        weekNum: 1,
+        programDuration: 8,
+        previousLogs: assistedLogs,
+        algorithmId: 'hypertrophy_linear',
+        bodyweightSnapshot: sessionBW,
+        activeUnit: 'kg',
+      });
+
+      const set2Stronger = calculateAddedSetTarget({
+        objective: 'Hypertrophy',
+        exercise: ex,
+        weekNum: 1,
+        programDuration: 8,
+        previousLogs: strongerLogs,
+        algorithmId: 'hypertrophy_linear',
+        bodyweightSnapshot: sessionBW,
+        activeUnit: 'kg',
+      });
+
+      expect(set2Stronger.target!.weight).toBeLessThan(set2Standard.target!.weight);
+    });
+
+    it('Bodyweight change between sessions changes assistance while preserving target effective load', () => {
+      const ex: ExerciseEntry = {
+        name: 'Assisted Dip',
+        muscleGroup: 'Triceps',
+        modality: 'assisted',
+        sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8.0 }],
+      };
+
+      const res80kg = calculateAddedSetTarget({
+        objective: 'Hypertrophy',
+        exercise: ex,
+        weekNum: 1,
+        programDuration: 8,
+        previousLogs: assistedLogs,
+        algorithmId: 'hypertrophy_linear',
+        bodyweightSnapshot: { value: 80, unit: 'kg' },
+        activeUnit: 'kg',
+      });
+
+      const res85kg = calculateAddedSetTarget({
+        objective: 'Hypertrophy',
+        exercise: ex,
+        weekNum: 1,
+        programDuration: 8,
+        previousLogs: assistedLogs,
+        algorithmId: 'hypertrophy_linear',
+        bodyweightSnapshot: { value: 85, unit: 'kg' },
+        activeUnit: 'kg',
+      });
+
+      // Gaining 5 kg bodyweight increases assistance by ~5 kg to maintain exact same effective load
+      expect(res85kg.target!.weight).toBe(res80kg.target!.weight + 5.0);
+    });
+
+    it('Zero-assistance boundary and negative assistance constraint clamping', () => {
+      // Historical log with very high effective load (e.g. 0 kg assistance x 10 reps @ 8)
+      const eliteLogs: WorkoutLog[] = [
+        {
+          id: 'elite-assisted-log',
+          date: '2026-01-01',
+          unit: 'kg',
+          bodyweightSnapshot: { value: 70, unit: 'kg' },
+          exercises: [
+            {
+              name: 'Assisted Dip',
+              muscleGroup: 'Triceps',
+              modality: 'assisted',
+              sets: [{ setNumber: 1, weight: 0, reps: 10, rpe: 8.0, isCompleted: true }],
+            },
+          ],
+        },
+      ];
+
+      // Ordinal 1 added set in Week 2 (intensity wave 6 reps @ RPE 8.0): target effective load (77.0 kg) exceeds bodyweight (70 kg), so assistance clamps to 0.0 kg
+      const ex0: ExerciseEntry = {
+        name: 'Assisted Dip',
+        muscleGroup: 'Triceps',
+        modality: 'assisted',
+        sets: [],
+      };
+
+      const res0 = calculateAddedSetTarget({
+        objective: 'Hypertrophy',
+        exercise: ex0,
+        weekNum: 2,
+        programDuration: 8,
+        previousLogs: eliteLogs,
+        algorithmId: 'hypertrophy_linear',
+        bodyweightSnapshot: { value: 70, unit: 'kg' },
+        activeUnit: 'kg',
+      });
+
+      expect(res0.isPrescribed).toBe(true);
+      expect(res0.workingSetOrdinal).toBe(1);
+      expect(res0.target!.weight).toBe(0.0);
+      expect(res0.target!.weight).toBeGreaterThanOrEqual(0.0);
+    });
+
+    it('Mixed kg/lb historical baseline correctly converted and projected on 2.5 lb grid', () => {
+      const lbHistLogs: WorkoutLog[] = [
+        {
+          id: 'lb-log-1',
+          date: '2026-01-01',
+          unit: 'lb',
+          bodyweightSnapshot: { value: 176.37, unit: 'lb' }, // ~80 kg
+          exercises: [
+            {
+              name: 'Assisted Pull-up',
+              muscleGroup: 'Back',
+              modality: 'assisted',
+              sets: [{ setNumber: 1, weight: 44.09, reps: 8, rpe: 8.0, isCompleted: true }], // ~20 kg assistance
+            },
+          ],
+        },
+      ];
+
+      const ex: ExerciseEntry = {
+        name: 'Assisted Pull-up',
+        muscleGroup: 'Back',
+        modality: 'assisted',
+        sets: [{ setNumber: 1, weight: 45, reps: 8, rpe: 8.0 }],
+      };
+
+      const resLb = calculateAddedSetTarget({
+        objective: 'Hypertrophy',
+        exercise: ex,
+        weekNum: 1,
+        programDuration: 8,
+        previousLogs: lbHistLogs,
+        algorithmId: 'hypertrophy_linear',
+        bodyweightSnapshot: { value: 176.37, unit: 'lb' },
+        activeUnit: 'lb',
+      });
+
+      expect(resLb.isPrescribed).toBe(true);
+      expect(resLb.target!.weight % 2.5).toBeCloseTo(0, 4);
+    });
+
+    it('Repeated identical calls and 5 recalculation cycles exhibit zero numerical drift', () => {
+      const ex: ExerciseEntry = {
+        name: 'Assisted Dip',
+        muscleGroup: 'Triceps',
+        modality: 'assisted',
+        sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8.0 }],
+      };
+
+      const runCall = () =>
+        calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          exercise: ex,
+          weekNum: 2,
+          programDuration: 8,
+          previousLogs: assistedLogs,
+          algorithmId: 'hypertrophy_linear',
+          bodyweightSnapshot: sessionBW,
+          activeUnit: 'kg',
+        });
+
+      const initial = runCall();
+      for (let i = 0; i < 5; i++) {
+        const cycle = runCall();
+        expect(cycle).toEqual(initial);
+      }
+    });
+  });
+
+  describe('11. MetReps Stage 2B — Direct Bodyweight Modality Add Set Tests', () => {
+    const sessionBW: BodyweightSnapshot = { value: 80, unit: 'kg' };
+
+    const bwLogs: WorkoutLog[] = [
+      {
+        id: 'bw-log-1',
+        date: '2026-01-01',
+        unit: 'kg',
+        bodyweightSnapshot: { value: 80, unit: 'kg' },
+        exercises: [
+          {
+            name: 'Pull-up',
+            muscleGroup: 'Back',
+            modality: 'bodyweight',
+            isMainMovement: true,
+            movementCategory: 'compound',
+            equipment: 'freeweight',
+            sets: [{ setNumber: 1, weight: 0, reps: 8, rpe: 8.0, isCompleted: true }],
+          },
+          {
+            name: 'Hanging Leg Raise',
+            muscleGroup: 'Core',
+            modality: 'bodyweight',
+            isMainMovement: false,
+            movementCategory: 'isolation',
+            equipment: 'freeweight',
+            sets: [{ setNumber: 1, weight: 0, reps: 12, rpe: 8.0, isCompleted: true }],
+          },
+        ],
+      },
+    ];
+
+    it('Weight is strictly 0 and reps are integer values', () => {
+      const ex: ExerciseEntry = {
+        name: 'Pull-up',
+        muscleGroup: 'Back',
+        modality: 'bodyweight',
+        movementCategory: 'compound',
+        equipment: 'freeweight',
+        sets: [{ setNumber: 1, weight: 0, reps: 8, rpe: 8.0 }],
+      };
+
+      const res = calculateAddedSetTarget({
+        objective: 'Hypertrophy',
+        exercise: ex,
+        weekNum: 1,
+        programDuration: 8,
+        previousLogs: bwLogs,
+        algorithmId: 'hypertrophy_linear',
+        bodyweightSnapshot: sessionBW,
+        activeUnit: 'kg',
+      });
+
+      expect(res.isPrescribed).toBe(true);
+      expect(res.target!.weight).toBe(0);
+      expect(Number.isInteger(res.target!.reps)).toBe(true);
+      expect(res.target!.rpe).toBe(8.5);
+    });
+
+    it('Respects approved repetition bounds: Hypertrophy compound [5, 15] and isolation [8, 20]', () => {
+      const compoundEx: ExerciseEntry = {
+        name: 'Pull-up',
+        muscleGroup: 'Back',
+        modality: 'bodyweight',
+        movementCategory: 'compound',
+        equipment: 'freeweight',
+        sets: [{ setNumber: 1, weight: 0, reps: 8, rpe: 8.0 }],
+      };
+
+      const isoEx: ExerciseEntry = {
+        name: 'Hanging Leg Raise',
+        muscleGroup: 'Core',
+        modality: 'bodyweight',
+        movementCategory: 'isolation',
+        equipment: 'freeweight',
+        sets: [{ setNumber: 1, weight: 0, reps: 12, rpe: 8.0 }],
+      };
+
+      const resCompound = calculateAddedSetTarget({
+        objective: 'Hypertrophy',
+        exercise: compoundEx,
+        weekNum: 1,
+        programDuration: 8,
+        previousLogs: bwLogs,
+        algorithmId: 'hypertrophy_linear',
+        bodyweightSnapshot: sessionBW,
+        activeUnit: 'kg',
+      });
+
+      const resIso = calculateAddedSetTarget({
+        objective: 'Hypertrophy',
+        exercise: isoEx,
+        weekNum: 1,
+        programDuration: 8,
+        previousLogs: bwLogs,
+        algorithmId: 'hypertrophy_linear',
+        bodyweightSnapshot: sessionBW,
+        activeUnit: 'kg',
+      });
+
+      expect(resCompound.target!.reps).toBeGreaterThanOrEqual(5);
+      expect(resCompound.target!.reps).toBeLessThanOrEqual(15);
+
+      expect(resIso.target!.reps).toBeGreaterThanOrEqual(8);
+      expect(resIso.target!.reps).toBeLessThanOrEqual(20);
+    });
+
+    it('Respects approved repetition bounds: Strength Undulating [1, 6] and Linear [1, 8]', () => {
+      const mainEx: ExerciseEntry = {
+        name: 'Pull-up',
+        muscleGroup: 'Back',
+        modality: 'bodyweight',
+        isMainMovement: true,
+        movementCategory: 'compound',
+        equipment: 'freeweight',
+        sets: [{ setNumber: 1, weight: 0, reps: 5, rpe: 8.0 }],
+      };
+
+      const resUndulating = calculateAddedSetTarget({
+        objective: 'Strength',
+        exercise: mainEx,
+        weekNum: 2,
+        programDuration: 8,
+        previousLogs: bwLogs,
+        algorithmId: 'strength_undulating',
+        bodyweightSnapshot: sessionBW,
+        activeUnit: 'kg',
+      });
+
+      const resLinear = calculateAddedSetTarget({
+        objective: 'Strength',
+        exercise: mainEx,
+        weekNum: 1,
+        programDuration: 8,
+        previousLogs: bwLogs,
+        algorithmId: 'strength_linear',
+        bodyweightSnapshot: sessionBW,
+        activeUnit: 'kg',
+      });
+
+      expect(resUndulating.target!.reps).toBeGreaterThanOrEqual(1);
+      expect(resUndulating.target!.reps).toBeLessThanOrEqual(6);
+
+      expect(resLinear.target!.reps).toBeGreaterThanOrEqual(1);
+      expect(resLinear.target!.reps).toBeLessThanOrEqual(8);
+    });
+
+    it('Respects approved Deload repetition bound [1, 15]', () => {
+      const ex: ExerciseEntry = {
+        name: 'Pull-up',
+        muscleGroup: 'Back',
+        modality: 'bodyweight',
+        sets: [{ setNumber: 1, weight: 0, reps: 8, rpe: 8.0 }],
+      };
+
+      const resDeload = calculateAddedSetTarget({
+        objective: 'Deload',
+        exercise: ex,
+        weekNum: 1,
+        programDuration: 8,
+        previousLogs: bwLogs,
+        bodyweightSnapshot: sessionBW,
+        activeUnit: 'kg',
+      });
+
+      expect(resDeload.isPrescribed).toBe(true);
+      expect(resDeload.target!.weight).toBe(0);
+      expect(resDeload.target!.rpe).toBe(5.0);
+      expect(resDeload.target!.reps).toBeGreaterThanOrEqual(1);
+      expect(resDeload.target!.reps).toBeLessThanOrEqual(15);
+    });
+
+    it('Bodyweight change between sessions changes repetition target when mathematically required', () => {
+      const ex: ExerciseEntry = {
+        name: 'Pull-up',
+        muscleGroup: 'Back',
+        modality: 'bodyweight',
+        sets: [{ setNumber: 1, weight: 0, reps: 8, rpe: 8.0 }],
+      };
+
+      const resLight = calculateAddedSetTarget({
+        objective: 'Hypertrophy',
+        exercise: ex,
+        weekNum: 1,
+        programDuration: 8,
+        previousLogs: bwLogs,
+        algorithmId: 'hypertrophy_linear',
+        bodyweightSnapshot: { value: 60, unit: 'kg' },
+        activeUnit: 'kg',
+      });
+
+      const resHeavy = calculateAddedSetTarget({
+        objective: 'Hypertrophy',
+        exercise: ex,
+        weekNum: 1,
+        programDuration: 8,
+        previousLogs: bwLogs,
+        algorithmId: 'hypertrophy_linear',
+        bodyweightSnapshot: { value: 100, unit: 'kg' },
+        activeUnit: 'kg',
+      });
+
+      // Lighter bodyweight makes the exercise easier -> more reps required for same target effective load
+      expect(resLight.target!.reps).toBeGreaterThanOrEqual(resHeavy.target!.reps);
+    });
+
+    it('Repeated identical calls and 5 recalculation cycles exhibit zero numerical drift', () => {
+      const ex: ExerciseEntry = {
+        name: 'Pull-up',
+        muscleGroup: 'Back',
+        modality: 'bodyweight',
+        sets: [{ setNumber: 1, weight: 0, reps: 8, rpe: 8.0 }],
+      };
+
+      const runCall = () =>
+        calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          exercise: ex,
+          weekNum: 2,
+          programDuration: 8,
+          previousLogs: bwLogs,
+          algorithmId: 'hypertrophy_linear',
+          bodyweightSnapshot: sessionBW,
+          activeUnit: 'kg',
+        });
+
+      const initial = runCall();
+      for (let i = 0; i < 5; i++) {
+        const cycle = runCall();
+        expect(cycle).toEqual(initial);
+      }
+    });
+  });
+
+  describe('12. MetReps Stage 2B — Direct Bypass, Fallback & Protection Tests', () => {
+    const sessionBW: BodyweightSnapshot = { value: 80, unit: 'kg' };
+
+    const histLogs: WorkoutLog[] = [
+      {
+        id: 'hist-log-all',
+        date: '2026-01-01',
+        unit: 'kg',
+        bodyweightSnapshot: { value: 80, unit: 'kg' },
+        exercises: [
+          {
+            name: 'Assisted Dip',
+            muscleGroup: 'Triceps',
+            modality: 'assisted',
+            sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8.0, isCompleted: true }],
+          },
+          {
+            name: 'Push-up',
+            muscleGroup: 'Chest',
+            modality: 'bodyweight',
+            sets: [{ setNumber: 1, weight: 0, reps: 10, rpe: 8.0, isCompleted: true }],
+          },
+        ],
+      },
+    ];
+
+    it('Objective Off returns unprescribed for assisted and bodyweight', () => {
+      const assistedEx: ExerciseEntry = { name: 'Assisted Dip', muscleGroup: 'Triceps', modality: 'assisted', sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8 }] };
+      const bwEx: ExerciseEntry = { name: 'Push-up', muscleGroup: 'Chest', modality: 'bodyweight', sets: [{ setNumber: 1, weight: 0, reps: 10, rpe: 8 }] };
+
+      expect(calculateAddedSetTarget({ objective: 'Off', exercise: assistedEx, weekNum: 1, previousLogs: histLogs, bodyweightSnapshot: sessionBW }).isPrescribed).toBe(false);
+      expect(calculateAddedSetTarget({ objective: 'Off', exercise: bwEx, weekNum: 1, previousLogs: histLogs, bodyweightSnapshot: sessionBW }).isPrescribed).toBe(false);
+    });
+
+    it('Strength non-main assisted and bodyweight accessories return unprescribed', () => {
+      const assistedAcc: ExerciseEntry = {
+        name: 'Assisted Dip',
+        muscleGroup: 'Triceps',
+        modality: 'assisted',
+        isMainMovement: false,
+        sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8.0 }],
+      };
+
+      const bwAcc: ExerciseEntry = {
+        name: 'Push-up',
+        muscleGroup: 'Chest',
+        modality: 'bodyweight',
+        isMainMovement: false,
+        sets: [{ setNumber: 1, weight: 0, reps: 10, rpe: 8.0 }],
+      };
+
+      const resAssisted = calculateAddedSetTarget({
+        objective: 'Strength',
+        exercise: assistedAcc,
+        weekNum: 2,
+        previousLogs: histLogs,
+        algorithmId: 'strength_undulating',
+        bodyweightSnapshot: sessionBW,
+      });
+
+      const resBw = calculateAddedSetTarget({
+        objective: 'Strength',
+        exercise: bwAcc,
+        weekNum: 2,
+        previousLogs: histLogs,
+        algorithmId: 'strength_undulating',
+        bodyweightSnapshot: sessionBW,
+      });
+
+      expect(resAssisted.isPrescribed).toBe(false);
+      expect(resBw.isPrescribed).toBe(false);
+    });
+
+    it('Unknown or invalid algorithm returns unprescribed', () => {
+      const ex: ExerciseEntry = {
+        name: 'Assisted Dip',
+        muscleGroup: 'Triceps',
+        modality: 'assisted',
+        sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8.0 }],
+      };
+
+      const res = calculateAddedSetTarget({
+        objective: 'Hypertrophy',
+        exercise: ex,
+        weekNum: 1,
+        previousLogs: histLogs,
+        algorithmId: 'unknown_algo' as any,
+        bodyweightSnapshot: sessionBW,
+      });
+
+      expect(res.isPrescribed).toBe(false);
+    });
+
+    it('Missing historical and template baseline returns unprescribed', () => {
+      const ex: ExerciseEntry = {
+        name: 'New Custom Calisthenics Exercise',
+        muscleGroup: 'Back',
+        modality: 'bodyweight',
+        sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 8.0 }],
+      };
+
+      const res = calculateAddedSetTarget({
+        objective: 'Hypertrophy',
+        exercise: ex,
+        weekNum: 1,
+        previousLogs: [],
+        templateExercise: undefined,
+        bodyweightSnapshot: sessionBW,
+      });
+
+      expect(res.isPrescribed).toBe(false);
+    });
+
+    it('Warm-up rows are excluded from working set count and ordinal derivation', () => {
+      const ex: ExerciseEntry = {
+        name: 'Assisted Dip',
+        muscleGroup: 'Triceps',
+        modality: 'assisted',
+        sets: [
+          { setNumber: 1, weight: 40, reps: 5, rpe: 4.0, isWarmup: true },
+          { setNumber: 2, weight: 30, reps: 4, rpe: 6.0, isWarmup: true },
+          { setNumber: 3, weight: 20, reps: 8, rpe: 8.0, isWarmup: false },
+        ],
+      };
+
+      const res = calculateAddedSetTarget({
+        objective: 'Hypertrophy',
+        exercise: ex,
+        weekNum: 1,
+        previousLogs: histLogs,
+        algorithmId: 'hypertrophy_linear',
+        bodyweightSnapshot: sessionBW,
+      });
+
+      expect(res.isPrescribed).toBe(true);
+      expect(res.workingSetOrdinal).toBe(2); // 1 existing working set + 1 = 2
+    });
+
+    it('Input exercise and snapshot remain immutable', () => {
+      const ex: ExerciseEntry = {
+        name: 'Assisted Dip',
+        muscleGroup: 'Triceps',
+        modality: 'assisted',
+        sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8.0 }],
+      };
+
+      const exSnapshot = JSON.stringify(ex);
+      const bwSnapshot = JSON.stringify(sessionBW);
+
+      calculateAddedSetTarget({
+        objective: 'Hypertrophy',
+        exercise: ex,
+        weekNum: 1,
+        previousLogs: histLogs,
+        algorithmId: 'hypertrophy_linear',
+        bodyweightSnapshot: sessionBW,
+      });
+
+      expect(JSON.stringify(ex)).toBe(exSnapshot);
+      expect(JSON.stringify(sessionBW)).toBe(bwSnapshot);
     });
   });
 });
