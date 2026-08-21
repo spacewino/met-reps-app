@@ -3,6 +3,7 @@ import {
   normalizeWeightToKg,
   normalizeExerciseName,
   isHighConfidencePerformanceSetEligible,
+  resolvePerformanceSetEvidence,
   getStrictlyPrecedingLogs,
   calculateExerciseTonnageKg,
   calculateSessionPerformanceIndex,
@@ -2032,6 +2033,1087 @@ describe('Diary Insights 2.0 Pure Engine Test Suite', () => {
             });
           }
         });
+      });
+    });
+  });
+
+  describe('Canonical Multi-Modality Performance Insights (AS-5C Canonical Migration)', () => {
+    describe('resolvePerformanceSetEvidence', () => {
+      it('resolves valid weighted set', () => {
+        const ex = createDummyExercise({ modality: 'weighted' });
+        const set = createDummySet({ weight: 100, reps: 5, rpe: 8 });
+        const res = resolvePerformanceSetEvidence(ex, set, 'kg', null);
+        expect(res.status).toBe('valid');
+        expect(res.effectiveLoadKg).toBe(100);
+        expect(res.e1rmKg).toBeGreaterThan(100);
+      });
+
+      it('resolves valid bodyweight set with snapshot', () => {
+        const ex = createDummyExercise({ name: 'Pull-up', modality: 'bodyweight' });
+        const set = createDummySet({ weight: 0, reps: 5, rpe: 8 });
+        const snapshot = { value: 75, unit: 'kg' as const };
+        const res = resolvePerformanceSetEvidence(ex, set, 'kg', snapshot);
+        expect(res.status).toBe('valid');
+        expect(res.effectiveLoadKg).toBe(75);
+        expect(res.e1rmKg).toBeGreaterThan(75);
+      });
+
+      it('resolves valid assisted set with snapshot', () => {
+        const ex = createDummyExercise({ name: 'Assisted Pull-up', modality: 'assisted' });
+        const set = createDummySet({ weight: 25, reps: 5, rpe: 8 });
+        const snapshot = { value: 80, unit: 'kg' as const };
+        const res = resolvePerformanceSetEvidence(ex, set, 'kg', snapshot);
+        expect(res.status).toBe('valid');
+        expect(res.effectiveLoadKg).toBe(55); // 80 - 25
+      });
+
+      it('returns unavailable for bodyweight/assisted set when snapshot is missing', () => {
+        const ex = createDummyExercise({ name: 'Pull-up', modality: 'bodyweight' });
+        const set = createDummySet({ weight: 0, reps: 5, rpe: 8 });
+        const res = resolvePerformanceSetEvidence(ex, set, 'kg', null);
+        expect(res.status).toBe('unavailable');
+        expect(res.effectiveLoadKg).toBeNull();
+        expect(res.e1rmKg).toBeNull();
+      });
+
+      it('returns invalid for assisted set when assistance exceeds bodyweight', () => {
+        const ex = createDummyExercise({ name: 'Assisted Pull-up', modality: 'assisted' });
+        const set = createDummySet({ weight: 90, reps: 5, rpe: 8 });
+        const snapshot = { value: 80, unit: 'kg' as const };
+        const res = resolvePerformanceSetEvidence(ex, set, 'kg', snapshot);
+        expect(res.status).toBe('invalid');
+        expect(res.effectiveLoadKg).toBeNull();
+        expect(res.e1rmKg).toBeNull();
+      });
+
+      it('rejects loose form, skipped, warmup, or invalid RPE sets', () => {
+        const ex = createDummyExercise({ modality: 'bodyweight' });
+        const snapshot = { value: 80, unit: 'kg' as const };
+
+        expect(
+          resolvePerformanceSetEvidence(
+            ex,
+            createDummySet({ form: 'loose', weight: 0, reps: 5, rpe: 8 }),
+            'kg',
+            snapshot
+          ).status
+        ).toBe('invalid');
+
+        expect(
+          resolvePerformanceSetEvidence(
+            ex,
+            createDummySet({ isSkipped: true, weight: 0, reps: 5, rpe: 8 }),
+            'kg',
+            snapshot
+          ).status
+        ).toBe('invalid');
+
+        expect(
+          resolvePerformanceSetEvidence(
+            ex,
+            createDummySet({ isWarmup: true, weight: 0, reps: 5, rpe: 8 }),
+            'kg',
+            snapshot
+          ).status
+        ).toBe('invalid');
+
+        expect(
+          resolvePerformanceSetEvidence(
+            ex,
+            createDummySet({ rpe: null, weight: 0, reps: 5 }),
+            'kg',
+            snapshot
+          ).status
+        ).toBe('invalid');
+      });
+    });
+
+    describe('calculateExerciseTonnageKg with Multi-Modality', () => {
+      it('calculates bodyweight exercise tonnage with snapshot', () => {
+        const ex = createDummyExercise({
+          name: 'Pull-up',
+          modality: 'bodyweight',
+          sets: [
+            createDummySet({ weight: 0, reps: 10 }),
+            createDummySet({ weight: 0, reps: 5 }),
+          ],
+        });
+        const snapshot = { value: 80, unit: 'kg' as const };
+        // set 1: 80 * 10 = 800 kg; set 2: 80 * 5 = 400 kg => total 1200 kg
+        const tonnage = calculateExerciseTonnageKg(ex, 'kg', snapshot);
+        expect(tonnage).toBe(1200);
+      });
+
+      it('calculates assisted exercise tonnage with snapshot', () => {
+        const ex = createDummyExercise({
+          name: 'Assisted Chin-up',
+          modality: 'assisted',
+          sets: [
+            createDummySet({ weight: 20, reps: 8 }),
+          ],
+        });
+        const snapshot = { value: 80, unit: 'kg' as const };
+        // set 1: (80 - 20) * 8 = 480 kg
+        const tonnage = calculateExerciseTonnageKg(ex, 'kg', snapshot);
+        expect(tonnage).toBe(480);
+      });
+
+      it('returns 0 for bodyweight/assisted exercise if snapshot is missing', () => {
+        const ex = createDummyExercise({
+          name: 'Pull-up',
+          modality: 'bodyweight',
+          sets: [createDummySet({ weight: 0, reps: 10 })],
+        });
+        expect(calculateExerciseTonnageKg(ex, 'kg', null)).toBe(0);
+      });
+    });
+
+    describe('Direct Multi-Modality Coverage Closure (AS-5C-R2A-T1)', () => {
+      // 1. Bodyweight Load PR
+      it('evaluates Bodyweight Load PR based on canonical snapshot effective load', () => {
+        const initialSnapshot = { value: 75, unit: 'kg' as const };
+        const sameSnapshot = { value: 75, unit: 'kg' as const };
+        const heavierSnapshot = { value: 80, unit: 'kg' as const };
+
+        const log1 = createDummyLog({
+          id: 'log-1700000000001',
+          date: '2025-01-01',
+          bodyweightSnapshot: initialSnapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              sets: [createDummySet({ weight: 0, reps: 5, rpe: 8.0 })], // effective load: 75kg
+            }),
+          ],
+        });
+
+        const logSameBw = createDummyLog({
+          id: 'log-1700000000002',
+          date: '2025-01-08',
+          bodyweightSnapshot: sameSnapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              sets: [createDummySet({ weight: 0, reps: 5, rpe: 8.0 })], // effective load: 75kg (unchanged)
+            }),
+          ],
+        });
+
+        const insightsSame = generateDiaryInsights(logSameBw, [log1, logSameBw]);
+        expect(insightsSame.some(i => i.id === 'load_pr')).toBe(false);
+
+        const logHeavierBw = createDummyLog({
+          id: 'log-1700000000003',
+          date: '2025-01-15',
+          bodyweightSnapshot: heavierSnapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              sets: [createDummySet({ weight: 0, reps: 5, rpe: 8.0 })], // effective load: 80kg (> 75kg)
+            }),
+          ],
+        });
+
+        const insightsHeavier = generateDiaryInsights(logHeavierBw, [log1, logSameBw, logHeavierBw]);
+        const loadPrInsight = insightsHeavier.find(i => i.id === 'load_pr');
+        expect(loadPrInsight).toBeDefined();
+        expect(loadPrInsight?.numericEvidence?.todayMaxWeightKg).toBe(80);
+        expect(loadPrInsight?.numericEvidence?.previousMaxWeightKg).toBe(75);
+      });
+
+      // 2. Assisted Exercise Tonnage PR
+      it('evaluates Assisted Exercise Tonnage PR where reduced assistance represents greater load', () => {
+        const snapshot = { value: 80, unit: 'kg' as const };
+
+        const log1 = createDummyLog({
+          id: 'log-1700000000001',
+          date: '2025-01-01',
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Assisted Dip',
+              modality: 'assisted',
+              sets: [createDummySet({ weight: 30, reps: 10, rpe: 8.0 })], // effective load: 50kg, tonnage: 500kg
+            }),
+          ],
+        });
+
+        const log2 = createDummyLog({
+          id: 'log-1700000000002',
+          date: '2025-01-04',
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Assisted Dip',
+              modality: 'assisted',
+              sets: [createDummySet({ weight: 30, reps: 10, rpe: 8.0 })], // tonnage: 500kg
+            }),
+          ],
+        });
+
+        const log3 = createDummyLog({
+          id: 'log-1700000000003',
+          date: '2025-01-08',
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Assisted Dip',
+              modality: 'assisted',
+              sets: [createDummySet({ weight: 20, reps: 10, rpe: 8.0 })], // assistance reduced to 20kg -> effective load: 60kg, tonnage: 600kg
+            }),
+          ],
+        });
+
+        const insights = generateDiaryInsights(log3, [log1, log2, log3]);
+        const tonnageInsight = insights.find(i => i.id === 'exercise_tonnage_pr');
+        expect(tonnageInsight).toBeDefined();
+        expect(tonnageInsight?.numericEvidence?.todayTonnageKg).toBe(600);
+        expect(tonnageInsight?.numericEvidence?.previousMaxTonnageKg).toBe(500);
+      });
+
+      // 3. Assisted drop sub-set tonnage
+      it('calculates assisted drop sub-set tonnage where greater assistance produces lower effective load', () => {
+        const snapshot = { value: 80, unit: 'kg' as const };
+
+        const priorLog1 = createDummyLog({
+          id: 'log-1700000000001',
+          date: '2025-01-01',
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Assisted Pull-up',
+              modality: 'assisted',
+              sets: [createDummySet({ weight: 30, reps: 10 })], // (80-30)*10 = 500kg
+            }),
+          ],
+        });
+
+        const priorLog2 = createDummyLog({
+          id: 'log-1700000000002',
+          date: '2025-01-04',
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Assisted Pull-up',
+              modality: 'assisted',
+              sets: [createDummySet({ weight: 30, reps: 10 })], // 500kg
+            }),
+          ],
+        });
+
+        const currentEx = createDummyExercise({
+          name: 'Assisted Pull-up',
+          modality: 'assisted',
+          sets: [
+            createDummySet({
+              weight: 10, // parent: 80 - 10 = 70kg effective * 5 = 350kg
+              reps: 5,
+              rpe: 8.0,
+              isDropSet: true,
+              dropSubSets: [
+                { weight: 20, reps: 5 }, // sub-set 1: 80 - 20 = 60kg effective * 5 = 300kg
+                { weight: 30, reps: 5 }, // sub-set 2: 80 - 30 = 50kg effective * 5 = 250kg
+              ],
+            }),
+          ],
+        });
+
+        const currentTonnage = calculateExerciseTonnageKg(currentEx, 'kg', snapshot);
+        expect(currentTonnage).toBe(900); // 350 + 300 + 250 = 900kg
+
+        const currentLog = createDummyLog({
+          id: 'log-1700000000003',
+          date: '2025-01-08',
+          bodyweightSnapshot: snapshot,
+          exercises: [currentEx],
+        });
+
+        const insights = generateDiaryInsights(currentLog, [priorLog1, priorLog2, currentLog]);
+        const tonnagePr = insights.find(i => i.id === 'exercise_tonnage_pr');
+        expect(tonnagePr).toBeDefined();
+        expect(tonnagePr?.numericEvidence?.todayTonnageKg).toBe(900);
+        expect(tonnagePr?.numericEvidence?.previousMaxTonnageKg).toBe(500);
+      });
+
+      // 4. Quiet Progress — bodyweight
+      it('evaluates Quiet Progress on bodyweight exercise across 28-day window without triggering strength ceiling', () => {
+        const peakSnapshot = { value: 90, unit: 'kg' as const };
+        const regularSnapshot = { value: 75, unit: 'kg' as const };
+
+        // Peak exposure > 28 days ago (70 days ago) -> 90kg bw x 5 reps @ RPE 8.5 -> e1RM ~ 108 kg
+        const oldAllTimePeak = createDummyLog({
+          id: 'log-1700000000000',
+          date: '2024-11-01',
+          bodyweightSnapshot: peakSnapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              sets: [createDummySet({ weight: 0, reps: 5, rpe: 8.5 })],
+            }),
+          ],
+        });
+
+        // 3 recent exposures within 28 days -> 75kg bw x 5 reps @ RPE 8.0 -> e1RM ~ 87.5 kg
+        const exp1 = createDummyLog({
+          id: 'log-1700000000001',
+          date: '2025-01-02',
+          bodyweightSnapshot: regularSnapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              sets: [createDummySet({ weight: 0, reps: 5, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const exp2 = createDummyLog({
+          id: 'log-1700000000002',
+          date: '2025-01-05',
+          bodyweightSnapshot: regularSnapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              sets: [createDummySet({ weight: 0, reps: 5, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const exp3 = createDummyLog({
+          id: 'log-1700000000003',
+          date: '2025-01-09',
+          bodyweightSnapshot: regularSnapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              sets: [createDummySet({ weight: 0, reps: 5, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        // Current workout: 75kg bw x 7 reps @ RPE 8.0 -> e1RM ~ 93.33 kg (> 1.025 * 87.5 = 89.69, but < 108 kg)
+        const currentLog = createDummyLog({
+          id: 'log-1700000000004',
+          date: '2025-01-15',
+          bodyweightSnapshot: regularSnapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              sets: [createDummySet({ weight: 0, reps: 7, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const allLogs = [oldAllTimePeak, exp1, exp2, exp3, currentLog];
+        const insights = generateDiaryInsights(currentLog, allLogs);
+
+        expect(insights.some(i => i.id === 'quiet_progress')).toBe(true);
+        expect(insights.some(i => i.id === 'new_strength_ceiling')).toBe(false);
+
+        const qp = insights.find(i => i.id === 'quiet_progress');
+        expect(qp?.numericEvidence?.rollingMedianE1RM).toBeCloseTo(92.9, 1);
+        expect(qp?.numericEvidence?.todayBestE1RM).toBeCloseTo(99.9, 1);
+      });
+
+      // 5. Quiet Progress — assisted
+      it('evaluates Quiet Progress on assisted exercise with inverse assistance calculation', () => {
+        const snapshot = { value: 80, unit: 'kg' as const };
+
+        // Peak exposure > 28 days ago (70 days ago) -> 80kg bw - 10kg ast = 70kg effective x 5 reps @ RPE 8.5 -> e1RM ~ 85.3 kg
+        const oldAllTimePeak = createDummyLog({
+          id: 'log-1700000000000',
+          date: '2024-11-01',
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Assisted Chin-up',
+              modality: 'assisted',
+              sets: [createDummySet({ weight: 10, reps: 5, rpe: 8.5 })],
+            }),
+          ],
+        });
+
+        // 3 recent exposures within 28 days -> 80kg bw - 30kg ast = 50kg effective x 5 reps @ RPE 8.0 -> e1RM = 50 / 0.807 ~ 62.0 kg
+        const makeRecentLog = (id: string, date: string) =>
+          createDummyLog({
+            id,
+            date,
+            bodyweightSnapshot: snapshot,
+            exercises: [
+              createDummyExercise({
+                name: 'Assisted Chin-up',
+                modality: 'assisted',
+                sets: [createDummySet({ weight: 30, reps: 5, rpe: 8.0 })],
+              }),
+            ],
+          });
+
+        const exp1 = makeRecentLog('log-1700000000001', '2025-01-02');
+        const exp2 = makeRecentLog('log-1700000000002', '2025-01-05');
+        const exp3 = makeRecentLog('log-1700000000003', '2025-01-09');
+
+        // Current workout: 80kg bw - 25kg ast = 55kg effective x 5 reps @ RPE 8.0 -> e1RM = 55 / 0.807 ~ 68.2 kg
+        const currentLog = createDummyLog({
+          id: 'log-1700000000004',
+          date: '2025-01-15',
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Assisted Chin-up',
+              modality: 'assisted',
+              sets: [createDummySet({ weight: 25, reps: 5, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const allLogs = [oldAllTimePeak, exp1, exp2, exp3, currentLog];
+        const insights = generateDiaryInsights(currentLog, allLogs);
+
+        expect(insights.some(i => i.id === 'quiet_progress')).toBe(true);
+        expect(insights.some(i => i.id === 'new_strength_ceiling')).toBe(false);
+
+        const qp = insights.find(i => i.id === 'quiet_progress');
+        expect(qp?.numericEvidence?.rollingMedianE1RM).toBeCloseTo(62.0, 1);
+        expect(qp?.numericEvidence?.todayBestE1RM).toBeCloseTo(68.2, 1);
+      });
+
+      // 6. Heavy Exposure — bodyweight
+      it('evaluates Heavy Exposure on bodyweight exercise against historical baseline e1RM', () => {
+        const baselineSnapshot = { value: 80, unit: 'kg' as const };
+        const heavySnapshot = { value: 95, unit: 'kg' as const };
+
+        // 3 prior sessions: 80kg bw x 8 reps @ RPE 8.0 -> e1RM ~ 106.67 kg. Baseline = 106.67 kg
+        // 85% of baseline = 0.85 * 106.67 = 90.67 kg.
+        const makePastLog = (id: string, date: string) =>
+          createDummyLog({
+            id,
+            date,
+            bodyweightSnapshot: baselineSnapshot,
+            exercises: [
+              createDummyExercise({
+                name: 'Pull-up',
+                modality: 'bodyweight',
+                sets: [createDummySet({ weight: 0, reps: 8, rpe: 8.0 })],
+              }),
+            ],
+          });
+
+        const pastLogs = [
+          makePastLog('log-1700000000001', '2025-01-01'),
+          makePastLog('log-1700000000002', '2025-01-03'),
+          makePastLog('log-1700000000003', '2025-01-05'),
+        ];
+
+        // 2 qualifying heavy sets (95kg >= 90.67kg, reps <= 5) -> insufficient (requires >= 3)
+        const log2Sets = createDummyLog({
+          id: 'log-1700000000004',
+          date: '2025-01-08',
+          bodyweightSnapshot: heavySnapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              sets: [
+                createDummySet({ weight: 0, reps: 3, rpe: 8.0 }),
+                createDummySet({ weight: 0, reps: 3, rpe: 8.5 }),
+              ],
+            }),
+          ],
+        });
+
+        const insights2 = generateDiaryInsights(log2Sets, [...pastLogs, log2Sets]);
+        expect(insights2.some(i => i.id === 'heavy_exposure')).toBe(false);
+
+        // 3 qualifying heavy sets -> triggers Heavy Exposure
+        const log3Sets = createDummyLog({
+          id: 'log-1700000000005',
+          date: '2025-01-08',
+          bodyweightSnapshot: heavySnapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              sets: [
+                createDummySet({ weight: 0, reps: 3, rpe: 8.0 }),
+                createDummySet({ weight: 0, reps: 3, rpe: 8.5 }),
+                createDummySet({ weight: 0, reps: 3, rpe: 9.0 }),
+              ],
+            }),
+          ],
+        });
+
+        const insights3 = generateDiaryInsights(log3Sets, [...pastLogs, log3Sets]);
+        const heavyInsight = insights3.find(i => i.id === 'heavy_exposure');
+        expect(heavyInsight).toBeDefined();
+        expect(heavyInsight?.numericEvidence?.heavySetsCount).toBe(3);
+      });
+
+      // 7. Heavy Exposure — assisted
+      it('evaluates Heavy Exposure on assisted exercise with reduced assistance', () => {
+        const snapshot = { value: 80, unit: 'kg' as const };
+
+        // 3 prior sessions: 80 - 40 = 40kg effective x 8 reps @ RPE 8.0 -> e1RM ~ 53.33 kg.
+        // 85% of baseline = 0.85 * 53.33 = 45.33 kg.
+        const makePastLog = (id: string, date: string) =>
+          createDummyLog({
+            id,
+            date,
+            bodyweightSnapshot: snapshot,
+            exercises: [
+              createDummyExercise({
+                name: 'Assisted Dip',
+                modality: 'assisted',
+                sets: [createDummySet({ weight: 40, reps: 8, rpe: 8.0 })],
+              }),
+            ],
+          });
+
+        const pastLogs = [
+          makePastLog('log-1700000000001', '2025-01-01'),
+          makePastLog('log-1700000000002', '2025-01-03'),
+          makePastLog('log-1700000000003', '2025-01-05'),
+        ];
+
+        // Current workout: assistance 30kg -> 80 - 30 = 50kg effective (50 / 53.33 = 93.75% >= 85%) x 3 sets of 3 reps
+        const currentLog = createDummyLog({
+          id: 'log-1700000000004',
+          date: '2025-01-08',
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Assisted Dip',
+              modality: 'assisted',
+              sets: [
+                createDummySet({ weight: 30, reps: 3, rpe: 8.0 }),
+                createDummySet({ weight: 30, reps: 3, rpe: 8.5 }),
+                createDummySet({ weight: 30, reps: 3, rpe: 9.0 }),
+              ],
+            }),
+          ],
+        });
+
+        const insights = generateDiaryInsights(currentLog, [...pastLogs, currentLog]);
+        const heavyInsight = insights.find(i => i.id === 'heavy_exposure');
+        expect(heavyInsight).toBeDefined();
+        expect(heavyInsight?.numericEvidence?.heavySetsCount).toBe(3);
+      });
+
+      // 8. Consistent Output — assisted
+      it('evaluates Consistent Output on assisted straight sets and suppresses Steep Fatigue Drop', () => {
+        const snapshot = { value: 80, unit: 'kg' as const };
+
+        // 3 assisted sets at 20kg assistance (60kg effective), 6 reps, RPE 8.0 -> identical e1RM (72 kg)
+        const currentLog = createDummyLog({
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Assisted Chin-up',
+              modality: 'assisted',
+              sets: [
+                createDummySet({ setNumber: 1, weight: 20, reps: 6, rpe: 8.0 }),
+                createDummySet({ setNumber: 2, weight: 20, reps: 6, rpe: 8.0 }),
+                createDummySet({ setNumber: 3, weight: 20, reps: 6, rpe: 8.0 }),
+              ],
+            }),
+          ],
+        });
+
+        const insights = generateDiaryInsights(currentLog, [currentLog]);
+        expect(insights.some(i => i.id === 'consistent_output')).toBe(true);
+        expect(insights.some(i => i.id === 'steep_fatigue_drop')).toBe(false);
+      });
+
+      // 9. Steep Fatigue Drop — assisted
+      it('evaluates Steep Fatigue Drop on assisted sets meeting decline and RPE rise thresholds', () => {
+        const snapshot = { value: 80, unit: 'kg' as const };
+
+        // 3 assisted sets at 20kg assistance (60kg effective):
+        // set 1: 6 reps @ RPE 7.5 -> e1RM ~ 78.5 kg
+        // set 2: 4 reps @ RPE 8.5
+        // set 3: 3 reps @ RPE 9.5 -> e1RM ~ 66.2 kg (drop > 12%)
+        const currentLog = createDummyLog({
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Assisted Chin-up',
+              modality: 'assisted',
+              sets: [
+                createDummySet({ setNumber: 1, weight: 20, reps: 6, rpe: 7.5 }),
+                createDummySet({ setNumber: 2, weight: 20, reps: 4, rpe: 8.5 }),
+                createDummySet({ setNumber: 3, weight: 20, reps: 3, rpe: 9.5 }),
+              ],
+            }),
+          ],
+        });
+
+        const insights = generateDiaryInsights(currentLog, [currentLog]);
+        expect(insights.some(i => i.id === 'steep_fatigue_drop')).toBe(true);
+        expect(insights.some(i => i.id === 'consistent_output')).toBe(false);
+
+        const dropInsight = insights.find(i => i.id === 'steep_fatigue_drop');
+        expect(dropInsight?.numericEvidence?.firstSetE1RM).toBeDefined();
+        expect(dropInsight?.numericEvidence?.lastSetE1RM).toBeDefined();
+        expect(dropInsight?.numericEvidence?.firstSetE1RM).toBeGreaterThan(dropInsight?.numericEvidence?.lastSetE1RM!);
+      });
+
+      // 10. Session Performance Index — assisted
+      it('calculates exact Session Performance Index for assisted exercise with baseline sufficiency', () => {
+        const snapshot = { value: 80, unit: 'kg' as const };
+
+        // 3 preceding exposures: assistance 20kg (60kg effective), 6 reps @ RPE 8.0 (table 0.779 -> 77.02 kg)
+        const makePastLog = (id: string, date: string) =>
+          createDummyLog({
+            id,
+            date,
+            bodyweightSnapshot: snapshot,
+            exercises: [
+              createDummyExercise({
+                name: 'Assisted Chin-up',
+                modality: 'assisted',
+                isMainMovement: true,
+                sets: [createDummySet({ weight: 20, reps: 6, rpe: 8.0 })],
+              }),
+            ],
+          });
+
+        const pastLogs = [
+          makePastLog('log-1700000000001', '2025-01-01'),
+          makePastLog('log-1700000000002', '2025-01-03'),
+          makePastLog('log-1700000000003', '2025-01-05'),
+        ];
+
+        // Current workout: assistance 20kg (60kg effective), 5 reps @ RPE 8.5 (table 0.821 -> 73.08 kg)
+        // Expected Performance Index = 73.0816 / 77.0218 = 0.9488
+        const currentLog = createDummyLog({
+          id: 'log-1700000000004',
+          date: '2025-01-08',
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Assisted Chin-up',
+              modality: 'assisted',
+              isMainMovement: true,
+              sets: [createDummySet({ weight: 20, reps: 5, rpe: 8.5 })],
+            }),
+          ],
+        });
+
+        const allLogs = [...pastLogs, currentLog];
+        const spi = calculateSessionPerformanceIndex(currentLog, allLogs);
+        expect(spi).not.toBeNull();
+        expect(spi).toBeCloseTo(0.9488, 3);
+      });
+
+      // 11. Against the Odds with corrected PI
+      it('evaluates Against the Odds on bodyweight exercise with corrected Performance Index', () => {
+        const snapshot = { value: 80, unit: 'kg' as const };
+
+        // 3 prior sessions: 80kg bw x 5 reps @ RPE 8.0 -> e1RM ~ 93.33 kg
+        const makePastLog = (id: string, date: string) =>
+          createDummyLog({
+            id,
+            date,
+            bodyweightSnapshot: snapshot,
+            exercises: [
+              createDummyExercise({
+                name: 'Pull-up',
+                modality: 'bodyweight',
+                isMainMovement: true,
+                sets: [createDummySet({ weight: 0, reps: 5, rpe: 8.0 })],
+              }),
+            ],
+          });
+
+        const pastLogs = [
+          makePastLog('log-1700000000001', '2025-01-01'),
+          makePastLog('log-1700000000002', '2025-01-03'),
+          makePastLog('log-1700000000003', '2025-01-05'),
+        ];
+
+        // Current workout: 80kg bw x 6 reps @ RPE 8.0 -> e1RM ~ 98.67 kg (SPI ~ 1.057 >= 1.00) alongside high soreness (8)
+        const currentLog = createDummyLog({
+          id: 'log-1700000000004',
+          date: '2025-01-08',
+          bodyweightSnapshot: snapshot,
+          recovery: { sleepHours: 7.5, soreness: 8 },
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              isMainMovement: true,
+              sets: [createDummySet({ weight: 0, reps: 6, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const allLogs = [...pastLogs, currentLog];
+        const spi = calculateSessionPerformanceIndex(currentLog, allLogs);
+        expect(spi).not.toBeNull();
+        expect(spi!).toBeGreaterThanOrEqual(1.0);
+
+        const insights = generateDiaryInsights(currentLog, allLogs);
+        expect(insights.some(i => i.id === 'against_the_odds')).toBe(true);
+        expect(insights.some(i => i.id === 'recovery_strain')).toBe(false);
+      });
+
+      // 12. Cross-unit bodyweight equality
+      it('verifies cross-unit bodyweight equality between kg and lb snapshots', () => {
+        // 80.00 kg is 176.3698096 lb
+        const kgLog = createDummyLog({
+          id: 'log-1700000000001',
+          date: '2025-01-01',
+          unit: 'kg',
+          bodyweightSnapshot: { value: 80, unit: 'kg' },
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              sets: [createDummySet({ weight: 0, reps: 5, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const lbLog = createDummyLog({
+          id: 'log-1700000000002',
+          date: '2025-01-05',
+          unit: 'lb',
+          bodyweightSnapshot: { value: 176.3698096, unit: 'lb' },
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              sets: [createDummySet({ weight: 0, reps: 5, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const evKg = resolvePerformanceSetEvidence(kgLog.exercises[0], kgLog.exercises[0].sets[0], 'kg', kgLog.bodyweightSnapshot);
+        const evLb = resolvePerformanceSetEvidence(lbLog.exercises[0], lbLog.exercises[0].sets[0], 'lb', lbLog.bodyweightSnapshot);
+
+        expect(evKg.effectiveLoadKg).toBeCloseTo(80, 2);
+        expect(evLb.effectiveLoadKg).toBeCloseTo(80, 2);
+        expect(evKg.e1rmKg).toBeCloseTo(evLb.e1rmKg!, 2);
+
+        const insights = generateDiaryInsights(lbLog, [kgLog, lbLog]);
+        // Same physical effective load and reps -> no false Load PR or Strength Ceiling
+        expect(insights.some(i => i.id === 'load_pr')).toBe(false);
+        expect(insights.some(i => i.id === 'new_strength_ceiling')).toBe(false);
+      });
+
+      // 13. Cross-unit assisted equality
+      it('verifies cross-unit assisted equality with mixed kg/lb snapshots and assistance', () => {
+        // 80kg snapshot, 20kg assistance -> 60kg effective
+        const kgLog = createDummyLog({
+          id: 'log-1700000000001',
+          date: '2025-01-01',
+          unit: 'kg',
+          bodyweightSnapshot: { value: 80, unit: 'kg' },
+          exercises: [
+            createDummyExercise({
+              name: 'Assisted Dip',
+              modality: 'assisted',
+              sets: [createDummySet({ weight: 20, reps: 5, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        // 176.3698 lb snapshot (80kg), 44.09245 lb assistance (20kg) -> 60kg effective
+        const lbLog = createDummyLog({
+          id: 'log-1700000000002',
+          date: '2025-01-05',
+          unit: 'lb',
+          bodyweightSnapshot: { value: 176.3698096, unit: 'lb' },
+          exercises: [
+            createDummyExercise({
+              name: 'Assisted Dip',
+              modality: 'assisted',
+              sets: [createDummySet({ weight: 44.0924524, reps: 5, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const evKg = resolvePerformanceSetEvidence(kgLog.exercises[0], kgLog.exercises[0].sets[0], 'kg', kgLog.bodyweightSnapshot);
+        const evLb = resolvePerformanceSetEvidence(lbLog.exercises[0], lbLog.exercises[0].sets[0], 'lb', lbLog.bodyweightSnapshot);
+
+        expect(evKg.effectiveLoadKg).toBeCloseTo(60, 2);
+        expect(evLb.effectiveLoadKg).toBeCloseTo(60, 2);
+
+        const tonnageKg = calculateExerciseTonnageKg(kgLog.exercises[0], 'kg', kgLog.bodyweightSnapshot);
+        const tonnageLbInKg = calculateExerciseTonnageKg(lbLog.exercises[0], 'lb', lbLog.bodyweightSnapshot);
+        expect(tonnageKg).toBeCloseTo(tonnageLbInKg, 2);
+
+        const insights = generateDiaryInsights(lbLog, [kgLog, lbLog]);
+        expect(insights.some(i => i.id === 'load_pr')).toBe(false);
+        expect(insights.some(i => i.id === 'new_strength_ceiling')).toBe(false);
+        expect(insights.some(i => i.id === 'rep_pr')).toBe(false);
+      });
+
+      // 14. Mixed-modality individual/batch deep parity
+      it('asserts mixed-modality individual and batch deep scorecard equality for every log ID', () => {
+        const snapshot = { value: 75, unit: 'kg' as const };
+
+        const logWeighted = createDummyLog({
+          id: 'log-1700000000001',
+          date: '2025-01-01',
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Barbell Squat',
+              modality: 'weighted',
+              isMainMovement: true,
+              sets: [createDummySet({ weight: 100, reps: 5, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const logBodyweight = createDummyLog({
+          id: 'log-1700000000002',
+          date: '2025-01-03',
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              isMainMovement: true,
+              sets: [createDummySet({ weight: 0, reps: 8, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const logAssisted = createDummyLog({
+          id: 'log-1700000000003',
+          date: '2025-01-05',
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Assisted Dip',
+              modality: 'assisted',
+              isMainMovement: true,
+              sets: [createDummySet({ weight: 15, reps: 10, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const logMixed = createDummyLog({
+          id: 'log-1700000000004',
+          date: '2025-01-07',
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Barbell Squat',
+              modality: 'weighted',
+              sets: [createDummySet({ weight: 105, reps: 5, rpe: 8.0 })],
+            }),
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              sets: [createDummySet({ weight: 0, reps: 10, rpe: 8.0 })],
+            }),
+            createDummyExercise({
+              name: 'Assisted Dip',
+              modality: 'assisted',
+              sets: [createDummySet({ weight: 10, reps: 10, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const allLogs = [logWeighted, logBodyweight, logAssisted, logMixed];
+        const batchMap = generateDiaryScorecardMap(allLogs);
+
+        allLogs.forEach(log => {
+          const individualCard = generateDiaryScorecard(log, allLogs);
+          const batchCard = batchMap[log.id];
+
+          expect(batchCard).toBeDefined();
+          expect(batchCard).toEqual(individualCard);
+          expect(batchCard.primaryCategory).toEqual(individualCard.primaryCategory);
+          expect(batchCard.insights).toEqual(individualCard.insights);
+          expect(batchCard.collapsedInsights).toEqual(individualCard.collapsedInsights);
+          expect(batchCard.overflowInsightCount).toEqual(individualCard.overflowInsightCount);
+          expect(batchCard.sessionPerformanceIndex).toEqual(individualCard.sessionPerformanceIndex);
+          expect(batchCard.hasSufficientPerformanceHistory).toEqual(individualCard.hasSufficientPerformanceHistory);
+        });
+      });
+
+      // 15. Reverse-order mixed-modality parity
+      it('asserts complete batch map equality between chronological and reverse-ordered input arrays', () => {
+        const snapshot = { value: 80, unit: 'kg' as const };
+
+        const logs = [
+          createDummyLog({
+            id: 'log-1700000000001',
+            date: '2025-01-01',
+            bodyweightSnapshot: snapshot,
+            exercises: [
+              createDummyExercise({
+                name: 'Bench Press',
+                modality: 'weighted',
+                sets: [createDummySet({ weight: 90, reps: 5, rpe: 8.0 })],
+              }),
+            ],
+          }),
+          createDummyLog({
+            id: 'log-1700000000002',
+            date: '2025-01-03',
+            bodyweightSnapshot: snapshot,
+            exercises: [
+              createDummyExercise({
+                name: 'Pull-up',
+                modality: 'bodyweight',
+                sets: [createDummySet({ weight: 0, reps: 6, rpe: 8.0 })],
+              }),
+            ],
+          }),
+          createDummyLog({
+            id: 'log-1700000000003',
+            date: '2025-01-05',
+            bodyweightSnapshot: snapshot,
+            exercises: [
+              createDummyExercise({
+                name: 'Assisted Dip',
+                modality: 'assisted',
+                sets: [createDummySet({ weight: 20, reps: 8, rpe: 8.0 })],
+              }),
+            ],
+          }),
+        ];
+
+        const mapChronological = generateDiaryScorecardMap(logs);
+        const mapReversed = generateDiaryScorecardMap([...logs].reverse());
+
+        expect(mapReversed).toEqual(mapChronological);
+      });
+
+      // 16. Same-day mixed-modality timestamp ordering
+      it('preserves exact same-day chronology tie-breaking by epoch-like timestamp ID', () => {
+        const snapshot = { value: 75, unit: 'kg' as const };
+
+        const earlierLog = createDummyLog({
+          id: 'log-1700000001000',
+          date: '2025-01-01',
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              sets: [createDummySet({ weight: 0, reps: 5, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const laterLog = createDummyLog({
+          id: 'log-1700000002000',
+          date: '2025-01-01',
+          bodyweightSnapshot: snapshot,
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              sets: [createDummySet({ weight: 0, reps: 8, rpe: 8.0 })], // higher reps -> Strength Ceiling PR over earlier log!
+            }),
+          ],
+        });
+
+        const allLogs = [earlierLog, laterLog];
+        const batchMapForward = generateDiaryScorecardMap(allLogs);
+        const batchMapBackward = generateDiaryScorecardMap([laterLog, earlierLog]);
+
+        expect(batchMapBackward).toEqual(batchMapForward);
+
+        // Earlier log must not see later log (no strength ceiling)
+        expect(batchMapForward[earlierLog.id].insights.some(i => i.id === 'new_strength_ceiling')).toBe(false);
+
+        // Later log sees earlier log as preceding history and earns PR
+        expect(batchMapForward[laterLog.id].insights.some(i => i.id === 'new_strength_ceiling')).toBe(true);
+      });
+
+      // 17. Missing-snapshot batch exclusion
+      it('excludes missing-snapshot bodyweight/assisted workouts from performance index contamination and PRs without throwing', () => {
+        const validWeightedLog1 = createDummyLog({
+          id: 'log-1700000000001',
+          date: '2025-01-01',
+          exercises: [
+            createDummyExercise({
+              name: 'Barbell Squat',
+              modality: 'weighted',
+              isMainMovement: true,
+              sets: [createDummySet({ weight: 100, reps: 5, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const missingSnapshotBwLog = createDummyLog({
+          id: 'log-1700000000002',
+          date: '2025-01-03',
+          bodyweightSnapshot: null, // missing snapshot!
+          exercises: [
+            createDummyExercise({
+              name: 'Pull-up',
+              modality: 'bodyweight',
+              isMainMovement: true,
+              sets: [createDummySet({ weight: 0, reps: 20, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const missingSnapshotAssistedLog = createDummyLog({
+          id: 'log-1700000000003',
+          date: '2025-01-05',
+          bodyweightSnapshot: null, // missing snapshot!
+          exercises: [
+            createDummyExercise({
+              name: 'Assisted Dip',
+              modality: 'assisted',
+              isMainMovement: true,
+              sets: [createDummySet({ weight: 5, reps: 20, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const validWeightedLog2 = createDummyLog({
+          id: 'log-1700000000004',
+          date: '2025-01-07',
+          exercises: [
+            createDummyExercise({
+              name: 'Barbell Squat',
+              modality: 'weighted',
+              isMainMovement: true,
+              sets: [createDummySet({ weight: 105, reps: 5, rpe: 8.0 })],
+            }),
+          ],
+        });
+
+        const allLogs = [
+          validWeightedLog1,
+          missingSnapshotBwLog,
+          missingSnapshotAssistedLog,
+          validWeightedLog2,
+        ];
+
+        let batchMap: Record<string, any> = {};
+        expect(() => {
+          batchMap = generateDiaryScorecardMap(allLogs);
+        }).not.toThrow();
+
+        // Parity check across all logs
+        allLogs.forEach(log => {
+          const individualCard = generateDiaryScorecard(log, allLogs);
+          expect(batchMap[log.id]).toEqual(individualCard);
+        });
+
+        // Missing snapshot logs have no false PRs
+        expect(batchMap[missingSnapshotBwLog.id].insights.some((i: any) => i.id === 'load_pr' || i.id === 'new_strength_ceiling')).toBe(false);
+        expect(batchMap[missingSnapshotAssistedLog.id].insights.some((i: any) => i.id === 'load_pr' || i.id === 'new_strength_ceiling')).toBe(false);
+
+        // Weighted log calculates PR normally without contamination
+        expect(batchMap[validWeightedLog2.id].insights.some((i: any) => i.id === 'load_pr')).toBe(true);
       });
     });
   });

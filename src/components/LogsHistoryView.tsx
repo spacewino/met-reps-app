@@ -14,6 +14,12 @@ import { evaluateAchievements, getSelectedFeaturedTitleId, setSelectedFeaturedTi
 import { parseLocalDate } from '../lib/dateUtils';
 import { useModalHistory } from '../lib/useModalHistory';
 import { getHistoricalSetDisplayState } from '../lib/historicalDisplay';
+import { generateExercisePRMap } from '../lib/diaryExercisePRs';
+import {
+  calculateDiaryHistoryVolume,
+  generateDiarySessionSummary,
+  DiarySessionSummary,
+} from '../lib/diarySessionSummary';
 import {
   generateDiaryScorecardMap,
   DiaryScorecardResult,
@@ -28,6 +34,17 @@ import {
   getDiaryRarityDescription,
   getCollapsedInsightBadgeLabel,
   formatDiaryNumericEvidence,
+  formatDiaryHistoryVolume,
+  formatDiarySessionTotals,
+  formatDiarySessionVolume,
+  formatExerciseCount,
+  formatDuration,
+  formatWorkingSetCount,
+  formatMuscleGroupSetCounts,
+  formatCompactMuscleSummary,
+  buildAccessibleDiarySummary,
+  formatPerformanceIndex,
+  PERFORMANCE_INDEX_EXPLANATION,
 } from '../lib/diaryInsightPresentation';
 
 // Format date to: TUE 9 JUN 26 format
@@ -221,6 +238,13 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
     () => generateDiaryScorecardMap(workoutLogs),
     [workoutLogs]
   );
+  const sessionSummaryMap = React.useMemo(() => {
+    const map = new Map<WorkoutLog, DiarySessionSummary>();
+    for (const log of workoutLogs) {
+      map.set(log, generateDiarySessionSummary(log));
+    }
+    return map;
+  }, [workoutLogs]);
   const [activeTag, setActiveTag] = useState<{
     logId: string;
     tagId: string;
@@ -261,38 +285,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
 
   // PR Spotlights standardisation map
   const prMap = React.useMemo(() => {
-    const map: Record<string, number> = {};
-    workoutLogs.forEach(log => {
-      log.exercises.forEach(ex => {
-        if (ex.isSkipped) return;
-        const isWeighted = !ex.modality || ex.modality === 'weighted';
-        const isBw = ex.modality === 'bodyweight';
-        const isAssisted = ex.modality === 'assisted';
-        const isDistanceLoaded = ex.modality === 'distance_loaded';
-        const isDistance = ex.modality === 'distance';
-        if (isWeighted || isBw || isAssisted || isDistanceLoaded || isDistance) {
-          ex.sets.forEach(s => {
-            if (s.isSkipped || s.isCompleted === false || s.isWarmup) return;
-            const w = s.weight || 0;
-            const r = s.reps || 0;
-            if (w > 0 && r > 0) {
-              let est = 0;
-              if (isDistance) {
-                est = (r / w) * 100;
-              } else {
-                est = r === 1 ? w : w * (1 + r / 30);
-              }
-              const roundedEst = Math.round(est * 10) / 10;
-              const existing = map[ex.name];
-              if (!existing || roundedEst > existing) {
-                map[ex.name] = roundedEst;
-              }
-            }
-          });
-        }
-      });
-    });
-    return map;
+    return generateExercisePRMap(workoutLogs);
   }, [workoutLogs]);
 
   const toggleExpand = (id: string) => {
@@ -358,12 +351,13 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
     [workoutLogs]
   );
 
+  const activeWeightUnit = storage.getWeightUnit() || 'kg';
+
   // Lifetime master metrics calculations
   const masterStats = React.useMemo(() => {
     if (workoutLogs.length === 0) return null;
 
     let totalWorkouts = workoutLogs.length;
-    let totalVolumeKg = 0;
     let totalSets = 0;
     let totalReps = 0;
     let totalMinutes = 0;
@@ -407,31 +401,14 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
 
           validSets.forEach(s => {
             const r = s.reps || 0;
-            const w = s.weight || 0;
             totalReps += r;
-
-            // Volume in Kg (convert if log unit is lb)
-            const weightInKg = log.unit === 'lb' ? w * 0.453592 : w;
-            if (ex.modality === 'assisted') {
-              const bw = userBodyweight || 75;
-              const netWeight = Math.max(1, bw - weightInKg);
-              totalVolumeKg += netWeight * r;
-            } else if (ex.modality !== 'bodyweight' && ex.modality !== 'distance' && ex.modality !== 'timed') {
-              totalVolumeKg += weightInKg * r;
-            } else if (ex.modality === 'bodyweight') {
-              const bw = userBodyweight || 75;
-              totalVolumeKg += bw * r;
-            }
           });
         }
       });
     });
 
-    const formatVolume = (kg: number) => {
-      if (kg >= 1000000) return `${(kg / 1000000).toFixed(1)}M kg`;
-      if (kg >= 1000) return `${(kg / 1000).toFixed(0)}K kg`;
-      return `${Math.round(kg)} kg`;
-    };
+    const histVol = calculateDiaryHistoryVolume(workoutLogs);
+    const totalVolumeFormatted = formatDiaryHistoryVolume(histVol, activeWeightUnit);
 
     // Calculate top muscle group
     let topMuscle = '';
@@ -452,7 +429,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
 
     return {
       totalWorkouts,
-      totalVolumeFormatted: formatVolume(totalVolumeKg),
+      totalVolumeFormatted,
       totalSets,
       totalReps,
       totalHours: Math.round(totalMinutes / 60),
@@ -460,7 +437,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
       title,
       muscleSetsMap,
     };
-  }, [workoutLogs, userBodyweight]);
+  }, [workoutLogs, activeWeightUnit]);
 
   // Group workout logs by month (YYYY, MonthName)
   const groupedLogs = React.useMemo(() => {
@@ -786,7 +763,9 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                     {group.logs.map(log => {
                       const isExpanded = expandedLogId === log.id;
                       const scorecard: DiaryScorecardResult | undefined = scorecardMap[log.id];
-                      const uniqueMuscles = Array.from(new Set(log.exercises.map(ex => ex.muscleGroup).filter(Boolean)));
+                      const summary: DiarySessionSummary = sessionSummaryMap.get(log) || generateDiarySessionSummary(log);
+                      const muscleFormatting = formatMuscleGroupSetCounts(summary.muscleSetCounts, isExpanded);
+                      const accessibleSummary = buildAccessibleDiarySummary(summary, activeWeightUnit);
                       const isShowAllInsights = !!showAllMap[log.id];
 
                       const isDesert = themeId === 'amber';
@@ -810,6 +789,10 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                           {/* Log Row Header */}
                           <div className="p-4 flex items-center justify-between gap-4">
                             <div className="min-w-0 flex-1">
+                              {/* Accessible Screen Reader Summary */}
+                              <span className="sr-only">{accessibleSummary}</span>
+
+                              {/* Line 1: Date and Program/Workout Name */}
                               <div className="flex items-center gap-2">
                                 <span className="text-[10px] text-slate-400 font-bold font-mono uppercase bg-slate-950 px-2 py-0.5 rounded-none border border-slate-850 whitespace-nowrap shrink-0">
                                   {formatDateWithTwoDigitYear(log.date)}
@@ -819,26 +802,56 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                                 </span>
                               </div>
 
-                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400 mt-2 font-bold font-sans">
-                                <span className="flex items-center gap-1">
-                                  <Dumbbell className="w-3.5 h-3.5 text-indigo-400" />
-                                  {log.exercises.length} exercises
+                              {/* Line 2: Compact Session Totals */}
+                              <div
+                                className={`flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] sm:text-[11px] font-mono tracking-tight mt-1.5 ${
+                                  isDesert ? 'text-[#6F6A63]' : 'text-slate-400'
+                                }`}
+                              >
+                                <span>{formatExerciseCount(summary.completedExerciseCount)}</span>
+                                {summary.durationMinutes && (
+                                  <>
+                                    <span className={isDesert ? 'text-[#A49D95]' : 'text-slate-600'}>·</span>
+                                    <span>{formatDuration(summary.durationMinutes)}</span>
+                                  </>
+                                )}
+                                <span className={isDesert ? 'text-[#A49D95]' : 'text-slate-600'}>·</span>
+                                <span>{formatWorkingSetCount(summary.completedWorkingSetCount)}</span>
+                                <span className={isDesert ? 'text-[#A49D95]' : 'text-slate-600'}>·</span>
+                                <span className={summary.workingVolume.status === 'partial' || summary.workingVolume.status === 'complete' ? (isDesert ? 'text-[#9B1C1C] font-semibold' : 'text-slate-300 font-semibold') : ''}>
+                                  {formatDiarySessionVolume(summary.workingVolume, activeWeightUnit)}
                                 </span>
-                                {log.durationMinutes && (
-                                  <span className="flex items-center gap-1">
-                                    <Clock className="w-3.5 h-3.5 text-cyan-400" />
-                                    {log.durationMinutes} mins
-                                  </span>
-                                )}
-                                {uniqueMuscles.length > 0 && (
-                                  <span className="flex items-center gap-1">
-                                    <Flame className="w-3.5 h-3.5 text-orange-400" />
-                                    {uniqueMuscles.join(', ')}
-                                  </span>
-                                )}
                               </div>
 
-                              {/* Rating and Insights Layout */}
+                              {/* Line 3: Muscles Worked with Set Counts */}
+                              {muscleFormatting.displayedItems.length > 0 && (
+                                <div
+                                  className={`flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] sm:text-[11px] font-mono tracking-tight mt-1 ${
+                                    isDesert ? 'text-[#6F6A63]' : 'text-slate-400'
+                                  }`}
+                                >
+                                  {muscleFormatting.displayedItems.map((item, i) => (
+                                    <React.Fragment key={i}>
+                                      {i > 0 && <span className={isDesert ? 'text-[#A49D95]' : 'text-slate-600'}>·</span>}
+                                      <span>{item}</span>
+                                    </React.Fragment>
+                                  ))}
+                                  {muscleFormatting.overflowText && (
+                                    <>
+                                      <span className={isDesert ? 'text-[#A49D95]' : 'text-slate-600'}>·</span>
+                                      <span
+                                        className={`font-semibold ${isDesert ? 'text-[#9B1C1C]' : 'text-indigo-400'}`}
+                                        title={muscleFormatting.overflowTooltip || undefined}
+                                        aria-label={muscleFormatting.overflowTooltip || undefined}
+                                      >
+                                        {muscleFormatting.overflowText}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Line 4: Rating and Insights Layout */}
                               <div className="flex flex-col gap-2 mt-2.5 font-sans">
                                 <div className="flex items-center gap-2 text-[11px] font-bold text-slate-400">
                                   <span className="uppercase tracking-wider">Rating:</span>
@@ -1046,10 +1059,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                                     <div className="text-inherit">
                                       Performance Index:{' '}
                                       <span className="font-mono text-xs text-white bg-slate-950/40 px-2 py-0.5 ml-1 border border-slate-800/30">
-                                        {scorecard.sessionPerformanceIndex !== null ? `${scorecard.sessionPerformanceIndex.toFixed(1)}%` : '—'}
-                                      </span>
-                                      <span className="text-[10px] font-normal opacity-75 ml-1 font-mono">
-                                        ({scorecard.hasSufficientPerformanceHistory ? 'Rolling Baseline' : 'Provisional'})
+                                        {formatPerformanceIndex(scorecard.sessionPerformanceIndex)}
                                       </span>
                                     </div>
                                   </div>
@@ -1200,27 +1210,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                                     <div className="space-y-1.5 pl-2.5">
                                       {ex.sets.map((set, sIdx) => {
                                         const displayState = getHistoricalSetDisplayState(set, !!ex.isSkipped);
-                                        const isPR = (() => {
-                                          if (displayState.isSkipped || ex.isSkipped) return false;
-                                          const isWeighted = !ex.modality || ex.modality === 'weighted';
-                                          const isBw = ex.modality === 'bodyweight';
-                                          const isAssisted = ex.modality === 'assisted';
-                                          const isDistanceLoaded = ex.modality === 'distance_loaded';
-                                          const isDistance = ex.modality === 'distance';
-                                          if (!isWeighted && !isBw && !isAssisted && !isDistanceLoaded && !isDistance) return false;
-                                          const w = displayState.weight;
-                                          const r = displayState.reps;
-                                          if (w <= 0 || r <= 0) return false;
-                                          let est = 0;
-                                          if (isDistance) {
-                                            est = (r / w) * 100;
-                                          } else {
-                                            est = r === 1 ? w : w * (1 + r / 30);
-                                          }
-                                          const roundedEst = Math.round(est * 10) / 10;
-                                          const prVal = prMap[ex.name];
-                                          return prVal && Math.abs(roundedEst - prVal) < 0.05;
-                                        })();
+                                        const isPR = !!prMap[`${log.id}_${exIdx}_${sIdx}`];
 
                                         const isDesert = themeId === 'amber';
 
@@ -1501,7 +1491,10 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                   A score of <strong>100%</strong> means the workout broadly matched your recent benchmark. Scores <strong>&gt;100%</strong> mean performance was above that recent benchmark, while scores <strong>&lt;100%</strong> mean performance was below it.
                 </p>
                 <p className="text-slate-400 text-xs leading-relaxed">
-                  A lower result may reflect planned lighter training, exercise selection, reduced readiness, fatigue, recovery circumstances, or ordinary performance variation. Performance Index is a contextual comparison, not a medical or recovery diagnosis.
+                  {PERFORMANCE_INDEX_EXPLANATION[1]}
+                </p>
+                <p className="text-slate-400 text-xs leading-relaxed">
+                  {PERFORMANCE_INDEX_EXPLANATION[2]}
                 </p>
               </div>
 

@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Dumbbell, Plus, Trash2, Check, ArrowLeft, Clock, Flame, Smile, Droplet, Coffee, Award, ChevronDown, ChevronUp, BookOpen, Pencil, History, Info, MoreVertical, Link, Lock, Unlock, ClipboardCheck, Gamepad2, Compass, Activity, X, AlertTriangle } from 'lucide-react';
+import { Dumbbell, Plus, Minus, Trash2, Check, ArrowLeft, Clock, Flame, Smile, Droplet, Coffee, Award, ChevronDown, ChevronUp, BookOpen, Pencil, History, Info, MoreVertical, Link, Lock, Unlock, ClipboardCheck, Gamepad2, Compass, Activity, X, AlertTriangle } from 'lucide-react';
 import { Program, WorkoutLog, ExerciseEntry, SetEntry, WeightUnit, DailyRecoveryMetrics, HydrationLevel, mapHydrationToLiters, mapLitersToHydration, BodyweightSnapshot } from '../types';
 import { storage, PREBUILT_TEMPLATES } from '../lib/storage';
 import { getTodayLocalDateString } from '../lib/dateUtils';
@@ -23,8 +23,19 @@ import {
 import {
   validateAndGenerateAutoWarmup,
   AUTO_WARMUP_TOAST_DURATION_MS,
+  AUTO_WARMUP_REPLACE_CONFIRMATION,
 } from '../lib/autoWarmupValidation';
-import { calculateE1RMForSet } from '../lib/workoutClassifier';
+import {
+  calculateEquivalentWorkingWeight,
+  solveEquivalentRepetitions,
+  isCalculatorSupportedForModality,
+  VALID_CALCULATOR_RPES,
+  CALCULATOR_REP_PRESETS,
+  validateManualRepsEntry,
+  validateManualWeightEntry,
+  stepRepsValue,
+  stepWeightValue,
+} from '../lib/repWeightCalculator';
 import { isEligibleStrengthMainMovement, getEligibleMainMovementCount, updateProgramDayMainMovement } from '../lib/programMetadata';
 import { useModalHistory } from '../lib/useModalHistory';
 import {
@@ -634,8 +645,11 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const [activeSetAction, setActiveSetAction] = useState<{ exIdx: number; setIdx: number } | null>(null);
   const [commentDraft, setCommentDraft] = useState<string>('');
   const [calcModalState, setCalcModalState] = useState<{ exIdx: number; setIdx: number } | null>(null);
-  const [calcReps, setCalcReps] = useState<number>(10);
+  const [calcMode, setCalcMode] = useState<'find_weight' | 'find_reps'>('find_weight');
+  const [calcRepsInput, setCalcRepsInput] = useState<string>('10');
+  const [calcWeightInput, setCalcWeightInput] = useState<string>('');
   const [calcRpe, setCalcRpe] = useState<number>(8.0);
+  const [warmupReplacementConfirmState, setWarmupReplacementConfirmState] = useState<{ exIdx: number; setIdx: number } | null>(null);
 
   useEffect(() => {
     if (activeSetAction !== null) {
@@ -1756,33 +1770,22 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     setAddSetBlockedWarning(prev => ({ ...prev, [exIdx]: null }));
   };
 
-  const handleAutoWarmup = (exIdx: number, setIdx: number) => {
+  const applyAutoWarmupSets = (
+    exIdx: number,
+    warmupTargets: Array<{ weight: number | null; reps: number; rpe?: number }>
+  ) => {
     const currentEx = exercises[exIdx];
     if (!currentEx) return;
-    const targetSet = currentEx.sets[setIdx];
-    if (targetSet?.isSkipped) return;
-
-    const validationResult = validateAndGenerateAutoWarmup({
-      exercise: currentEx,
-      selectedSetIdx: setIdx,
-      bodyweightSnapshot,
-      activeUnit: unit,
-    });
-
-    if (validationResult.status === 'bypassed' || !validationResult.warmupTargets) {
-      showLiveAdjustmentToast(validationResult.message, AUTO_WARMUP_TOAST_DURATION_MS);
-      return;
-    }
 
     const priorWarmupCount = currentEx.sets.filter(s => s.isWarmup).length;
-    const newWarmupCount = validationResult.warmupTargets.length;
+    const newWarmupCount = warmupTargets.length;
     let nextCombinedSets: SetEntry[] | null = null;
 
     setExercises(prev => {
       const nextExs = prev.map((ex, i) => {
         if (i === exIdx) {
           const workingSetsOnly = ex.sets.filter(s => !s.isWarmup);
-          const autoWarmupSets: SetEntry[] = validationResult.warmupTargets.map((t, tIdx) => ({
+          const autoWarmupSets: SetEntry[] = warmupTargets.map((t, tIdx) => ({
             setNumber: tIdx + 1,
             weight: t.weight,
             reps: t.reps,
@@ -1817,10 +1820,81 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     setLiveAdjustedSets(prev => remapAfterWarmupChange(prev, exIdx, priorWarmupCount, newWarmupCount));
   };
 
+  const handleAutoWarmup = (exIdx: number, setIdx: number) => {
+    const currentEx = exercises[exIdx];
+    if (!currentEx) return;
+    const targetSet = currentEx.sets[setIdx];
+    if (targetSet?.isSkipped) return;
+
+    const validationResult = validateAndGenerateAutoWarmup({
+      exercise: currentEx,
+      selectedSetIdx: setIdx,
+      bodyweightSnapshot,
+      activeUnit: unit,
+    });
+
+    if (validationResult.status === 'bypassed' || !validationResult.warmupTargets) {
+      showLiveAdjustmentToast(validationResult.message, AUTO_WARMUP_TOAST_DURATION_MS);
+      return;
+    }
+
+    const hasExistingWarmups = currentEx.sets.some(s => s.isWarmup);
+    if (hasExistingWarmups) {
+      setWarmupReplacementConfirmState({ exIdx, setIdx });
+      return;
+    }
+
+    applyAutoWarmupSets(exIdx, validationResult.warmupTargets);
+  };
+
+  const handleConfirmWarmupReplacement = () => {
+    if (!warmupReplacementConfirmState) return;
+    const { exIdx, setIdx } = warmupReplacementConfirmState;
+    const currentEx = exercises[exIdx];
+    if (!currentEx) {
+      setWarmupReplacementConfirmState(null);
+      return;
+    }
+
+    const validationResult = validateAndGenerateAutoWarmup({
+      exercise: currentEx,
+      selectedSetIdx: setIdx,
+      bodyweightSnapshot,
+      activeUnit: unit,
+    });
+
+    if (validationResult.status === 'bypassed' || !validationResult.warmupTargets) {
+      showLiveAdjustmentToast(validationResult.message, AUTO_WARMUP_TOAST_DURATION_MS);
+      setWarmupReplacementConfirmState(null);
+      return;
+    }
+
+    applyAutoWarmupSets(exIdx, validationResult.warmupTargets);
+    setWarmupReplacementConfirmState(null);
+  };
+
   const handleOpenCalc = (exIdx: number, setIdx: number) => {
-    const targetSet = exercises[exIdx]?.sets[setIdx];
-    setCalcReps(targetSet?.reps && targetSet.reps > 0 ? targetSet.reps : 10);
-    setCalcRpe(targetSet?.rpe && targetSet.rpe > 0 ? targetSet.rpe : 8.0);
+    const targetEx = exercises[exIdx];
+    if (!targetEx || !isCalculatorSupportedForModality(targetEx.modality)) return;
+    const targetSet = targetEx.sets[setIdx];
+    if (!targetSet || targetSet.isSkipped) return;
+
+    setCalcMode('find_weight');
+    setCalcRepsInput(
+      targetSet.reps && targetSet.reps >= 1 && targetSet.reps <= 25
+        ? String(targetSet.reps)
+        : '10'
+    );
+    setCalcRpe(
+      targetSet.rpe && targetSet.rpe >= 6.0 && targetSet.rpe <= 10.0
+        ? targetSet.rpe
+        : 8.0
+    );
+    setCalcWeightInput(
+      targetSet.weight !== null && targetSet.weight !== undefined && !isNaN(targetSet.weight) && targetSet.weight > 0
+        ? String(targetSet.weight)
+        : ''
+    );
     setCalcModalState({ exIdx, setIdx });
     dismissSetAction();
   };
@@ -3934,12 +4008,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      disabled={set.isSkipped}
+                      disabled={set.isSkipped || !isCalculatorSupportedForModality(ex.modality)}
                       onClick={() => handleOpenCalc(exIdx, setIdx)}
                       className="bg-slate-950 hover:bg-slate-850 disabled:opacity-30 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-center cursor-pointer w-full text-center"
                     >
                       <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-slate-100 whitespace-nowrap">
-                        Rep/WT Calc
+                        Equiv Set Calc
                       </span>
                     </button>
 
@@ -3976,150 +4050,409 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         );
       })()}
 
-      {/* Rep/Weight Calculator Modal */}
+      {/* Equivalent Set Calculator Modal */}
       {calcModalState !== null && (() => {
         const targetEx = exercises[calcModalState.exIdx];
         const targetSet = targetEx?.sets[calcModalState.setIdx];
         if (!targetSet) return null;
 
-        const baseWeight = targetSet.weight || 60;
-        const baseReps = targetSet.reps || 10;
-        const baseRpe = targetSet.rpe || 8.0;
+        const baseWeight = targetSet.weight;
+        const baseReps = targetSet.reps;
+        const baseRpe = targetSet.rpe ?? null;
+        const hasValidBase =
+          baseWeight !== null &&
+          baseWeight !== undefined &&
+          !isNaN(baseWeight) &&
+          baseWeight > 0 &&
+          baseReps !== null &&
+          baseReps !== undefined &&
+          !isNaN(baseReps) &&
+          baseReps > 0;
 
-        const est1RM = calculateE1RMForSet(baseWeight, baseReps, baseRpe);
-        const rtsPct = getRTSMultiplier(calcReps, calcRpe);
-        const targetWeight = roundToNearest25(est1RM * rtsPct);
+        const repsValidation = validateManualRepsEntry(calcRepsInput);
+        const weightValidation = validateManualWeightEntry(calcWeightInput);
+
+        const weightCalcResult = repsValidation.isValid && repsValidation.value !== null
+          ? calculateEquivalentWorkingWeight({
+              baseWeight,
+              baseReps,
+              baseRpe,
+              targetReps: repsValidation.value,
+              targetRpe: calcRpe,
+            })
+          : {
+              status: 'invalid' as const,
+              est1RM: hasValidBase ? calculateEquivalentWorkingWeight({ baseWeight, baseReps, baseRpe, targetReps: 1, targetRpe: 10 }).est1RM : null,
+              rtsMultiplier: null,
+              targetPercentage: null,
+              targetWeight: null,
+              errorReason: repsValidation.errorReason,
+            };
+
+        const repsCalcResult = solveEquivalentRepetitions({
+          baseWeight,
+          baseReps,
+          baseRPE: baseRpe,
+          availableWeight: weightValidation.isValid && weightValidation.value !== null ? weightValidation.value : undefined,
+          targetRPE: calcRpe,
+          unit,
+        });
+
+        const est1RM = weightCalcResult.est1RM;
 
         return (
           <div
             className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in"
             onClick={() => setCalcModalState(null)}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Equivalent Set Calculator"
           >
             <div
-              className="bg-slate-900 border border-slate-800 rounded-none w-full max-w-sm overflow-hidden shadow-2xl"
+              className="bg-slate-900 border border-slate-800 rounded-none w-full max-w-sm overflow-hidden shadow-2xl flex flex-col"
               onClick={e => e.stopPropagation()}
             >
-              <div className="p-4 border-b border-slate-850 bg-slate-950/40 flex justify-between items-center">
+              {/* 1. Modal Title */}
+              <div className="p-3.5 border-b border-slate-850 bg-slate-950/60 flex justify-between items-center">
                 <div className="flex items-center gap-2">
                   <Activity className="w-4 h-4 text-indigo-400 shrink-0" />
                   <h3 className="font-extrabold text-xs text-white uppercase tracking-wider font-mono">
-                    Rep & Weight Calculator
+                    EQUIVALENT SET CALCULATOR
                   </h3>
                 </div>
                 <button
                   type="button"
                   onClick={() => setCalcModalState(null)}
                   className="p-1 text-slate-400 hover:text-white transition rounded-full cursor-pointer"
+                  aria-label="Close calculator"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="p-4 space-y-4">
-                {/* Reference Set Info Card */}
+              <div className="p-4 space-y-3.5">
+                {/* 2. Shared Current Set card */}
                 <div className="bg-slate-950 border border-slate-850 p-3 flex items-center justify-between">
-                  <div>
-                    <span className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider font-mono">
-                      Base Set #{targetSet.setNumber} ({targetEx.name})
+                  <div className="min-w-0 pr-2">
+                    <span className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider font-mono truncate">
+                      CURRENT SET • Set #{targetSet.setNumber} ({targetEx.name})
                     </span>
-                    <span className="text-sm font-extrabold text-white font-mono">
-                      {baseWeight} kg × {baseReps} reps @ RPE {baseRpe}
-                    </span>
+                    {hasValidBase ? (
+                      <span className="text-sm font-extrabold text-white font-mono block">
+                        {baseWeight} {unit} × {baseReps} @ RPE {baseRpe !== null ? (baseRpe % 1 === 0 ? baseRpe : baseRpe.toFixed(1)) : '—'}
+                      </span>
+                    ) : (
+                      <span className="text-xs font-bold text-amber-400 font-mono block">
+                        Incomplete set (missing weight or reps)
+                      </span>
+                    )}
                   </div>
-                  <div className="text-right">
+                  <div className="text-right shrink-0">
                     <span className="block text-[9px] font-bold text-indigo-400 uppercase tracking-wider font-mono">
-                      Est. 1RM
+                      {baseRpe === null ? 'Reps-only estimate' : 'Est. 1RM'}
                     </span>
-                    <span className="text-sm font-extrabold text-indigo-300 font-mono">
-                      {Math.round(est1RM * 10) / 10} kg
+                    <span className="text-xs sm:text-sm font-extrabold text-indigo-300 font-mono">
+                      {est1RM !== null ? `${Math.round(est1RM * 10) / 10} ${unit}` : '—'}
                     </span>
                   </div>
                 </div>
 
-                {/* Target Reps Selection */}
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
-                      Target Reps
-                    </label>
-                    <span className="text-sm font-extrabold text-indigo-400 font-mono">
-                      {calcReps} REPS
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={1}
-                    max={25}
-                    value={calcReps}
-                    onChange={e => setCalcReps(Number(e.target.value))}
-                    className="w-full accent-indigo-500 bg-slate-950 cursor-pointer h-2 rounded-lg"
-                  />
-                  {/* Quick Rep Presets */}
-                  <div className="flex justify-between gap-1 pt-1">
-                    {[1, 3, 5, 8, 10, 12, 15, 20].map(r => (
-                      <button
-                        key={r}
-                        type="button"
-                        onClick={() => setCalcReps(r)}
-                        className={`flex-1 py-1 text-[10px] font-mono font-bold transition border rounded-none cursor-pointer ${
-                          calcReps === r
-                            ? 'bg-indigo-600 text-white border-indigo-500'
-                            : 'bg-slate-950 text-slate-400 border-slate-850 hover:bg-slate-850 hover:text-white'
-                        }`}
-                      >
-                        {r}
-                      </button>
-                    ))}
-                  </div>
+                {/* 3. Two-mode segmented selector */}
+                <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-950 border border-slate-850">
+                  <button
+                    type="button"
+                    onClick={() => setCalcMode('find_weight')}
+                    className={`py-1.5 text-[11px] font-mono font-black uppercase tracking-wider transition border cursor-pointer text-center ${
+                      calcMode === 'find_weight'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : 'bg-transparent text-slate-400 border-transparent hover:text-slate-200'
+                    }`}
+                    aria-label="Mode: Find Weight"
+                  >
+                    FIND WEIGHT
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCalcMode('find_reps')}
+                    className={`py-1.5 text-[11px] font-mono font-black uppercase tracking-wider transition border cursor-pointer text-center ${
+                      calcMode === 'find_reps'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : 'bg-transparent text-slate-400 border-transparent hover:text-slate-200'
+                    }`}
+                    aria-label="Mode: Find Reps"
+                  >
+                    FIND REPS
+                  </button>
                 </div>
 
-                {/* Target RPE Selection */}
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
-                      Target RPE
-                    </label>
-                    <span className="text-xs font-bold text-slate-300 font-mono">
-                      RPE {calcRpe}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {[6.0, 7.0, 8.0, 8.5, 9.0, 9.5, 10.0].map(rpeVal => (
-                      <button
-                        key={rpeVal}
-                        type="button"
-                        onClick={() => setCalcRpe(rpeVal)}
-                        className={`py-1.5 text-xs font-mono font-bold transition border rounded-none cursor-pointer ${
-                          calcRpe === rpeVal
-                            ? 'bg-indigo-600 text-white border-indigo-500'
-                            : 'bg-slate-950 text-slate-400 border-slate-850 hover:bg-slate-850 hover:text-white'
-                        }`}
-                      >
-                        {rpeVal}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                {/* 4. Controls relevant to selected mode */}
+                {calcMode === 'find_weight' ? (
+                  <div className="space-y-3">
+                    {/* Target Reps with Editable Input, +/- Stepper, and Presets */}
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                          Target Reps
+                        </label>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cur = repsValidation.isValid && repsValidation.value !== null ? repsValidation.value : 10;
+                            const next = stepRepsValue(cur, -1);
+                            setCalcRepsInput(String(next));
+                          }}
+                          className="h-8 w-10 bg-slate-950 hover:bg-slate-850 border border-slate-800 text-slate-200 font-mono font-bold flex items-center justify-center cursor-pointer active:scale-95 transition"
+                          aria-label="Decrease target reps"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <div className="flex-1 relative flex items-center">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={calcRepsInput}
+                            onChange={e => setCalcRepsInput(e.target.value)}
+                            placeholder="1–25"
+                            aria-label="Target repetitions"
+                            className={`w-full h-8 bg-slate-950 border ${!repsValidation.isValid && calcRepsInput !== '' ? 'border-amber-500/80 text-amber-300' : 'border-slate-850 text-indigo-400'} px-2 pr-11 font-mono font-extrabold text-sm text-center focus:outline-none focus:border-indigo-500 transition`}
+                          />
+                          <span className="absolute right-2 text-[10px] font-extrabold text-slate-500 font-mono pointer-events-none uppercase">
+                            REPS
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cur = repsValidation.isValid && repsValidation.value !== null ? repsValidation.value : 10;
+                            const next = stepRepsValue(cur, 1);
+                            setCalcRepsInput(String(next));
+                          }}
+                          className="h-8 w-10 bg-slate-950 hover:bg-slate-850 border border-slate-800 text-slate-200 font-mono font-bold flex items-center justify-center cursor-pointer active:scale-95 transition"
+                          aria-label="Increase target reps"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      {/* Quick Rep Presets */}
+                      <div className="flex justify-between gap-1 pt-0.5">
+                        {CALCULATOR_REP_PRESETS.map(r => (
+                          <button
+                            key={r}
+                            type="button"
+                            onClick={() => setCalcRepsInput(String(r))}
+                            className={`flex-1 py-1 text-[10px] font-mono font-bold transition border rounded-none cursor-pointer ${
+                              repsValidation.isValid && repsValidation.value === r
+                                ? 'bg-indigo-600 text-white border-indigo-500'
+                                : 'bg-slate-950 text-slate-400 border-slate-850 hover:bg-slate-850 hover:text-white'
+                            }`}
+                            aria-label={`Set target reps to ${r}`}
+                          >
+                            {r}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
-                {/* Target Weight Output Card */}
-                <div className="bg-gradient-to-br from-indigo-950/60 to-slate-950 border border-indigo-500/30 p-3.5 text-center space-y-1">
+                    {/* Target RPE Selection */}
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                          Target RPE
+                        </label>
+                        <span className="text-xs font-bold text-slate-300 font-mono">
+                          RPE {calcRpe.toFixed(1)}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {VALID_CALCULATOR_RPES.map(rpeVal => (
+                          <button
+                            key={rpeVal}
+                            type="button"
+                            onClick={() => setCalcRpe(rpeVal)}
+                            className={`py-1.5 text-xs font-mono font-bold transition border rounded-none cursor-pointer ${
+                              calcRpe === rpeVal
+                                ? 'bg-indigo-600 text-white border-indigo-500'
+                                : 'bg-slate-950 text-slate-400 border-slate-850 hover:bg-slate-850 hover:text-white'
+                            }`}
+                            aria-label={`Set target RPE to ${rpeVal.toFixed(1)}`}
+                          >
+                            {rpeVal % 1 === 0 ? rpeVal : rpeVal.toFixed(1)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {/* Available Weight Input with Direct Decimal Entry and -2.5 / +2.5 Steppers */}
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                          AVAILABLE WEIGHT ({unit})
+                        </label>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cur = weightValidation.isValid && weightValidation.value !== null ? weightValidation.value : (parseFloat(calcWeightInput) || 0);
+                            const next = stepWeightValue(cur, -2.5);
+                            setCalcWeightInput(String(next));
+                          }}
+                          className="h-8 px-2.5 bg-slate-950 hover:bg-slate-850 border border-slate-800 text-slate-200 font-mono font-bold text-xs flex items-center justify-center cursor-pointer active:scale-95 transition"
+                          aria-label="Decrease available weight by 2.5"
+                        >
+                          −2.5
+                        </button>
+                        <div className="flex-1 relative flex items-center">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={calcWeightInput}
+                            onChange={e => setCalcWeightInput(e.target.value)}
+                            placeholder="0.0"
+                            aria-label={`Available weight in ${unit}`}
+                            className={`w-full h-8 bg-slate-950 border ${!weightValidation.isValid && calcWeightInput !== '' ? 'border-amber-500/80 text-amber-300' : 'border-slate-850 text-indigo-300'} px-2 pr-9 font-mono font-extrabold text-sm text-center focus:outline-none focus:border-indigo-500 transition`}
+                          />
+                          <span className="absolute right-2 text-[10px] font-extrabold text-slate-500 font-mono pointer-events-none uppercase">
+                            {unit}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cur = weightValidation.isValid && weightValidation.value !== null ? weightValidation.value : (parseFloat(calcWeightInput) || 0);
+                            const next = stepWeightValue(cur, 2.5);
+                            setCalcWeightInput(String(next));
+                          }}
+                          className="h-8 px-2.5 bg-slate-950 hover:bg-slate-850 border border-slate-800 text-slate-200 font-mono font-bold text-xs flex items-center justify-center cursor-pointer active:scale-95 transition"
+                          aria-label="Increase available weight by 2.5"
+                        >
+                          +2.5
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Target RPE Selection */}
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                          Target RPE
+                        </label>
+                        <span className="text-xs font-bold text-slate-300 font-mono">
+                          RPE {calcRpe.toFixed(1)}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {VALID_CALCULATOR_RPES.map(rpeVal => (
+                          <button
+                            key={rpeVal}
+                            type="button"
+                            onClick={() => setCalcRpe(rpeVal)}
+                            className={`py-1.5 text-xs font-mono font-bold transition border rounded-none cursor-pointer ${
+                              calcRpe === rpeVal
+                                ? 'bg-indigo-600 text-white border-indigo-500'
+                                : 'bg-slate-950 text-slate-400 border-slate-850 hover:bg-slate-850 hover:text-white'
+                            }`}
+                            aria-label={`Set target RPE to ${rpeVal.toFixed(1)}`}
+                          >
+                            {rpeVal % 1 === 0 ? rpeVal : rpeVal.toFixed(1)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 5. Complete Equivalent Set result */}
+                <div className="bg-gradient-to-br from-indigo-950/60 to-slate-950 border border-indigo-500/30 p-3 text-center space-y-1">
                   <span className="block text-[9px] font-bold text-indigo-300 uppercase tracking-widest font-mono">
-                    ESTIMATED WORKING WEIGHT
+                    EQUIVALENT SET
                   </span>
-                  <div className="text-3xl font-black text-white font-mono tracking-tight">
-                    {targetWeight} <span className="text-lg font-bold text-indigo-400">kg</span>
-                  </div>
-                  <span className="block text-[10px] text-slate-400 font-mono">
-                    For {calcReps} reps @ RPE {calcRpe} ({Math.round(rtsPct * 100)}% of 1RM)
-                  </span>
+                  {calcMode === 'find_weight' ? (
+                    !hasValidBase ? (
+                      <div className="py-1">
+                        <div className="text-lg sm:text-xl font-black text-slate-500 font-mono tracking-tight">—</div>
+                        <span className="block text-[10px] text-slate-400 font-mono">
+                          Enter base weight and reps to calculate equivalent set
+                        </span>
+                      </div>
+                    ) : !repsValidation.isValid ? (
+                      <div className="py-1">
+                        <div className="text-lg sm:text-xl font-black text-slate-500 font-mono tracking-tight">—</div>
+                        <span className="block text-[10px] text-amber-400 font-mono">
+                          Enter a whole number from 1 to 25.
+                        </span>
+                      </div>
+                    ) : weightCalcResult.targetWeight !== null ? (
+                      <>
+                        <div className="text-lg sm:text-xl font-black text-white font-mono tracking-tight whitespace-nowrap">
+                          {weightCalcResult.targetWeight} {unit} × {repsValidation.value} @ RPE {calcRpe % 1 === 0 ? calcRpe : calcRpe.toFixed(1)}
+                        </div>
+                        <span className="block text-[10px] text-slate-400 font-mono">
+                          {weightCalcResult.targetPercentage}% of 1RM
+                        </span>
+                      </>
+                    ) : (
+                      <div className="py-1">
+                        <div className="text-lg sm:text-xl font-black text-slate-500 font-mono tracking-tight">—</div>
+                        <span className="block text-[10px] text-slate-400 font-mono">
+                          {weightCalcResult.errorReason || 'Unable to calculate equivalent weight'}
+                        </span>
+                      </div>
+                    )
+                  ) : (
+                    !hasValidBase ? (
+                      <div className="py-1">
+                        <div className="text-lg sm:text-xl font-black text-slate-500 font-mono tracking-tight">—</div>
+                        <span className="block text-[10px] text-slate-400 font-mono">
+                          Enter base weight and reps to calculate equivalent set
+                        </span>
+                      </div>
+                    ) : !weightValidation.isValid ? (
+                      <div className="py-1">
+                        <div className="text-lg sm:text-xl font-black text-slate-500 font-mono tracking-tight">—</div>
+                        <span className="block text-[10px] text-amber-400 font-mono">
+                          Enter an available weight greater than 0.
+                        </span>
+                      </div>
+                    ) : repsCalcResult.status !== 'bypassed' && repsCalcResult.targetReps !== null ? (
+                      <>
+                        <div className="text-lg sm:text-xl font-black text-white font-mono tracking-tight whitespace-nowrap">
+                          {weightValidation.value} {unit} × {repsCalcResult.targetReps} @ RPE {calcRpe % 1 === 0 ? calcRpe : calcRpe.toFixed(1)}
+                        </div>
+                        <span className="block text-[10px] font-mono">
+                          {repsCalcResult.status === 'exact' ? (
+                            <span className="text-emerald-400">Exact match</span>
+                          ) : repsCalcResult.status === 'constrained' ? (
+                            <span className="text-amber-400">Closest match within 1–25 reps</span>
+                          ) : (
+                            <span className="text-indigo-300">Approximate match</span>
+                          )}
+                        </span>
+                      </>
+                    ) : (
+                      <div className="py-1">
+                        <div className="text-lg sm:text-xl font-black text-slate-500 font-mono tracking-tight">—</div>
+                        <span className="block text-[10px] text-slate-400 font-mono">
+                          {repsCalcResult.errorReason || 'Enter valid available weight and target RPE'}
+                        </span>
+                      </div>
+                    )
+                  )}
                 </div>
 
+                {/* 6. DONE button */}
                 <button
                   type="button"
                   onClick={() => setCalcModalState(null)}
                   className="w-full bg-slate-950 hover:bg-slate-850 border border-slate-800 text-white font-extrabold text-xs py-2.5 rounded-none font-mono transition cursor-pointer"
+                  aria-label="Done"
                 >
-                  CLOSE CALCULATOR
+                  DONE
                 </button>
               </div>
             </div>
@@ -4366,6 +4699,18 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           </div>
         );
       })()}
+
+      {/* Auto Warmup Replacement Confirmation Modal */}
+      <ConfirmationModal
+        visible={warmupReplacementConfirmState !== null}
+        title={AUTO_WARMUP_REPLACE_CONFIRMATION.TITLE}
+        message={AUTO_WARMUP_REPLACE_CONFIRMATION.MESSAGE}
+        cancelLabel={AUTO_WARMUP_REPLACE_CONFIRMATION.CANCEL_LABEL}
+        confirmLabel={AUTO_WARMUP_REPLACE_CONFIRMATION.CONFIRM_LABEL}
+        confirmVariant="primary"
+        onCancel={() => setWarmupReplacementConfirmState(null)}
+        onConfirm={handleConfirmWarmupReplacement}
+      />
 
       {/* Program Completed Congratulatory Modal */}
       {showCompletionModal && (

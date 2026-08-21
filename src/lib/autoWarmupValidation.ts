@@ -61,6 +61,13 @@ export interface AutoWarmupValidationInput {
 
 export const AUTO_WARMUP_TOAST_DURATION_MS = 4000;
 
+export const AUTO_WARMUP_REPLACE_CONFIRMATION = {
+  TITLE: 'Replace existing warm-ups?',
+  MESSAGE: 'Existing warm-up sets, notes and edits will be removed.',
+  CANCEL_LABEL: 'Cancel',
+  CONFIRM_LABEL: 'Replace',
+} as const;
+
 // Exact UI feedback messages matching specification
 export const AUTO_WARMUP_MESSAGES = {
   // Unsupported modalities

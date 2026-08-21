@@ -6,6 +6,7 @@
 import { ExerciseEntry, SetEntry, BodyweightSnapshot, WeightUnit } from '../types';
 import { isValidRPE, roundRPEToHalfStep, calculateE1RMForSet } from './rpeMath';
 import { convertWeightUnit } from './assistedLoadMath';
+import { resolveSetEffectiveLoad, EffectiveLoadReason } from './effectiveLoad';
 
 export type PerformanceEvidenceBypassReason =
   | 'skipped_exercise'
@@ -161,71 +162,34 @@ export function extractSetPerformanceEvidence(
     }
   }
 
-  // 9. Modality-specific effective load calculation
-  let effectiveLoad: number;
+  // 9. Modality-specific effective load calculation via canonical resolveSetEffectiveLoad
+  const loadRes = resolveSetEffectiveLoad(set.weight, modality, sourceUnit, bodyweightSnapshot);
 
-  if (modality === 'weighted') {
-    if (set.weight === null || set.weight === undefined) {
-      return { status: 'bypassed', bypassReason: 'missing_weight' };
-    }
-    if (typeof set.weight !== 'number' || !Number.isFinite(set.weight) || set.weight <= 0) {
-      return { status: 'bypassed', bypassReason: 'invalid_weight' };
-    }
-    effectiveLoad = convertWeightUnit(set.weight, sourceUnit, targetUnit);
-  } else if (modality === 'bodyweight') {
-    if (!bodyweightSnapshot || typeof bodyweightSnapshot.value !== 'number' || !bodyweightSnapshot.unit) {
-      return { status: 'bypassed', bypassReason: 'missing_bodyweight_snapshot' };
-    }
-    if (
-      !Number.isFinite(bodyweightSnapshot.value) ||
-      bodyweightSnapshot.value <= 0 ||
-      (bodyweightSnapshot.unit !== 'kg' && bodyweightSnapshot.unit !== 'lb')
-    ) {
-      return { status: 'bypassed', bypassReason: 'invalid_bodyweight_snapshot' };
-    }
-    // Effective load is strictly the converted session bodyweight snapshot.
-    // set.weight is ignored completely (never double-counted).
-    effectiveLoad = convertWeightUnit(
-      bodyweightSnapshot.value,
-      bodyweightSnapshot.unit,
-      targetUnit
-    );
-  } else {
-    // modality === 'assisted'
-    if (!bodyweightSnapshot || typeof bodyweightSnapshot.value !== 'number' || !bodyweightSnapshot.unit) {
-      return { status: 'bypassed', bypassReason: 'missing_bodyweight_snapshot' };
-    }
-    if (
-      !Number.isFinite(bodyweightSnapshot.value) ||
-      bodyweightSnapshot.value <= 0 ||
-      (bodyweightSnapshot.unit !== 'kg' && bodyweightSnapshot.unit !== 'lb')
-    ) {
-      return { status: 'bypassed', bypassReason: 'invalid_bodyweight_snapshot' };
+  if (loadRes.status !== 'valid' || loadRes.effectiveLoadKg === null) {
+    let bypassReason: PerformanceEvidenceBypassReason = 'zero_or_negative_effective_load';
+    const reason = loadRes.reason;
+
+    if (reason === 'missing_snapshot') {
+      bypassReason = 'missing_bodyweight_snapshot';
+    } else if (reason === 'invalid_snapshot') {
+      bypassReason = 'invalid_bodyweight_snapshot';
+    } else if (reason === 'missing_weight') {
+      bypassReason = modality === 'assisted' ? 'missing_assistance' : 'missing_weight';
+    } else if (reason === 'invalid_weight') {
+      bypassReason = modality === 'assisted' ? 'invalid_assistance' : 'invalid_weight';
+    } else if (reason === 'negative_assistance') {
+      bypassReason = 'negative_assistance';
+    } else if (reason === 'assistance_exceeds_bodyweight' || reason === 'zero_effective_load') {
+      bypassReason = 'assistance_equals_or_exceeds_bodyweight';
+    } else if (reason === 'non_mass_modality') {
+      bypassReason = 'unsupported_modality';
     }
 
-    if (set.weight === null || set.weight === undefined) {
-      return { status: 'bypassed', bypassReason: 'missing_assistance' };
-    }
-    if (typeof set.weight !== 'number' || !Number.isFinite(set.weight)) {
-      return { status: 'bypassed', bypassReason: 'invalid_assistance' };
-    }
-    if (set.weight < 0) {
-      return { status: 'bypassed', bypassReason: 'negative_assistance' };
-    }
-
-    const bwInTargetUnit = convertWeightUnit(
-      bodyweightSnapshot.value,
-      bodyweightSnapshot.unit,
-      targetUnit
-    );
-    const assistanceInTargetUnit = convertWeightUnit(set.weight, sourceUnit, targetUnit);
-
-    if (assistanceInTargetUnit >= bwInTargetUnit) {
-      return { status: 'bypassed', bypassReason: 'assistance_equals_or_exceeds_bodyweight' };
-    }
-
-    effectiveLoad = bwInTargetUnit - assistanceInTargetUnit;
+    return { status: 'bypassed', bypassReason };
   }
+
+  // Convert normalized effectiveLoadKg to requested targetUnit
+  const effectiveLoad = convertWeightUnit(loadRes.effectiveLoadKg, 'kg', targetUnit);
 
   // 10. Effective load sanity check
   if (!Number.isFinite(effectiveLoad) || effectiveLoad <= 0) {

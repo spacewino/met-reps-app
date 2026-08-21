@@ -3,7 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { WorkoutLog } from '../types';
+import { ExerciseEntry, SetEntry, WeightUnit, WorkoutLog } from '../types';
+import { resolveSetEffectiveLoad } from './effectiveLoad';
+import { convertWeightUnit } from './assistedLoadMath';
 
 export type AchievementCategory = 'milestone' | 'consistency' | 'specialization' | 'progression' | 'mastery';
 
@@ -31,41 +33,89 @@ export function setSelectedFeaturedTitleId(id: string): void {
 }
 
 /**
- * Calculates volume in kg for a set, respecting unit and bodyweight fallback.
- * Excludes warm-up sets (isWarmup === true) from volume and execution metrics.
+ * Calculates volume in kg for a single set using canonical effective load resolution.
+ * Excludes warm-up sets, skipped sets, and incomplete sets.
  */
-function getSetVolumeKg(
+export function getSetVolumeKg(
   weight: number | null | undefined,
   reps: number | null | undefined,
-  modality: string | undefined,
-  logUnit: string,
-  userBodyweight?: number | null
+  modality: ExerciseEntry['modality'],
+  logUnit: WeightUnit,
+  snapshot?: WorkoutLog['bodyweightSnapshot'] | null
 ): number {
-  if (!reps || reps <= 0) return 0;
-  const w = weight || 0;
-  const weightInKg = logUnit === 'lb' ? w * 0.453592 : w;
-  const bw = userBodyweight || 75;
-
-  if (modality === 'assisted') {
-    const netWeight = Math.max(1, bw - weightInKg);
-    return netWeight * reps;
-  }
-  if (modality === 'bodyweight') {
-    return bw * reps;
-  }
-  if (modality === 'distance' || modality === 'timed') {
+  if (reps === null || reps === undefined || !Number.isInteger(reps) || reps <= 0) {
     return 0;
   }
-  return weightInKg * reps;
+
+  const loadRes = resolveSetEffectiveLoad(weight, modality, logUnit, snapshot);
+  if (loadRes.status !== 'valid' || loadRes.effectiveLoadKg === null || loadRes.effectiveLoadKg <= 0) {
+    return 0;
+  }
+
+  return loadRes.effectiveLoadKg * reps;
 }
 
 /**
- * Calculates estimated 1RM using Epley formula: w * (1 + r / 30)
+ * Calculates estimated 1RM using canonical Epley formula:
+ * e1RM = effectiveLoadKg * (1 + reps / 30) for reps > 1
+ * e1RM = effectiveLoadKg for reps === 1
  */
-function getE1RM(weight: number, reps: number): number {
-  if (reps <= 0 || weight <= 0) return 0;
-  if (reps === 1) return weight;
-  return weight * (1 + reps / 30);
+export function getE1RM(effectiveLoadKg: number, reps: number): number {
+  if (reps <= 0 || effectiveLoadKg <= 0) return 0;
+  if (reps === 1) return effectiveLoadKg;
+  return effectiveLoadKg * (1 + reps / 30);
+}
+
+/**
+ * Checks whether a fixed-load weighted milestone (e.g. 100 kg Bench, 140 kg Squat, 180 kg Deadlift)
+ * was achieved in any logged session.
+ *
+ * Rules:
+ * 1. Requires weighted modality (or legacy undefined). Bodyweight/assisted modalities do NOT trigger barbell/machine milestones.
+ * 2. Converts raw saved external load from log.unit to canonical kg.
+ * 3. Uses a small floating-point tolerance (1e-4) at exact conversion boundaries.
+ * 4. Excludes skipped, incomplete, or warmup sets.
+ */
+export function checkWeightedLiftingMilestone(
+  logs: WorkoutLog[],
+  exerciseNameMatch: string | RegExp,
+  thresholdKg: number,
+  tolerance = 1e-4
+): boolean {
+  const matcher = typeof exerciseNameMatch === 'string'
+    ? (name: string) => name.trim().toLowerCase().includes(exerciseNameMatch.trim().toLowerCase())
+    : (name: string) => exerciseNameMatch.test(name.trim());
+
+  for (const log of logs) {
+    const logUnit = log.unit || 'kg';
+    for (const ex of log.exercises) {
+      if (ex.isSkipped) continue;
+      if (!matcher(ex.name)) continue;
+
+      // Restrict load evidence to weighted or legacy undefined modality
+      if (ex.modality && ex.modality !== 'weighted') {
+        continue;
+      }
+
+      for (const set of ex.sets) {
+        if (set.isWarmup === true || set.isSkipped === true || set.isCompleted === false) {
+          continue;
+        }
+        const w = set.weight;
+        const r = set.reps;
+        if (w === null || w === undefined || w <= 0 || r === null || r === undefined || r <= 0) {
+          continue;
+        }
+
+        const externalLoadKg = logUnit === 'lb' ? convertWeightUnit(w, 'lb', 'kg') : w;
+        if (externalLoadKg >= thresholdKg - tolerance) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -110,14 +160,14 @@ export function evaluateAchievements(
     log.exercises.forEach(ex => {
       if (ex.isSkipped) return;
       ex.sets.forEach(s => {
-        if (s.isWarmup || s.isSkipped === true || s.isCompleted === false) return; // Skip warmup, skipped, or uncompleted sets
+        if (s.isWarmup === true || s.isSkipped === true || s.isCompleted === false) return;
 
-        const r = s.reps || 0;
-        const w = s.weight || 0;
+        const r = s.reps;
+        const w = s.weight;
 
-        if (r > 0 || w > 0) {
+        if ((r !== null && r !== undefined && r > 0) || (w !== null && w !== undefined && w > 0)) {
           logWorkingSetsCount++;
-          const vol = getSetVolumeKg(s.weight, s.reps, ex.modality, log.unit, userBodyweight);
+          const vol = getSetVolumeKg(s.weight, s.reps, ex.modality, log.unit, log.bodyweightSnapshot);
           totalVolumeKg += vol;
 
           if (s.form === 'strict' && s.rpe && s.rpe <= 9) {
@@ -149,7 +199,6 @@ export function evaluateAchievements(
     { date: string; maxWeight: number; maxRepsAtWeight: Record<number, number>; maxE1RM: number; rpe: number }[]
   > = {};
 
-  let totalPRsSingleSession = 0;
   let maxPRsInOneSession = 0;
   const distinctPRExercises = new Set<string>();
   let hasCasualPRAtLowRPE = false;
@@ -175,30 +224,33 @@ export function evaluateAchievements(
       let beatRepAtSameWeight = false;
 
       ex.sets.forEach(s => {
-        if (s.isWarmup || s.isSkipped === true || s.isCompleted === false) return;
-        const w = s.weight || 0;
-        const r = s.reps || 0;
+        if (s.isWarmup === true || s.isSkipped === true || s.isCompleted === false) return;
+        const r = s.reps;
         const rpe = s.rpe || 10;
 
-        if (w > 0 && r > 0) {
-          const wKg = log.unit === 'lb' ? w * 0.453592 : w;
-          const e1rm = getE1RM(wKg, r);
+        if (r && r > 0) {
+          const loadRes = resolveSetEffectiveLoad(s.weight, ex.modality, log.unit, log.bodyweightSnapshot);
+          if (loadRes.status === 'valid' && loadRes.effectiveLoadKg !== null && loadRes.effectiveLoadKg > 0) {
+            const wKg = loadRes.effectiveLoadKg;
+            const e1rm = getE1RM(wKg, r);
 
-          if (wKg > sessionMaxWeight) sessionMaxWeight = wKg;
-          if (e1rm > sessionMaxE1RM) {
-            sessionMaxE1RM = e1rm;
-            sessionBestRpeAtPR = rpe;
-          }
+            if (wKg > sessionMaxWeight) sessionMaxWeight = wKg;
+            if (e1rm > sessionMaxE1RM) {
+              sessionMaxE1RM = e1rm;
+              sessionBestRpeAtPR = rpe;
+            }
 
-          // Check "One More Rep" at same weight
-          const historyForEx = exerciseHistory[exKey];
-          if (historyForEx.length > 0) {
-            historyForEx.forEach(h => {
-              const prevMaxRep = h.maxRepsAtWeight[Math.round(wKg * 10) / 10] || 0;
-              if (prevMaxRep > 0 && r > prevMaxRep) {
-                beatRepAtSameWeight = true;
-              }
-            });
+            // Check "One More Rep" at same load (rounded to 1 decimal place with floating point tolerance)
+            const roundedW = Math.round(wKg * 10) / 10;
+            const historyForEx = exerciseHistory[exKey];
+            if (historyForEx.length > 0) {
+              historyForEx.forEach(h => {
+                const prevMaxRep = h.maxRepsAtWeight[roundedW] || 0;
+                if (prevMaxRep > 0 && r > prevMaxRep) {
+                  beatRepAtSameWeight = true;
+                }
+              });
+            }
           }
         }
       });
@@ -209,10 +261,12 @@ export function evaluateAchievements(
           // Baseline establishment! Do NOT count as PR.
           const maxRepsAtWeightMap: Record<number, number> = {};
           ex.sets.forEach(s => {
-            if (!s.isWarmup && s.isSkipped !== true && s.isCompleted !== false && (s.weight || 0) > 0 && (s.reps || 0) > 0) {
-              const wKg = log.unit === 'lb' ? s.weight! * 0.453592 : s.weight!;
-              const roundedW = Math.round(wKg * 10) / 10;
-              maxRepsAtWeightMap[roundedW] = Math.max(maxRepsAtWeightMap[roundedW] || 0, s.reps!);
+            if (s.isWarmup !== true && s.isSkipped !== true && s.isCompleted !== false && s.reps && s.reps > 0) {
+              const loadRes = resolveSetEffectiveLoad(s.weight, ex.modality, log.unit, log.bodyweightSnapshot);
+              if (loadRes.status === 'valid' && loadRes.effectiveLoadKg !== null && loadRes.effectiveLoadKg > 0) {
+                const roundedW = Math.round(loadRes.effectiveLoadKg * 10) / 10;
+                maxRepsAtWeightMap[roundedW] = Math.max(maxRepsAtWeightMap[roundedW] || 0, s.reps);
+              }
             }
           });
 
@@ -241,10 +295,12 @@ export function evaluateAchievements(
 
           const maxRepsAtWeightMap: Record<number, number> = {};
           ex.sets.forEach(s => {
-            if (!s.isWarmup && s.isSkipped !== true && s.isCompleted !== false && (s.weight || 0) > 0 && (s.reps || 0) > 0) {
-              const wKg = log.unit === 'lb' ? s.weight! * 0.453592 : s.weight!;
-              const roundedW = Math.round(wKg * 10) / 10;
-              maxRepsAtWeightMap[roundedW] = Math.max(maxRepsAtWeightMap[roundedW] || 0, s.reps!);
+            if (s.isWarmup !== true && s.isSkipped !== true && s.isCompleted !== false && s.reps && s.reps > 0) {
+              const loadRes = resolveSetEffectiveLoad(s.weight, ex.modality, log.unit, log.bodyweightSnapshot);
+              if (loadRes.status === 'valid' && loadRes.effectiveLoadKg !== null && loadRes.effectiveLoadKg > 0) {
+                const roundedW = Math.round(loadRes.effectiveLoadKg * 10) / 10;
+                maxRepsAtWeightMap[roundedW] = Math.max(maxRepsAtWeightMap[roundedW] || 0, s.reps);
+              }
             }
           });
 
@@ -338,7 +394,7 @@ export function evaluateAchievements(
     }
   }
 
-  // 4. Streak & Calendar Calculations (Iron Calendar, Perfect Attendance, Respawned)
+  // 4. Streak & Calendar Calculations (Iron Calendar, Respawned)
   const distinctWeeks = new Set<string>();
   sortedChronological.forEach(l => {
     const d = new Date(l.date);
@@ -359,7 +415,6 @@ export function evaluateAchievements(
     const gapDays = (currDate - prevDate) / (1000 * 60 * 60 * 24);
 
     if (gapDays >= 14) {
-      // Check next workouts
       const returnDate = currDate;
       const subsequentLogsIn10Days = sortedChronological.slice(i).filter(l => {
         const d = new Date(l.date).getTime();

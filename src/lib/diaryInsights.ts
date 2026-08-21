@@ -1,5 +1,6 @@
-import { WorkoutLog, ExerciseEntry, SetEntry, WeightUnit } from '../types';
+import { WorkoutLog, ExerciseEntry, SetEntry, WeightUnit, BodyweightSnapshot } from '../types';
 import { calculateE1RMForSet, isValidRPE } from './rpeMath';
+import { resolveSetEffectiveLoad, calculateSetWorkingVolume } from './effectiveLoad';
 
 export type DiaryPrimaryCategoryId =
   | 'peak_test'
@@ -196,7 +197,7 @@ export function normalizeExerciseName(name: string | null | undefined): string {
 }
 
 /**
- * Returns true if a set meets high-confidence performance eligibility criteria.
+ * Returns true if a set meets high-confidence performance eligibility criteria (legacy standalone weighted signature).
  */
 export function isHighConfidencePerformanceSetEligible(
   exercise: ExerciseEntry,
@@ -228,6 +229,61 @@ export function isHighConfidencePerformanceSetEligible(
     return false;
   }
   return true;
+}
+
+export interface PerformanceSetLoadResolution {
+  status: 'valid' | 'invalid' | 'unavailable' | 'not_applicable';
+  effectiveLoadKg: number | null;
+  e1rmKg: number | null;
+}
+
+/**
+ * Resolves performance set evidence using canonical effective load math and e1RM.
+ * Separates quality eligibility from load eligibility.
+ */
+export function resolvePerformanceSetEvidence(
+  exercise: ExerciseEntry,
+  set: SetEntry,
+  logUnit: WeightUnit,
+  snapshot: BodyweightSnapshot | null | undefined
+): PerformanceSetLoadResolution {
+  // 1. Quality Eligibility
+  if (exercise.isSkipped === true) {
+    return { status: 'invalid', effectiveLoadKg: null, e1rmKg: null };
+  }
+  if (set.isCompleted !== true) {
+    return { status: 'invalid', effectiveLoadKg: null, e1rmKg: null };
+  }
+  if (set.isSkipped === true || set.isWarmup === true) {
+    return { status: 'invalid', effectiveLoadKg: null, e1rmKg: null };
+  }
+  if (set.reps === null || set.reps === undefined || !Number.isInteger(set.reps) || set.reps <= 0) {
+    return { status: 'invalid', effectiveLoadKg: null, e1rmKg: null };
+  }
+  if (set.rpe === null || set.rpe === undefined || !isValidRPE(set.rpe)) {
+    return { status: 'invalid', effectiveLoadKg: null, e1rmKg: null };
+  }
+  if (set.form === 'loose') {
+    return { status: 'invalid', effectiveLoadKg: null, e1rmKg: null };
+  }
+
+  // 2. Load Eligibility via resolveSetEffectiveLoad
+  const loadRes = resolveSetEffectiveLoad(set.weight, exercise.modality, logUnit, snapshot);
+  if (loadRes.status !== 'valid' || loadRes.effectiveLoadKg === null || loadRes.effectiveLoadKg <= 0) {
+    return { status: loadRes.status, effectiveLoadKg: null, e1rmKg: null };
+  }
+
+  // 3. E1RM Calculation
+  const e1rm = calculateE1RMForSet(loadRes.effectiveLoadKg, set.reps, set.rpe);
+  if (e1rm === null || e1rm <= 0) {
+    return { status: 'invalid', effectiveLoadKg: loadRes.effectiveLoadKg, e1rmKg: null };
+  }
+
+  return {
+    status: 'valid',
+    effectiveLoadKg: loadRes.effectiveLoadKg,
+    e1rmKg: e1rm,
+  };
 }
 
 /**
@@ -335,34 +391,38 @@ export function getStrictlyPrecedingLogs(
 /**
  * Calculates the exercise tonnage in kilograms for an exercise within a workout.
  */
-export function calculateExerciseTonnageKg(exercise: ExerciseEntry, unit: WeightUnit): number {
+export function calculateExerciseTonnageKg(
+  exercise: ExerciseEntry,
+  unit: WeightUnit,
+  snapshot?: BodyweightSnapshot | null
+): number {
   if (exercise.isSkipped === true) return 0;
-  const modality = exercise.modality;
-  if (modality !== undefined && modality !== 'weighted') {
+  const modality = exercise.modality || 'weighted';
+  if (modality !== 'weighted' && modality !== 'bodyweight' && modality !== 'assisted') {
     return 0;
   }
 
   let totalTonnageKg = 0;
-  exercise.sets.forEach(set => {
+  for (const set of exercise.sets) {
     if (set.isSkipped === true || set.isWarmup === true || set.isCompleted !== true) {
-      return;
+      continue;
     }
-    if (set.weight !== null && set.weight !== undefined && Number.isFinite(set.weight) && set.weight > 0 &&
-        set.reps !== null && set.reps !== undefined && Number.isInteger(set.reps) && set.reps > 0) {
-      const parentWeightKg = normalizeWeightToKg(set.weight, unit);
-      totalTonnageKg += parentWeightKg * set.reps;
+    const volRes = calculateSetWorkingVolume(set.weight, set.reps, exercise.modality, unit, snapshot);
+    if (volRes.status !== 'valid' || volRes.volumeKg === null) {
+      return 0;
     }
+    totalTonnageKg += volRes.volumeKg;
 
     if (set.isDropSet === true && Array.isArray(set.dropSubSets)) {
-      set.dropSubSets.forEach(sub => {
-        if (sub.weight !== null && sub.weight !== undefined && Number.isFinite(sub.weight) && sub.weight > 0 &&
-            sub.reps !== null && sub.reps !== undefined && Number.isInteger(sub.reps) && sub.reps > 0) {
-          const subWeightKg = normalizeWeightToKg(sub.weight, unit);
-          totalTonnageKg += subWeightKg * sub.reps;
+      for (const sub of set.dropSubSets) {
+        const subVol = calculateSetWorkingVolume(sub.weight, sub.reps, exercise.modality, unit, snapshot);
+        if (subVol.status !== 'valid' || subVol.volumeKg === null) {
+          return 0;
         }
-      });
+        totalTonnageKg += subVol.volumeKg;
+      }
     }
-  });
+  }
 
   return totalTonnageKg;
 }
@@ -380,19 +440,17 @@ export function calculateSessionPerformanceIndex(
 
   targetLog.exercises.forEach(ex => {
     if (ex.isSkipped === true) return;
-    const mod = ex.modality;
-    if (mod !== undefined && mod !== 'weighted') return;
+    const mod = ex.modality || 'weighted';
+    if (mod !== 'weighted' && mod !== 'bodyweight' && mod !== 'assisted') return;
 
     const normName = normalizeExerciseName(ex.name);
     if (!normName) return;
 
     let bestE1RM = 0;
     ex.sets.forEach(set => {
-      if (!isHighConfidencePerformanceSetEligible(ex, set)) return;
-      const weightKg = normalizeWeightToKg(set.weight, targetLog.unit);
-      const e1rm = calculateE1RMForSet(weightKg, set.reps!, set.rpe!);
-      if (e1rm !== null && e1rm > bestE1RM) {
-        bestE1RM = e1rm;
+      const ev = resolvePerformanceSetEvidence(ex, set, targetLog.unit, targetLog.bodyweightSnapshot);
+      if (ev.status === 'valid' && ev.e1rmKg !== null && ev.e1rmKg > bestE1RM) {
+        bestE1RM = ev.e1rmKg;
       }
     });
 
@@ -420,15 +478,13 @@ export function calculateSessionPerformanceIndex(
       pastLog.exercises.forEach(pastEx => {
         if (pastEx.isSkipped === true) return;
         if (normalizeExerciseName(pastEx.name) !== normName) return;
-        const mod = pastEx.modality;
-        if (mod !== undefined && mod !== 'weighted') return;
+        const mod = pastEx.modality || 'weighted';
+        if (mod !== 'weighted' && mod !== 'bodyweight' && mod !== 'assisted') return;
 
         pastEx.sets.forEach(set => {
-          if (!isHighConfidencePerformanceSetEligible(pastEx, set)) return;
-          const weightKg = normalizeWeightToKg(set.weight, pastLog.unit);
-          const e1rm = calculateE1RMForSet(weightKg, set.reps!, set.rpe!);
-          if (e1rm !== null && e1rm > pastBestE1RM) {
-            pastBestE1RM = e1rm;
+          const pastEv = resolvePerformanceSetEvidence(pastEx, set, pastLog.unit, pastLog.bodyweightSnapshot);
+          if (pastEv.status === 'valid' && pastEv.e1rmKg !== null && pastEv.e1rmKg > pastBestE1RM) {
+            pastBestE1RM = pastEv.e1rmKg;
           }
         });
       });
@@ -803,7 +859,7 @@ function evaluateRawInsights(
   const steepFatigueDropExercises = new Set<string>();
 
   // --- Insight 1: New Strength Ceiling & Insight 2: Load PR & Insight 3: Rep PR & Insight 4: Tonnage PR ---
-  const weightedExercisesToday = new Map<
+  const performanceExercisesToday = new Map<
     string,
     { originalName: string; exercise: ExerciseEntry }
   >();
@@ -811,32 +867,31 @@ function evaluateRawInsights(
   targetLog.exercises.forEach(ex => {
     if (ex.isSkipped === true) return;
     const mod = ex.modality || 'weighted';
-    if (mod !== 'weighted') return;
+    if (mod !== 'weighted' && mod !== 'bodyweight' && mod !== 'assisted') return;
     const norm = normalizeExerciseName(ex.name);
     if (!norm) return;
-    if (!weightedExercisesToday.has(norm)) {
-      weightedExercisesToday.set(norm, { originalName: ex.name, exercise: ex });
+    if (!performanceExercisesToday.has(norm)) {
+      performanceExercisesToday.set(norm, { originalName: ex.name, exercise: ex });
     }
   });
 
-  weightedExercisesToday.forEach(({ originalName, exercise }, normName) => {
+  performanceExercisesToday.forEach(({ originalName, exercise }, normName) => {
     let todayBestE1RM = 0;
     let todayMaxWeightKg = 0;
     const todayExactRepsByWeightKg = new Map<number, number>();
 
     exercise.sets.forEach(set => {
-      if (!isHighConfidencePerformanceSetEligible(exercise, set)) return;
-      const weightKg = normalizeWeightToKg(set.weight, targetLog.unit);
-      const e1rm = calculateE1RMForSet(weightKg, set.reps!, set.rpe!);
+      const ev = resolvePerformanceSetEvidence(exercise, set, targetLog.unit, targetLog.bodyweightSnapshot);
+      if (ev.status !== 'valid' || ev.effectiveLoadKg === null || ev.e1rmKg === null) return;
 
-      if (e1rm !== null && e1rm > todayBestE1RM) {
-        todayBestE1RM = e1rm;
+      if (ev.e1rmKg > todayBestE1RM) {
+        todayBestE1RM = ev.e1rmKg;
       }
-      if (weightKg > todayMaxWeightKg) {
-        todayMaxWeightKg = weightKg;
+      if (ev.effectiveLoadKg > todayMaxWeightKg) {
+        todayMaxWeightKg = ev.effectiveLoadKg;
       }
 
-      const quantizedLoad = Math.round(weightKg * 100) / 100;
+      const quantizedLoad = Math.round(ev.effectiveLoadKg * 100) / 100;
       const currentReps = todayExactRepsByWeightKg.get(quantizedLoad) || 0;
       if (set.reps! > currentReps) {
         todayExactRepsByWeightKg.set(quantizedLoad, set.reps!);
@@ -854,22 +909,21 @@ function evaluateRawInsights(
         if (pastEx.isSkipped === true) return;
         if (normalizeExerciseName(pastEx.name) !== normName) return;
         const mod = pastEx.modality || 'weighted';
-        if (mod !== 'weighted') return;
+        if (mod !== 'weighted' && mod !== 'bodyweight' && mod !== 'assisted') return;
 
         pastEx.sets.forEach(set => {
-          if (!isHighConfidencePerformanceSetEligible(pastEx, set)) return;
+          const pastEv = resolvePerformanceSetEvidence(pastEx, set, pastLog.unit, pastLog.bodyweightSnapshot);
+          if (pastEv.status !== 'valid' || pastEv.effectiveLoadKg === null || pastEv.e1rmKg === null) return;
           pastExFound = true;
-          const weightKg = normalizeWeightToKg(set.weight, pastLog.unit);
-          const e1rm = calculateE1RMForSet(weightKg, set.reps!, set.rpe!);
 
-          if (e1rm !== null && e1rm > pastMaxE1RM) {
-            pastMaxE1RM = e1rm;
+          if (pastEv.e1rmKg > pastMaxE1RM) {
+            pastMaxE1RM = pastEv.e1rmKg;
           }
-          if (weightKg > pastMaxWeightKg) {
-            pastMaxWeightKg = weightKg;
+          if (pastEv.effectiveLoadKg > pastMaxWeightKg) {
+            pastMaxWeightKg = pastEv.effectiveLoadKg;
           }
 
-          const quantizedLoad = Math.round(weightKg * 100) / 100;
+          const quantizedLoad = Math.round(pastEv.effectiveLoadKg * 100) / 100;
           const prevMax = pastExactMaxRepsByWeightKg.get(quantizedLoad) || 0;
           if (set.reps! > prevMax) {
             pastExactMaxRepsByWeightKg.set(quantizedLoad, set.reps!);
@@ -948,7 +1002,7 @@ function evaluateRawInsights(
     });
 
     // 4. Exercise Tonnage PR
-    const todayTonnageKg = calculateExerciseTonnageKg(exercise, targetLog.unit);
+    const todayTonnageKg = calculateExerciseTonnageKg(exercise, targetLog.unit, targetLog.bodyweightSnapshot);
     if (todayTonnageKg > 0) {
       let pastSessionCount = 0;
       let pastMaxTonnageKg = 0;
@@ -957,7 +1011,7 @@ function evaluateRawInsights(
         pastLog.exercises.forEach(pastEx => {
           if (pastEx.isSkipped === true) return;
           if (normalizeExerciseName(pastEx.name) !== normName) return;
-          const t = calculateExerciseTonnageKg(pastEx, pastLog.unit);
+          const t = calculateExerciseTonnageKg(pastEx, pastLog.unit, pastLog.bodyweightSnapshot);
           if (t > 0) {
             pastSessionCount += 1;
             if (t > pastMaxTonnageKg) {
@@ -992,16 +1046,14 @@ function evaluateRawInsights(
   // --- Insight 5: Quiet Progress ---
   const todayDateEpoch = isValidDate(targetLog.date) ? Date.parse(targetLog.date) : null;
 
-  weightedExercisesToday.forEach(({ originalName, exercise }, normName) => {
+  performanceExercisesToday.forEach(({ originalName, exercise }, normName) => {
     if (newStrengthCeilingExercises.has(normName)) return;
 
     let todayBestE1RM = 0;
     exercise.sets.forEach(set => {
-      if (!isHighConfidencePerformanceSetEligible(exercise, set)) return;
-      const weightKg = normalizeWeightToKg(set.weight, targetLog.unit);
-      const e1rm = calculateE1RMForSet(weightKg, set.reps!, set.rpe!);
-      if (e1rm !== null && e1rm > todayBestE1RM) {
-        todayBestE1RM = e1rm;
+      const ev = resolvePerformanceSetEvidence(exercise, set, targetLog.unit, targetLog.bodyweightSnapshot);
+      if (ev.status === 'valid' && ev.e1rmKg !== null && ev.e1rmKg > todayBestE1RM) {
+        todayBestE1RM = ev.e1rmKg;
       }
     });
 
@@ -1020,14 +1072,12 @@ function evaluateRawInsights(
         if (pastEx.isSkipped === true) return;
         if (normalizeExerciseName(pastEx.name) !== normName) return;
         const mod = pastEx.modality || 'weighted';
-        if (mod !== 'weighted') return;
+        if (mod !== 'weighted' && mod !== 'bodyweight' && mod !== 'assisted') return;
 
         pastEx.sets.forEach(set => {
-          if (!isHighConfidencePerformanceSetEligible(pastEx, set)) return;
-          const weightKg = normalizeWeightToKg(set.weight, pastLog.unit);
-          const e1rm = calculateE1RMForSet(weightKg, set.reps!, set.rpe!);
-          if (e1rm !== null && e1rm > pastBest) {
-            pastBest = e1rm;
+          const pastEv = resolvePerformanceSetEvidence(pastEx, set, pastLog.unit, pastLog.bodyweightSnapshot);
+          if (pastEv.status === 'valid' && pastEv.e1rmKg !== null && pastEv.e1rmKg > pastBest) {
+            pastBest = pastEv.e1rmKg;
           }
         });
       });
@@ -1097,7 +1147,7 @@ function evaluateRawInsights(
   targetLog.exercises.forEach(ex => {
     if (ex.isSkipped === true) return;
     const mod = ex.modality || 'weighted';
-    if (mod !== 'weighted') return;
+    if (mod !== 'weighted' && mod !== 'bodyweight' && mod !== 'assisted') return;
     const normName = normalizeExerciseName(ex.name);
     if (!normName) return;
 
@@ -1108,13 +1158,13 @@ function evaluateRawInsights(
         if (pastEx.isSkipped === true) return;
         if (normalizeExerciseName(pastEx.name) !== normName) return;
         const pMod = pastEx.modality || 'weighted';
-        if (pMod !== 'weighted') return;
+        if (pMod !== 'weighted' && pMod !== 'bodyweight' && pMod !== 'assisted') return;
 
         pastEx.sets.forEach(set => {
-          if (!isHighConfidencePerformanceSetEligible(pastEx, set)) return;
-          const weightKg = normalizeWeightToKg(set.weight, pastLog.unit);
-          const e1rm = calculateE1RMForSet(weightKg, set.reps!, set.rpe!);
-          if (e1rm !== null && e1rm > pastBest) pastBest = e1rm;
+          const pastEv = resolvePerformanceSetEvidence(pastEx, set, pastLog.unit, pastLog.bodyweightSnapshot);
+          if (pastEv.status === 'valid' && pastEv.e1rmKg !== null && pastEv.e1rmKg > pastBest) {
+            pastBest = pastEv.e1rmKg;
+          }
         });
       });
       if (pastBest > 0) historicalExposures.push(pastBest);
@@ -1125,10 +1175,11 @@ function evaluateRawInsights(
       const baselineE1RM = last3[1];
       if (baselineE1RM > 0) {
         ex.sets.forEach(set => {
-          if (!isHighConfidencePerformanceSetEligible(ex, set)) return;
-          const weightKg = normalizeWeightToKg(set.weight, targetLog.unit);
-          if (set.reps! <= 5 && weightKg / baselineE1RM >= 0.85) {
-            qualifyingHeavySetsCount += 1;
+          const ev = resolvePerformanceSetEvidence(ex, set, targetLog.unit, targetLog.bodyweightSnapshot);
+          if (ev.status === 'valid' && ev.effectiveLoadKg !== null) {
+            if (set.reps! <= 5 && ev.effectiveLoadKg / baselineE1RM >= 0.85) {
+              qualifyingHeavySetsCount += 1;
+            }
           }
         });
       }
@@ -1153,15 +1204,18 @@ function evaluateRawInsights(
   targetLog.exercises.forEach(ex => {
     if (ex.isSkipped === true) return;
     const mod = ex.modality || 'weighted';
-    if (mod !== 'weighted') return;
+    if (mod !== 'weighted' && mod !== 'bodyweight' && mod !== 'assisted') return;
 
     const contiguousBlocks: Array<Array<{ weightKg: number; reps: number; rpe: number; e1rm: number }>> = [];
     let currentBlock: Array<{ weightKg: number; reps: number; rpe: number; e1rm: number }> = [];
     let currentBlockQuantLoad: number | null = null;
 
     ex.sets.forEach(set => {
+      const ev = resolvePerformanceSetEvidence(ex, set, targetLog.unit, targetLog.bodyweightSnapshot);
       const isEligible =
-        isHighConfidencePerformanceSetEligible(ex, set) &&
+        ev.status === 'valid' &&
+        ev.effectiveLoadKg !== null &&
+        ev.e1rmKg !== null &&
         set.isDropSet !== true;
 
       if (!isEligible) {
@@ -1173,17 +1227,9 @@ function evaluateRawInsights(
         return;
       }
 
-      const weightKg = normalizeWeightToKg(set.weight, targetLog.unit);
+      const weightKg = ev.effectiveLoadKg!;
       const quantLoad = Math.round(weightKg * 100) / 100;
-      const e1rm = calculateE1RMForSet(weightKg, set.reps!, set.rpe!);
-      if (e1rm === null) {
-        if (currentBlock.length >= 3) {
-          contiguousBlocks.push(currentBlock);
-        }
-        currentBlock = [];
-        currentBlockQuantLoad = null;
-        return;
-      }
+      const e1rm = ev.e1rmKg!;
 
       if (currentBlockQuantLoad === null) {
         currentBlockQuantLoad = quantLoad;
@@ -1612,19 +1658,17 @@ function calculateBatchSessionPerformanceIndex(
 
   targetLog.exercises.forEach(ex => {
     if (ex.isSkipped === true) return;
-    const mod = ex.modality;
-    if (mod !== undefined && mod !== 'weighted') return;
+    const mod = ex.modality || 'weighted';
+    if (mod !== 'weighted' && mod !== 'bodyweight' && mod !== 'assisted') return;
 
     const normName = normalizeExerciseName(ex.name);
     if (!normName) return;
 
     let bestE1RM = 0;
     ex.sets.forEach(set => {
-      if (!isHighConfidencePerformanceSetEligible(ex, set)) return;
-      const weightKg = normalizeWeightToKg(set.weight, targetLog.unit);
-      const e1rm = calculateE1RMForSet(weightKg, set.reps!, set.rpe!);
-      if (e1rm !== null && e1rm > bestE1RM) {
-        bestE1RM = e1rm;
+      const ev = resolvePerformanceSetEvidence(ex, set, targetLog.unit, targetLog.bodyweightSnapshot);
+      if (ev.status === 'valid' && ev.e1rmKg !== null && ev.e1rmKg > bestE1RM) {
+        bestE1RM = ev.e1rmKg;
       }
     });
 
@@ -1702,7 +1746,7 @@ function evaluateBatchRawInsights(
   const consistentOutputExercises = new Set<string>();
   const steepFatigueDropExercises = new Set<string>();
 
-  const weightedExercisesToday = new Map<
+  const performanceExercisesToday = new Map<
     string,
     { originalName: string; exercise: ExerciseEntry }
   >();
@@ -1710,33 +1754,32 @@ function evaluateBatchRawInsights(
   targetLog.exercises.forEach(ex => {
     if (ex.isSkipped === true) return;
     const mod = ex.modality || 'weighted';
-    if (mod !== 'weighted') return;
+    if (mod !== 'weighted' && mod !== 'bodyweight' && mod !== 'assisted') return;
     const norm = normalizeExerciseName(ex.name);
     if (!norm) return;
-    if (!weightedExercisesToday.has(norm)) {
-      weightedExercisesToday.set(norm, { originalName: ex.name, exercise: ex });
+    if (!performanceExercisesToday.has(norm)) {
+      performanceExercisesToday.set(norm, { originalName: ex.name, exercise: ex });
     }
   });
 
   // --- Insight 1: New Strength Ceiling & Insight 2: Load PR & Insight 3: Rep PR & Insight 4: Tonnage PR ---
-  weightedExercisesToday.forEach(({ originalName, exercise }, normName) => {
+  performanceExercisesToday.forEach(({ originalName, exercise }, normName) => {
     let todayBestE1RM = 0;
     let todayMaxWeightKg = 0;
     const todayExactRepsByWeightKg = new Map<number, number>();
 
     exercise.sets.forEach(set => {
-      if (!isHighConfidencePerformanceSetEligible(exercise, set)) return;
-      const weightKg = normalizeWeightToKg(set.weight, targetLog.unit);
-      const e1rm = calculateE1RMForSet(weightKg, set.reps!, set.rpe!);
+      const ev = resolvePerformanceSetEvidence(exercise, set, targetLog.unit, targetLog.bodyweightSnapshot);
+      if (ev.status !== 'valid' || ev.effectiveLoadKg === null || ev.e1rmKg === null) return;
 
-      if (e1rm !== null && e1rm > todayBestE1RM) {
-        todayBestE1RM = e1rm;
+      if (ev.e1rmKg > todayBestE1RM) {
+        todayBestE1RM = ev.e1rmKg;
       }
-      if (weightKg > todayMaxWeightKg) {
-        todayMaxWeightKg = weightKg;
+      if (ev.effectiveLoadKg > todayMaxWeightKg) {
+        todayMaxWeightKg = ev.effectiveLoadKg;
       }
 
-      const quantizedLoad = Math.round(weightKg * 100) / 100;
+      const quantizedLoad = Math.round(ev.effectiveLoadKg * 100) / 100;
       const currentReps = todayExactRepsByWeightKg.get(quantizedLoad) || 0;
       if (set.reps! > currentReps) {
         todayExactRepsByWeightKg.set(quantizedLoad, set.reps!);
@@ -1816,7 +1859,7 @@ function evaluateBatchRawInsights(
     });
 
     // 4. Exercise Tonnage PR
-    const todayTonnageKg = calculateExerciseTonnageKg(exercise, targetLog.unit);
+    const todayTonnageKg = calculateExerciseTonnageKg(exercise, targetLog.unit, targetLog.bodyweightSnapshot);
     if (todayTonnageKg > 0) {
       const pastTonnages = history.exerciseTonnageHistory.get(normName) || [];
       const pastSessionCount = pastTonnages.length;
@@ -1847,16 +1890,14 @@ function evaluateBatchRawInsights(
   // --- Insight 5: Quiet Progress ---
   const todayDateEpoch = isValidDate(targetLog.date) ? Date.parse(targetLog.date) : null;
 
-  weightedExercisesToday.forEach(({ originalName, exercise }, normName) => {
+  performanceExercisesToday.forEach(({ originalName, exercise }, normName) => {
     if (newStrengthCeilingExercises.has(normName)) return;
 
     let todayBestE1RM = 0;
     exercise.sets.forEach(set => {
-      if (!isHighConfidencePerformanceSetEligible(exercise, set)) return;
-      const weightKg = normalizeWeightToKg(set.weight, targetLog.unit);
-      const e1rm = calculateE1RMForSet(weightKg, set.reps!, set.rpe!);
-      if (e1rm !== null && e1rm > todayBestE1RM) {
-        todayBestE1RM = e1rm;
+      const ev = resolvePerformanceSetEvidence(exercise, set, targetLog.unit, targetLog.bodyweightSnapshot);
+      if (ev.status === 'valid' && ev.e1rmKg !== null && ev.e1rmKg > todayBestE1RM) {
+        todayBestE1RM = ev.e1rmKg;
       }
     });
 
@@ -1927,7 +1968,7 @@ function evaluateBatchRawInsights(
   targetLog.exercises.forEach(ex => {
     if (ex.isSkipped === true) return;
     const mod = ex.modality || 'weighted';
-    if (mod !== 'weighted') return;
+    if (mod !== 'weighted' && mod !== 'bodyweight' && mod !== 'assisted') return;
     const normName = normalizeExerciseName(ex.name);
     if (!normName) return;
 
@@ -1938,10 +1979,11 @@ function evaluateBatchRawInsights(
       const baselineE1RM = last3[1];
       if (baselineE1RM > 0) {
         ex.sets.forEach(set => {
-          if (!isHighConfidencePerformanceSetEligible(ex, set)) return;
-          const weightKg = normalizeWeightToKg(set.weight, targetLog.unit);
-          if (set.reps! <= 5 && weightKg / baselineE1RM >= 0.85) {
-            qualifyingHeavySetsCount += 1;
+          const ev = resolvePerformanceSetEvidence(ex, set, targetLog.unit, targetLog.bodyweightSnapshot);
+          if (ev.status === 'valid' && ev.effectiveLoadKg !== null) {
+            if (set.reps! <= 5 && ev.effectiveLoadKg / baselineE1RM >= 0.85) {
+              qualifyingHeavySetsCount += 1;
+            }
           }
         });
       }
@@ -1966,15 +2008,18 @@ function evaluateBatchRawInsights(
   targetLog.exercises.forEach(ex => {
     if (ex.isSkipped === true) return;
     const mod = ex.modality || 'weighted';
-    if (mod !== 'weighted') return;
+    if (mod !== 'weighted' && mod !== 'bodyweight' && mod !== 'assisted') return;
 
     const contiguousBlocks: Array<Array<{ weightKg: number; reps: number; rpe: number; e1rm: number }>> = [];
     let currentBlock: Array<{ weightKg: number; reps: number; rpe: number; e1rm: number }> = [];
     let currentBlockQuantLoad: number | null = null;
 
     ex.sets.forEach(set => {
+      const ev = resolvePerformanceSetEvidence(ex, set, targetLog.unit, targetLog.bodyweightSnapshot);
       const isEligible =
-        isHighConfidencePerformanceSetEligible(ex, set) &&
+        ev.status === 'valid' &&
+        ev.effectiveLoadKg !== null &&
+        ev.e1rmKg !== null &&
         set.isDropSet !== true;
 
       if (!isEligible) {
@@ -1986,17 +2031,9 @@ function evaluateBatchRawInsights(
         return;
       }
 
-      const weightKg = normalizeWeightToKg(set.weight, targetLog.unit);
+      const weightKg = ev.effectiveLoadKg!;
       const quantLoad = Math.round(weightKg * 100) / 100;
-      const e1rm = calculateE1RMForSet(weightKg, set.reps!, set.rpe!);
-      if (e1rm === null) {
-        if (currentBlock.length >= 3) {
-          contiguousBlocks.push(currentBlock);
-        }
-        currentBlock = [];
-        currentBlockQuantLoad = null;
-        return;
-      }
+      const e1rm = ev.e1rmKg!;
 
       if (currentBlockQuantLoad === null) {
         currentBlockQuantLoad = quantLoad;
@@ -2352,7 +2389,7 @@ function updateBatchHistoricalIndex(
   log.exercises.forEach(ex => {
     if (ex.isSkipped === true) return;
     const mod = ex.modality || 'weighted';
-    if (mod !== 'weighted') return;
+    if (mod !== 'weighted' && mod !== 'bodyweight' && mod !== 'assisted') return;
 
     const normName = normalizeExerciseName(ex.name);
     if (!normName) return;
@@ -2362,12 +2399,13 @@ function updateBatchHistoricalIndex(
     let hasEligiblePerformanceSet = false;
 
     ex.sets.forEach(set => {
-      if (!isHighConfidencePerformanceSetEligible(ex, set)) return;
+      const ev = resolvePerformanceSetEvidence(ex, set, log.unit, log.bodyweightSnapshot);
+      if (ev.status !== 'valid' || ev.effectiveLoadKg === null || ev.e1rmKg === null) return;
       hasEligiblePerformanceSet = true;
-      const weightKg = normalizeWeightToKg(set.weight, log.unit);
-      const e1rm = calculateE1RMForSet(weightKg, set.reps!, set.rpe!);
+      const weightKg = ev.effectiveLoadKg;
+      const e1rm = ev.e1rmKg;
 
-      if (e1rm !== null && e1rm > sessionBestE1RM) {
+      if (e1rm > sessionBestE1RM) {
         sessionBestE1RM = e1rm;
       }
       if (weightKg > sessionMaxWeightKg) {
@@ -2417,7 +2455,7 @@ function updateBatchHistoricalIndex(
       }
     }
 
-    const sessionTonnageKg = calculateExerciseTonnageKg(ex, log.unit);
+    const sessionTonnageKg = calculateExerciseTonnageKg(ex, log.unit, log.bodyweightSnapshot);
     if (sessionTonnageKg > 0) {
       let tonnages = history.exerciseTonnageHistory.get(normName);
       if (!tonnages) {
