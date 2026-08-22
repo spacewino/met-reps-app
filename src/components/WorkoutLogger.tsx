@@ -11,7 +11,7 @@ import { getTodayLocalDateString } from '../lib/dateUtils';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { WarmupIcon } from './WarmupIcon';
-import { calculateObjectiveSets, calculateAddedSetTarget, roundToNearest25, getRTSMultiplier, findMatchingTemplateExercise, syncAddedSetStructureToProgramDay, extractHistoricalBaselineE1RM, extractTemplateBaselineE1RM } from '../lib/objectiveMath';
+import { calculateObjectiveSets, calculateAddedSetTarget, roundToNearest25, getRTSMultiplier, findMatchingTemplateExercise, syncAddedSetStructureToProgramDay, extractHistoricalBaselineE1RM, extractTemplateBaselineE1RM, getExerciseOccurrenceOrdinal } from '../lib/objectiveMath';
 import { generateAssistedWarmupTargets, convertWeightUnit } from '../lib/assistedLoadMath';
 import {
   validateBodyweightSnapshot,
@@ -988,6 +988,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         const programDuration = activeProgLocal.programDuration !== '∞' ? Number(activeProgLocal.programDuration) : 8;
         const finalPre = prefilled.map((ex, exIdx) => {
           const templateEx = findMatchingTemplateExercise(ex, templates, exIdx);
+          const occurrenceOrdinal = getExerciseOccurrenceOrdinal(prefilled, exIdx);
           const calculated = calculateObjectiveSets({
             objective: defaultObjective,
             exercise: ex,
@@ -1002,6 +1003,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             templateExercise: templateEx,
             bodyweightSnapshot,
             activeUnit: unit,
+            programId: programId ? String(programId) : null,
+            dayNum: dayNum !== undefined && dayNum !== null ? String(dayNum) : null,
+            targetDate: dateStr || null,
+            occurrenceOrdinal,
           });
           return { ...ex, sets: calculated };
         });
@@ -1315,6 +1320,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       }
 
       const templateEx = findMatchingTemplateExercise(ex, programDayTemplates, exIdx);
+      const occurrenceOrdinal = getExerciseOccurrenceOrdinal(list, exIdx);
 
       const calculated = calculateObjectiveSets({
         objective: activeObj,
@@ -1330,6 +1336,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         templateExercise: templateEx,
         bodyweightSnapshot,
         activeUnit: unit,
+        programId: programId ? String(programId) : null,
+        dayNum: dayNum !== undefined && dayNum !== null ? String(dayNum) : null,
+        targetDate: dateStr || null,
+        occurrenceOrdinal,
       });
 
       return { ...ex, sets: calculated };
@@ -2086,6 +2096,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const programDuration = activeProg && activeProg.programDuration !== '∞' ? Number(activeProg.programDuration) : 8;
     const programDayTemplates = (activeProg && activeProg.exercisesByDay?.[Number(dayNum)]) || null;
     const templateEx = findMatchingTemplateExercise(currentEx, programDayTemplates, exIdx);
+    const occurrenceOrdinal = getExerciseOccurrenceOrdinal(exercises, exIdx);
 
     // Calculate target for newly added set using authoritative inputs and distribution engine
     const targetResult = calculateAddedSetTarget({
@@ -2098,6 +2109,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       templateExercise: templateEx,
       bodyweightSnapshot,
       activeUnit: unit,
+      programId: programId ? String(programId) : null,
+      dayNum: dayNum !== undefined && dayNum !== null ? String(dayNum) : null,
+      targetDate: dateStr || null,
+      occurrenceOrdinal,
     });
 
     const isPrescribed = targetResult.isPrescribed && !!targetResult.target;

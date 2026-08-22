@@ -162,10 +162,42 @@ export function getRTSMultiplier(reps: number, rpe: number): number {
 }
 
 /**
- * Normalizes an exercise name for case-insensitive matching.
+ * Normalizes an exercise name for case-insensitive and whitespace-trimmed matching.
  */
+export function normalizeExerciseName(name: string): string {
+  return (name || '').trim().toLowerCase();
+}
+
 function normalizeName(name: string): string {
-  return name.trim().toLowerCase();
+  return normalizeExerciseName(name);
+}
+
+/**
+ * Pure deterministic helper to calculate the 0-indexed occurrence ordinal of an exercise within a list.
+ * Counts only matching normalized exercise names appearing strictly before exerciseIndex.
+ * Returns 0 for the first occurrence, 1 for the second, 2 for the third, and so on.
+ * Handles invalid indexes or empty inputs safely without throwing.
+ */
+export function getExerciseOccurrenceOrdinal(
+  exercises: { name: string }[] | ExerciseEntry[] | null | undefined,
+  exerciseIndex: number
+): number {
+  if (!exercises || !Array.isArray(exercises) || exerciseIndex <= 0 || exerciseIndex >= exercises.length) {
+    return 0;
+  }
+  const targetEx = exercises[exerciseIndex];
+  if (!targetEx || !targetEx.name) {
+    return 0;
+  }
+  const targetNorm = normalizeExerciseName(targetEx.name);
+  let count = 0;
+  for (let i = 0; i < exerciseIndex; i++) {
+    const currentEx = exercises[i];
+    if (currentEx && currentEx.name && normalizeExerciseName(currentEx.name) === targetNorm) {
+      count++;
+    }
+  }
+  return count;
 }
 
 /**
@@ -243,6 +275,272 @@ export function extractHistoricalBaselineE1RM(
     return Math.max(...missingRpeE1rms);
   }
 
+  return 0;
+}
+
+export interface ContextualPrescriptionBaselineOptions {
+  programId?: string | null;
+  targetDay?: number | string | null;
+  targetDate?: string | null;
+  occurrenceOrdinal?: number;
+  modality?: ExerciseEntry['modality'];
+  activeUnit?: WeightUnit;
+}
+
+/**
+ * Resolves the session capacity (maximum valid working-set e1RM) for an exercise exposure in a workout log.
+ * Returns null if no valid working sets exist or if the exercise is skipped.
+ */
+export function extractExposureSessionCapacity(
+  ex: ExerciseEntry,
+  log: WorkoutLog,
+  activeUnit: WeightUnit = 'kg'
+): number | null {
+  if (!ex || ex.isSkipped || !ex.sets || ex.sets.length === 0) {
+    return null;
+  }
+
+  const validatedSnapshot = log.bodyweightSnapshot
+    ? validateBodyweightSnapshot(log.bodyweightSnapshot)
+    : null;
+
+  const rawLogUnit = log.unit || 'kg';
+  const sourceUnit: WeightUnit = ((rawLogUnit as unknown as string) === 'lbs' ? 'lb' : rawLogUnit) as WeightUnit;
+  const targetUnit: WeightUnit = ((activeUnit as unknown as string) === 'lbs' ? 'lb' : activeUnit) as WeightUnit;
+
+  const validWorkingE1RMs: number[] = [];
+
+  for (const s of ex.sets) {
+    // Exclude warmups
+    if (s.isWarmup) continue;
+
+    // Stop processing working sets upon first skipped working set
+    if (s.isSkipped === true) {
+      break;
+    }
+
+    // Exclude explicitly uncompleted non-skipped sets (null/undefined treated as completed for legacy compatibility)
+    if (s.isCompleted === false) continue;
+
+    const evidence = extractSetPerformanceEvidence({
+      context: 'historical',
+      modality: ex.modality || 'weighted',
+      set: s,
+      bodyweightSnapshot: validatedSnapshot,
+      targetUnit,
+      exerciseIsSkipped: ex.isSkipped,
+      sourceUnit,
+    });
+
+    if (evidence.status === 'valid' && typeof evidence.e1RM === 'number' && Number.isFinite(evidence.e1RM) && evidence.e1RM > 0) {
+      validWorkingE1RMs.push(evidence.e1RM);
+    }
+  }
+
+  if (validWorkingE1RMs.length === 0) {
+    return null;
+  }
+
+  return Math.max(...validWorkingE1RMs);
+}
+
+/**
+ * Calculates the mathematical median of an array of numbers.
+ */
+export function calculateMedian(values: number[]): number {
+  if (!values || values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 !== 0) {
+    return sorted[mid];
+  }
+  return (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * Resolves the contextual prescription baseline e1RM across the 4-tier hierarchy:
+ * Tier 1: Same program, same day (weeks < targetWeek)
+ * Tier 2: Same program, day-agnostic fallback (weeks < targetWeek)
+ * Tier 3: Cross-program bootstrap (up to 3 most recent sessions prior to target session)
+ * Tier 4: Template / manual fallback (returns 0)
+ */
+export function resolveContextualPrescriptionBaselineE1RM(
+  exerciseName: string,
+  targetWeek: number | string,
+  logs: WorkoutLog[],
+  options?: ContextualPrescriptionBaselineOptions
+): number {
+  if (!logs || logs.length === 0 || !exerciseName) return 0;
+
+  const targetNorm = normalizeName(exerciseName);
+  const rawTargetWeekStr = String(targetWeek).trim();
+  const parsedTargetWeekNum = parseInt(rawTargetWeekStr.replace(/\D/g, ''), 10);
+  const targetWeekNum = Number.isFinite(parsedTargetWeekNum) && parsedTargetWeekNum > 0 ? parsedTargetWeekNum : 1;
+
+  const targetProgramId = options?.programId ? String(options.programId).trim() : null;
+  const targetDay = options?.targetDay !== undefined && options?.targetDay !== null ? String(options.targetDay).trim() : null;
+  const targetOccurrenceOrdinal = options?.occurrenceOrdinal ?? 0;
+  const targetDate = options?.targetDate ? String(options.targetDate).trim() : null;
+  const activeUnit = options?.activeUnit || 'kg';
+
+  // Helper to safely parse week number from a log
+  const parseLogWeek = (rawWeek: string | number | undefined): number | null => {
+    if (rawWeek === undefined || rawWeek === null) return null;
+    const s = String(rawWeek).trim();
+    const num = parseInt(s.replace(/\D/g, ''), 10);
+    if (Number.isFinite(num) && num > 0) {
+      return num;
+    }
+    return null;
+  };
+
+  // Helper for deterministic sorting of logs (newest first)
+  const compareLogsChronologicalDesc = (a: WorkoutLog, b: WorkoutLog): number => {
+    const dateComp = (b.date || '').localeCompare(a.date || '');
+    if (dateComp !== 0) return dateComp;
+
+    const schedComp = (b.scheduledDate || '').localeCompare(a.scheduledDate || '');
+    if (schedComp !== 0) return schedComp;
+
+    const idComp = (b.id || '').localeCompare(a.id || '');
+    if (idComp !== 0) return idComp;
+
+    return 0;
+  };
+
+  // TIER 1 & TIER 2: Same-program matching
+  if (targetProgramId) {
+    const sameProgramLogs = logs.filter(l => {
+      if (!l.programId || String(l.programId).trim() !== targetProgramId) return false;
+      const logW = parseLogWeek(l.week);
+      return logW !== null && logW < targetWeekNum;
+    });
+
+    // Helper to find matching exercise entry in a log based on normalized name & occurrence ordinal
+    const findMatchingExerciseInLog = (log: WorkoutLog): ExerciseEntry | null => {
+      if (!log.exercises || log.exercises.length === 0) return null;
+      const matchingExs = log.exercises.filter(
+        e => !e.isSkipped && normalizeName(e.name) === targetNorm
+      );
+      if (matchingExs.length === 0) return null;
+      if (targetOccurrenceOrdinal < matchingExs.length) {
+        return matchingExs[targetOccurrenceOrdinal];
+      }
+      return matchingExs[0];
+    };
+
+    // Tier 1: Same program AND same day
+    if (targetDay !== null) {
+      const tier1Logs = sameProgramLogs.filter(
+        l => l.day !== undefined && String(l.day).trim() === targetDay
+      );
+
+      const weekExposuresMap = new Map<number, { week: number; capacity: number; date: string }>();
+      const sortedTier1Logs = [...tier1Logs].sort(compareLogsChronologicalDesc);
+
+      for (const log of sortedTier1Logs) {
+        const logW = parseLogWeek(log.week)!;
+        if (weekExposuresMap.has(logW)) continue; // already have newest for this week
+
+        const matchedEx = findMatchingExerciseInLog(log);
+        if (!matchedEx) continue;
+
+        const cap = extractExposureSessionCapacity(matchedEx, log, activeUnit);
+        if (cap !== null && cap > 0) {
+          weekExposuresMap.set(logW, { week: logW, capacity: cap, date: log.date || '' });
+        }
+      }
+
+      if (weekExposuresMap.size > 0) {
+        const sortedExposures = Array.from(weekExposuresMap.values()).sort((a, b) => a.week - b.week);
+        if (sortedExposures.length === 1) {
+          return sortedExposures[0].capacity;
+        }
+        // 2 or more earlier exposures
+        const previousCapacity = sortedExposures[sortedExposures.length - 1].capacity;
+        const programMedian = calculateMedian(sortedExposures.map(e => e.capacity));
+        return 0.75 * previousCapacity + 0.25 * programMedian;
+      }
+    }
+
+    // Tier 2: Same program, day-agnostic fallback
+    const sortedTier2Logs = [...sameProgramLogs].sort(compareLogsChronologicalDesc);
+    const weekExposuresMap = new Map<number, { week: number; capacity: number; date: string }>();
+
+    for (const log of sortedTier2Logs) {
+      const logW = parseLogWeek(log.week)!;
+      if (weekExposuresMap.has(logW)) continue;
+
+      const matchedEx = findMatchingExerciseInLog(log);
+      if (!matchedEx) continue;
+
+      const cap = extractExposureSessionCapacity(matchedEx, log, activeUnit);
+      if (cap !== null && cap > 0) {
+        weekExposuresMap.set(logW, { week: logW, capacity: cap, date: log.date || '' });
+      }
+    }
+
+    if (weekExposuresMap.size > 0) {
+      const sortedExposures = Array.from(weekExposuresMap.values()).sort((a, b) => a.week - b.week);
+      if (sortedExposures.length === 1) {
+        return sortedExposures[0].capacity;
+      }
+      const previousCapacity = sortedExposures[sortedExposures.length - 1].capacity;
+      const programMedian = calculateMedian(sortedExposures.map(e => e.capacity));
+      return 0.75 * previousCapacity + 0.25 * programMedian;
+    }
+  }
+
+  // TIER 3: Cross-program bootstrap
+  // Filter eligible logs that predate the target session
+  const eligibleCrossProgramLogs = logs.filter(log => {
+    // Exclude logs from current program if week is >= targetWeek
+    if (targetProgramId && log.programId && String(log.programId).trim() === targetProgramId) {
+      const logW = parseLogWeek(log.week);
+      if (logW === null || logW >= targetWeekNum) return false;
+    }
+
+    // Strictly predate targetDate if targetDate is provided
+    if (targetDate && log.date) {
+      if (log.date >= targetDate) return false;
+    }
+
+    return true;
+  });
+
+  const sortedCrossLogs = [...eligibleCrossProgramLogs].sort(compareLogsChronologicalDesc);
+  const crossCapacities: number[] = [];
+
+  for (const log of sortedCrossLogs) {
+    if (!log.exercises || log.exercises.length === 0) continue;
+    const matchingExs = log.exercises.filter(
+      e => !e.isSkipped && normalizeName(e.name) === targetNorm
+    );
+    if (matchingExs.length === 0) continue;
+
+    const matchedEx = targetOccurrenceOrdinal < matchingExs.length
+      ? matchingExs[targetOccurrenceOrdinal]
+      : matchingExs[0];
+
+    const cap = extractExposureSessionCapacity(matchedEx, log, activeUnit);
+    if (cap !== null && cap > 0) {
+      crossCapacities.push(cap);
+      if (crossCapacities.length >= 3) break;
+    }
+  }
+
+  if (crossCapacities.length === 1) {
+    return crossCapacities[0];
+  }
+  if (crossCapacities.length === 2) {
+    return (crossCapacities[0] + crossCapacities[1]) / 2;
+  }
+  if (crossCapacities.length >= 3) {
+    const top3 = crossCapacities.slice(0, 3).sort((a, b) => a - b);
+    return top3[1];
+  }
+
+  // TIER 4: Fallback (returns 0 so caller uses template baseline or manual entry)
   return 0;
 }
 
@@ -609,11 +907,7 @@ export interface SessionDistributionResolution {
   anchorRPE?: number;
 }
 
-/**
- * Pure helper to resolve the session anchor and calculate multi-set distribution targets.
- * Shared by calculateObjectiveSets and calculateAddedSetTarget to guarantee mathematical consistency.
- */
-export function resolveSessionDistribution(params: {
+export interface ResolveSessionDistributionParams {
   objective: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload';
   exercise: ExerciseEntry;
   workingSetCount: number;
@@ -624,7 +918,17 @@ export function resolveSessionDistribution(params: {
   templateExercise?: ExerciseEntry;
   bodyweightSnapshot?: BodyweightSnapshot | null;
   activeUnit?: WeightUnit;
-}): SessionDistributionResolution {
+  programId?: string | null;
+  dayNum?: number | string | null;
+  targetDate?: string | null;
+  occurrenceOrdinal?: number;
+}
+
+/**
+ * Pure helper to resolve the session anchor and calculate multi-set distribution targets.
+ * Shared by calculateObjectiveSets and calculateAddedSetTarget to guarantee mathematical consistency.
+ */
+export function resolveSessionDistribution(params: ResolveSessionDistributionParams): SessionDistributionResolution {
   const {
     objective,
     exercise,
@@ -636,6 +940,10 @@ export function resolveSessionDistribution(params: {
     templateExercise,
     bodyweightSnapshot,
     activeUnit = 'kg',
+    programId,
+    dayNum,
+    targetDate,
+    occurrenceOrdinal,
   } = params;
 
   if (objective === 'Off' || objective === 'Deload') {
@@ -664,7 +972,19 @@ export function resolveSessionDistribution(params: {
     return { isBypassed: true };
   }
 
-  const historicalE1RM = extractHistoricalBaselineE1RM(exercise.name, previousLogs, exercise.modality, activeUnit);
+  const historicalE1RM = resolveContextualPrescriptionBaselineE1RM(
+    exercise.name,
+    weekNum,
+    previousLogs,
+    {
+      programId,
+      targetDay: dayNum,
+      targetDate,
+      occurrenceOrdinal,
+      modality: exercise.modality,
+      activeUnit,
+    }
+  );
   const baselineE1RM = historicalE1RM > 0 ? historicalE1RM : extractTemplateBaselineE1RM(templateExercise, bodyweightSnapshot, activeUnit);
 
   if (baselineE1RM <= 0) {
@@ -832,11 +1152,7 @@ export interface CanonicalTargetEntry {
   form: 'standard' | 'strict';
 }
 
-/**
- * Pure helper to generate canonical ordinal target mappings for 1..workingSetCount.
- * Shared by calculateObjectiveSets and calculateAddedSetTarget to guarantee single-authority consistency.
- */
-export function generateSessionTargetMap(params: {
+export interface GenerateSessionTargetMapParams {
   objective: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload';
   exercise: ExerciseEntry;
   workingSetCount: number;
@@ -847,7 +1163,17 @@ export function generateSessionTargetMap(params: {
   templateExercise?: ExerciseEntry | null;
   bodyweightSnapshot?: BodyweightSnapshot | null;
   activeUnit?: WeightUnit;
-}): Map<number, CanonicalTargetEntry> | null {
+  programId?: string | null;
+  dayNum?: number | string | null;
+  targetDate?: string | null;
+  occurrenceOrdinal?: number;
+}
+
+/**
+ * Pure helper to generate canonical ordinal target mappings for 1..workingSetCount.
+ * Shared by calculateObjectiveSets and calculateAddedSetTarget to guarantee single-authority consistency.
+ */
+export function generateSessionTargetMap(params: GenerateSessionTargetMapParams): Map<number, CanonicalTargetEntry> | null {
   const {
     objective,
     exercise,
@@ -859,6 +1185,10 @@ export function generateSessionTargetMap(params: {
     templateExercise,
     bodyweightSnapshot,
     activeUnit = 'kg',
+    programId,
+    dayNum,
+    targetDate,
+    occurrenceOrdinal,
   } = params;
 
   // 1. Objective Off or skipped exercise returns unprescribed
@@ -889,8 +1219,20 @@ export function generateSessionTargetMap(params: {
     return null;
   }
 
-  // 5. Baseline Extraction: Historical logs first (with log's own snapshot), then pristine template fallback (with active snapshot)
-  const historicalE1RM = extractHistoricalBaselineE1RM(exercise.name, previousLogs, mod, activeUnit);
+  // 5. Baseline Extraction: Contextual resolver first (with log's own snapshot), then pristine template fallback (with active snapshot)
+  const historicalE1RM = resolveContextualPrescriptionBaselineE1RM(
+    exercise.name,
+    weekNum,
+    previousLogs,
+    {
+      programId,
+      targetDay: dayNum,
+      targetDate,
+      occurrenceOrdinal,
+      modality: mod,
+      activeUnit,
+    }
+  );
   const baselineE1RM = historicalE1RM > 0 ? historicalE1RM : extractTemplateBaselineE1RM(templateExercise || undefined, bodyweightSnapshot, activeUnit);
 
   if (baselineE1RM <= 0) {
@@ -1020,6 +1362,10 @@ export function generateSessionTargetMap(params: {
     templateExercise: templateExercise || undefined,
     bodyweightSnapshot,
     activeUnit,
+    programId,
+    dayNum,
+    targetDate,
+    occurrenceOrdinal,
   });
 
   if (resolution.isBypassed || !resolution.distributionResult || !resolution.anchor) {
@@ -1135,12 +1481,16 @@ export interface CalculateObjectiveSetsParams {
   templateExercise?: ExerciseEntry;
   bodyweightSnapshot?: BodyweightSnapshot | null;
   activeUnit?: WeightUnit;
+  programId?: string | null;
+  dayNum?: number | string | null;
+  targetDate?: string | null;
+  occurrenceOrdinal?: number;
 }
 
 /**
  * Applies the Strength, Hypertrophy, or Deload algorithm to an exercise's sets.
  * Baseline Precedence:
- * 1. Historical baseline e1RM from previous completed workout logs (extractHistoricalBaselineE1RM).
+ * 1. Contextual baseline e1RM from previous completed workout logs (resolveContextualPrescriptionBaselineE1RM).
  * 2. Immutable program template default (extractTemplateBaselineE1RM).
  * 3. If neither exists, baseline capacity is 0 (targets will not fabricate arbitrary weights).
  * 
@@ -1160,6 +1510,10 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
     templateExercise,
     bodyweightSnapshot,
     activeUnit = 'kg',
+    programId,
+    dayNum,
+    targetDate,
+    occurrenceOrdinal,
   } = params;
 
   if (objective === 'Off' || exercise.isSkipped) {
@@ -1183,6 +1537,10 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
     templateExercise,
     bodyweightSnapshot,
     activeUnit,
+    programId,
+    dayNum,
+    targetDate,
+    occurrenceOrdinal,
   });
 
   if (!targetsByOrdinal) {
@@ -1201,6 +1559,10 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
     templateExercise,
     bodyweightSnapshot,
     activeUnit,
+    programId,
+    dayNum,
+    targetDate,
+    occurrenceOrdinal,
   }) : null;
   const roundedAnchorWeight = resolution?.roundedAnchorWeight || (targetsByOrdinal.get(1)?.weight || 0);
   const anchorReps = resolution?.anchorReps || (targetsByOrdinal.get(1)?.reps || 10);
@@ -1292,6 +1654,10 @@ export interface CalculateAddedSetTargetParams {
   templateExercise?: ExerciseEntry | null;
   bodyweightSnapshot?: BodyweightSnapshot | null;
   activeUnit?: WeightUnit;
+  programId?: string | null;
+  dayNum?: number | string | null;
+  targetDate?: string | null;
+  occurrenceOrdinal?: number;
 }
 
 export interface AddedSetTargetResult {
@@ -1327,6 +1693,10 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
     templateExercise,
     bodyweightSnapshot,
     activeUnit = 'kg',
+    programId,
+    dayNum,
+    targetDate,
+    occurrenceOrdinal,
   } = params;
 
   // 1. Calculate the new working-set ordinal (warmups do not consume working-set ordinals)
@@ -1353,6 +1723,10 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
     templateExercise,
     bodyweightSnapshot,
     activeUnit,
+    programId,
+    dayNum,
+    targetDate,
+    occurrenceOrdinal,
   });
 
   if (!targetMap) {
