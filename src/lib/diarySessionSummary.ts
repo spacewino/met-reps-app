@@ -1,5 +1,8 @@
 import { WorkoutLog, ExerciseEntry, SetEntry, WeightUnit } from '../types';
 import { resolveSetEffectiveLoad, calculateSetWorkingVolume, EffectiveLoadStatus } from './effectiveLoad';
+import { isParentWorkingSetEligible } from './diaryMuscleSetPeriod';
+
+export { isParentWorkingSetEligible };
 
 export type VolumeCoverageStatus =
   | 'complete'
@@ -35,26 +38,6 @@ function normalizeMuscleGroupName(rawName: string | null | undefined): string {
   if (trimmed.length === 0) return 'Other';
   // Capitalize first letter
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-}
-
-/**
- * Checks if a parent set is eligible as a completed working set.
- * Rules:
- * - Exercise is not skipped
- * - Set is not skipped
- * - Set is not warmup
- * - isCompleted !== false (accepts true and legacy undefined)
- * - reps is a positive finite integer
- */
-export function isParentWorkingSetEligible(exercise: ExerciseEntry, set: SetEntry): boolean {
-  if (exercise.isSkipped === true) return false;
-  if (set.isSkipped === true) return false;
-  if (set.isWarmup === true) return false;
-  if (set.isCompleted === false) return false;
-  if (set.reps === null || set.reps === undefined || !Number.isInteger(set.reps) || set.reps <= 0) {
-    return false;
-  }
-  return true;
 }
 
 /**

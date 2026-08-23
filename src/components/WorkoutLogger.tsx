@@ -11,7 +11,7 @@ import { getTodayLocalDateString } from '../lib/dateUtils';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { WarmupIcon } from './WarmupIcon';
-import { calculateObjectiveSets, calculateAddedSetTarget, roundToNearest25, getRTSMultiplier, findMatchingTemplateExercise, syncAddedSetStructureToProgramDay, extractHistoricalBaselineE1RM, extractTemplateBaselineE1RM, getExerciseOccurrenceOrdinal } from '../lib/objectiveMath';
+import { calculateObjectiveSets, calculateAddedSetTarget, roundToNearest25, getRTSMultiplier, findMatchingTemplateExercise, syncAddedSetStructureToProgramDay, extractHistoricalBaselineE1RM, extractTemplateBaselineE1RM, getExerciseOccurrenceOrdinal, PrescriptionTargetChronology } from '../lib/objectiveMath';
 import { generateAssistedWarmupTargets, convertWeightUnit } from '../lib/assistedLoadMath';
 import {
   validateBodyweightSnapshot,
@@ -200,7 +200,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       case 'hypertrophy_step':
         return { short: 'SL', name: 'Step Loading', desc: '4-week blocks holding reps stable while ramping intensity (RPE) weekly.' };
       case 'strength_undulating':
-        return { short: 'DUP', name: 'Daily Undulating', desc: 'Alternates high-tension target profiles based on clinical powerlifting models. Exclusively applied to the designated Main Movement.' };
+        return { short: 'DUP', name: 'Wave Strength', desc: 'Weekly strength waves progress main movements through lower-repetition phases and may finish with an RPE 10 peak single. Exclusively applied to the designated Main Movement.' };
       case 'strength_linear':
         return { short: 'LP', name: 'Linear Periodisation', desc: 'Continuous taper reducing reps (8 down to 1) while ramping intensity. Exclusively applied to the designated Main Movement.' };
       default:
@@ -370,6 +370,14 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           userTouchedSets,
           checkedSets,
           algorithmId: activeProg?.algorithmId,
+          bodyweightSnapshot,
+          activeUnit: unit,
+          programId: programId ? String(programId) : null,
+          dayNum: dayNum !== undefined && dayNum !== null ? String(dayNum) : null,
+          targetDate: dateStr || null,
+          targetLogId: editLogId || null,
+          targetChronology,
+          sessionStartedAt: sessionStartedAtRef.current,
         });
         return { ...ex, sets: calculatedSets };
       });
@@ -419,6 +427,14 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         userTouchedSets: cleanTouched,
         checkedSets: cleanChecked,
         algorithmId: activeProg?.algorithmId,
+        bodyweightSnapshot,
+        activeUnit: unit,
+        programId: programId ? String(programId) : null,
+        dayNum: dayNum !== undefined && dayNum !== null ? String(dayNum) : null,
+        targetDate: dateStr || null,
+        targetLogId: editLogId || null,
+        targetChronology,
+        sessionStartedAt: sessionStartedAtRef.current,
       });
       const finalReplaced = { ...replacedItem, sets: calculatedSets };
 
@@ -506,6 +522,39 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       console.error('Error auto calculating duration:', e);
     }
   };
+
+  const sessionStartedAtRef = React.useRef<number>(Date.now());
+
+  const targetChronology = React.useMemo<PrescriptionTargetChronology>(() => {
+    if (editLogId) {
+      return {
+        mode: 'historical_edit',
+        targetLogId: editLogId,
+        displayedDate: dateStr || null,
+      };
+    }
+    const todayStr = getTodayLocalDateString();
+    if (dateStr && dateStr < todayStr) {
+      let explicitTargetTimestamp: number | null = null;
+      if (startTime && /^\d{1,2}:\d{2}/.test(startTime)) {
+        const combined = `${dateStr}T${startTime.length === 5 ? startTime + ':00' : startTime}`;
+        const t = new Date(combined).getTime();
+        if (Number.isFinite(t) && t > 0) explicitTargetTimestamp = t;
+      }
+      return {
+        mode: 'retrospective_new',
+        targetLogId: null,
+        displayedDate: dateStr,
+        explicitTargetTimestamp,
+      };
+    }
+    return {
+      mode: 'active_live',
+      sessionStartedAt: sessionStartedAtRef.current,
+      targetLogId: null,
+      displayedDate: dateStr || todayStr,
+    };
+  }, [editLogId, dateStr, startTime]);
 
   const [notes, setNotes] = useState<string>('');
 
@@ -823,6 +872,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
               checkedSets: {},
               bodyweightSnapshot,
               activeUnit: unit,
+              targetDate: dateStr || null,
+              targetLogId: null,
+              targetChronology,
+              sessionStartedAt: sessionStartedAtRef.current,
             });
             return { ...ex, sets: calculated };
           });
@@ -1006,6 +1059,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             programId: programId ? String(programId) : null,
             dayNum: dayNum !== undefined && dayNum !== null ? String(dayNum) : null,
             targetDate: dateStr || null,
+            targetLogId: editLogId || null,
+            targetChronology,
+            sessionStartedAt: sessionStartedAtRef.current,
             occurrenceOrdinal,
           });
           return { ...ex, sets: calculated };
@@ -1059,6 +1115,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           checkedSets: {},
           bodyweightSnapshot,
           activeUnit: unit,
+          targetDate: dateStr || null,
+          targetLogId: editLogId || null,
+          targetChronology,
+          sessionStartedAt: sessionStartedAtRef.current,
         });
         return { ...ex, sets: calculated };
       });
@@ -1209,6 +1269,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             templateExercise: templateEx,
             bodyweightSnapshot,
             activeUnit: unit,
+            programId: programId ? String(programId) : null,
+            dayNum: dayNum !== undefined && dayNum !== null ? String(dayNum) : null,
+            targetDate: dateStr || null,
+            targetLogId: editLogId || null,
+            targetChronology,
+            sessionStartedAt: sessionStartedAtRef.current,
           });
           return { ...ex, sets: calculated };
         });
@@ -1265,6 +1331,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           checkedSets: {},
           bodyweightSnapshot,
           activeUnit: unit,
+          targetDate: dateStr || null,
+          targetLogId: editLogId || null,
+          targetChronology,
+          sessionStartedAt: sessionStartedAtRef.current,
         });
         return { ...ex, sets: calculated };
       });
@@ -1339,6 +1409,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         programId: programId ? String(programId) : null,
         dayNum: dayNum !== undefined && dayNum !== null ? String(dayNum) : null,
         targetDate: dateStr || null,
+        targetLogId: editLogId || null,
+        targetChronology,
+        sessionStartedAt: sessionStartedAtRef.current,
         occurrenceOrdinal,
       });
 
@@ -1398,31 +1471,33 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const isCurrentlyMain = !!targetEx.isMainMovement;
 
     if (isCurrentlyMain) {
-      setExercises(prev => {
-        const baseUpdated = prev.map((ex, idx) => {
-          if (idx === targetIdx) {
-            return { ...ex, isMainMovement: false };
-          }
-          return ex;
-        });
-
-        const updated = applyObjectiveCalculationsToExercises(baseUpdated, objective);
-        return updated;
+      const baseUpdated = exercises.map((ex, idx) => {
+        if (idx === targetIdx) {
+          return { ...ex, isMainMovement: false };
+        }
+        return ex;
       });
+
+      const updated = applyObjectiveCalculationsToExercises(baseUpdated, objective);
+      setExercises(updated);
+      setPrescribedTargetSnapshots(prevSnaps =>
+        capturePrescribedSnapshotsFromExercises(updated, prevSnaps, userTouchedSets)
+      );
       persistMainMovementMetadata(null);
     } else {
       const currentMainIdx = exercises.findIndex(ex => !!ex.isMainMovement);
       if (currentMainIdx !== -1 && eligibleCount === 1) {
         setSwapMainTargetIdx(targetIdx);
       } else {
-        setExercises(prev => {
-          const baseUpdated = prev.map((ex, idx) => {
-            return { ...ex, isMainMovement: idx === targetIdx };
-          });
-
-          const updated = applyObjectiveCalculationsToExercises(baseUpdated, objective);
-          return updated;
+        const baseUpdated = exercises.map((ex, idx) => {
+          return { ...ex, isMainMovement: idx === targetIdx };
         });
+
+        const updated = applyObjectiveCalculationsToExercises(baseUpdated, objective);
+        setExercises(updated);
+        setPrescribedTargetSnapshots(prevSnaps =>
+          capturePrescribedSnapshotsFromExercises(updated, prevSnaps, userTouchedSets)
+        );
         persistMainMovementMetadata(targetIdx, targetEx.name);
       }
     }
@@ -1433,14 +1508,15 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const targetEx = exercises[swapMainTargetIdx];
     const targetName = targetEx ? targetEx.name : undefined;
 
-    setExercises(prev => {
-      const baseUpdated = prev.map((ex, idx) => {
-        return { ...ex, isMainMovement: idx === swapMainTargetIdx };
-      });
-
-      const updated = applyObjectiveCalculationsToExercises(baseUpdated, objective);
-      return updated;
+    const baseUpdated = exercises.map((ex, idx) => {
+      return { ...ex, isMainMovement: idx === swapMainTargetIdx };
     });
+
+    const updated = applyObjectiveCalculationsToExercises(baseUpdated, objective);
+    setExercises(updated);
+    setPrescribedTargetSnapshots(prevSnaps =>
+      capturePrescribedSnapshotsFromExercises(updated, prevSnaps, userTouchedSets)
+    );
 
     persistMainMovementMetadata(swapMainTargetIdx, targetName);
     setSwapMainTargetIdx(null);
@@ -1522,6 +1598,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       checkedSets,
       bodyweightSnapshot,
       activeUnit: unit,
+      programId: programId ? String(programId) : null,
+      dayNum: dayNum !== undefined && dayNum !== null ? String(dayNum) : null,
+      targetDate: dateStr || null,
+      targetLogId: editLogId || null,
+      targetChronology,
+      sessionStartedAt: sessionStartedAtRef.current,
     });
     const finalNew = { ...newItem, sets: calculatedSets };
 
@@ -2112,6 +2194,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       programId: programId ? String(programId) : null,
       dayNum: dayNum !== undefined && dayNum !== null ? String(dayNum) : null,
       targetDate: dateStr || null,
+      targetLogId: editLogId || null,
+      targetChronology,
+      sessionStartedAt: sessionStartedAtRef.current,
       occurrenceOrdinal,
     });
 
@@ -2826,6 +2911,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
               {objective === 'Hypertrophy' && `Hypertrophy focus [${algoDetails.short}]: ${algoDetails.desc}`}
               {objective === 'Deload' && "Deload focus: Automatically reduces loads to 50% of peak capacity and targets strict control to promote total physical recovery."}
             </p>
+            {objective === 'Strength' && (activeProg?.algorithmId === 'strength_undulating' || !activeProg?.algorithmId) && typeof totalWeeks === 'number' && ![4, 8, 12].includes(totalWeeks) && (
+              <div className="mt-2.5 bg-amber-950/40 border border-amber-500/50 p-2.5 flex items-start gap-2 text-amber-300 text-xs">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <span>Strength Undulating supports 4, 8 or 12 weeks. Update the program duration to resume automatic targets.</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -2902,7 +2993,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                         )}
                       </div>
                     ) : (
-                      <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
+                      <label
+                        className="inline-flex items-center gap-1.5 cursor-pointer select-none"
+                        title="Only mark an exercise as a Main Movement if it is suitable for low-repetition strength work and peak singles."
+                      >
                         <input
                           type="checkbox"
                           checked={!!ex.isMainMovement}

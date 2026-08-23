@@ -52,12 +52,12 @@ describe('MetReps Algorithm Profiles and Multi-Set Distribution Tests', () => {
         algorithmId: 'strength_undulating',
       });
 
-      // 8-week undulating profile week 2: reps 5, rpe 8.0, target1RMPercent = 0.815
-      // Raw target weight = 147.0588235... * 0.815 = 119.8529... kg -> Rounded = 120.0 kg
+      // 8-week undulating profile week 2: reps 5, rpe 8.0, canonical RTS multiplier = 0.811
+      // Raw target weight = 147.0588235... * 0.811 = 119.26... kg -> Rounded = 117.5 kg
       expect(result.length).toBe(3);
 
-      // Set 1 (Top Set): 120.0 kg x 5 reps @ RPE 8.0
-      expect(result[0].weight).toBe(120.0);
+      // Set 1 (Top Set): 117.5 kg x 5 reps @ RPE 8.0
+      expect(result[0].weight).toBe(117.5);
       expect(result[0].reps).toBe(5);
       expect(result[0].rpe).toBe(8.0);
 
@@ -83,9 +83,9 @@ describe('MetReps Algorithm Profiles and Multi-Set Distribution Tests', () => {
         algorithmId: 'strength_undulating',
       });
 
-      // 4-week profile week 4: reps 1, targetRPE 10.0, target1RMPercent = 1.00
-      // Set 1: 147.5 kg x 1 rep @ RPE 10.0 (strength_post_test profile)
-      expect(result[0].weight).toBe(147.5);
+      // 4-week profile week 4: reps 1, targetRPE 10.0
+      // Set 1: 145.0 kg x 1 rep @ RPE 10.0 (clamped to RPE 10 capacity 147.0588 -> 145.0 kg)
+      expect(result[0].weight).toBe(145.0);
       expect(result[0].reps).toBe(1);
       expect(result[0].rpe).toBe(10.0);
 
@@ -110,7 +110,7 @@ describe('MetReps Algorithm Profiles and Multi-Set Distribution Tests', () => {
         algorithmId: 'strength_undulating',
       });
 
-      // 12-week profile week 1: reps 5, rpe 7.0, target1RMPercent = 0.786
+      // 12-week profile week 1: reps 5, rpe 7.0, multiplier = 0.786
       // Set 1: 147.0588 * 0.786 = 115.588 -> 115.0 kg
       expect(result[0].weight).toBe(115.0);
       expect(result[0].reps).toBe(5);
@@ -128,16 +128,15 @@ describe('MetReps Algorithm Profiles and Multi-Set Distribution Tests', () => {
         algorithmId: 'strength_undulating',
       });
 
-      // 8-week profile week 2: reps 5, rpe 8.0, target1RMPercent = 0.815 -> 120.0 kg
-      expect(result[0].weight).toBe(120.0);
+      // 8-week profile week 2: reps 5, rpe 8.0, multiplier = 0.811 -> 117.5 kg
+      expect(result[0].weight).toBe(117.5);
       expect(result[0].reps).toBe(5);
       expect(result[0].rpe).toBe(8.0);
     });
 
-    it('Custom 6-week program uses 4-week profile with modulo wrapping (Weeks 1-6)', () => {
+    it('Custom 6-week program safely bypasses automatic transformation', () => {
       const exercise = createTestExercise();
 
-      // Week 1 -> 4-week profile Week 1: 5 reps @ 7.0, 0.786 -> 115.0 kg
       const w1 = calculateObjectiveSets({
         objective: 'Strength',
         exercise,
@@ -146,11 +145,9 @@ describe('MetReps Algorithm Profiles and Multi-Set Distribution Tests', () => {
         previousLogs: standardHistoricalLogs,
         algorithmId: 'strength_undulating',
       });
-      expect(w1[0].weight).toBe(115.0);
-      expect(w1[0].reps).toBe(5);
-      expect(w1[0].rpe).toBe(7.0);
+      expect(w1[0].weight).toBe(0);
+      expect(w1[0].reps).toBe(0);
 
-      // Week 2 -> 4-week profile Week 2: 4 reps @ 8.0, 0.85 -> 125.0 kg
       const w2 = calculateObjectiveSets({
         objective: 'Strength',
         exercise,
@@ -159,67 +156,13 @@ describe('MetReps Algorithm Profiles and Multi-Set Distribution Tests', () => {
         previousLogs: standardHistoricalLogs,
         algorithmId: 'strength_undulating',
       });
-      expect(w2[0].weight).toBe(125.0);
-      expect(w2[0].reps).toBe(4);
-      expect(w2[0].rpe).toBe(8.0);
-
-      // Week 3 -> 4-week profile Week 3: 3 reps @ 9.0, 0.92 -> 135.0 kg
-      const w3 = calculateObjectiveSets({
-        objective: 'Strength',
-        exercise,
-        weekNum: 3,
-        programDuration: 6,
-        previousLogs: standardHistoricalLogs,
-        algorithmId: 'strength_undulating',
-      });
-      expect(w3[0].weight).toBe(135.0);
-      expect(w3[0].reps).toBe(3);
-      expect(w3[0].rpe).toBe(9.0);
-
-      // Week 4 -> 4-week profile Week 4: 1 rep @ 10.0, 1.00 -> 147.5 kg
-      const w4 = calculateObjectiveSets({
-        objective: 'Strength',
-        exercise,
-        weekNum: 4,
-        programDuration: 6,
-        previousLogs: standardHistoricalLogs,
-        algorithmId: 'strength_undulating',
-      });
-      expect(w4[0].weight).toBe(147.5);
-      expect(w4[0].reps).toBe(1);
-      expect(w4[0].rpe).toBe(10.0);
-
-      // Week 5 -> 4-week profile Week 1 repeat: 5 reps @ 7.0, 0.786 -> 115.0 kg
-      const w5 = calculateObjectiveSets({
-        objective: 'Strength',
-        exercise,
-        weekNum: 5,
-        programDuration: 6,
-        previousLogs: standardHistoricalLogs,
-        algorithmId: 'strength_undulating',
-      });
-      expect(w5[0].weight).toBe(115.0);
-      expect(w5[0].reps).toBe(5);
-      expect(w5[0].rpe).toBe(7.0);
-
-      // Week 6 -> 4-week profile Week 2 repeat: 4 reps @ 8.0, 0.85 -> 125.0 kg
-      const w6 = calculateObjectiveSets({
-        objective: 'Strength',
-        exercise,
-        weekNum: 6,
-        programDuration: 6,
-        previousLogs: standardHistoricalLogs,
-        algorithmId: 'strength_undulating',
-      });
-      expect(w6[0].weight).toBe(125.0);
-      expect(w6[0].reps).toBe(4);
-      expect(w6[0].rpe).toBe(8.0);
+      expect(w2[0].weight).toBe(0);
+      expect(w2[0].reps).toBe(0);
     });
 
-    it('Custom 10-week program: Weeks 9 and 10 map to 4-week profile Weeks 1 and 2', () => {
+    it('Custom 10-week program safely bypasses automatic transformation', () => {
       const exercise = createTestExercise();
 
-      // Week 9 -> 4-week profile Week 1: 5 reps @ 7.0, 0.786 -> 115.0 kg
       const w9 = calculateObjectiveSets({
         objective: 'Strength',
         exercise,
@@ -228,11 +171,9 @@ describe('MetReps Algorithm Profiles and Multi-Set Distribution Tests', () => {
         previousLogs: standardHistoricalLogs,
         algorithmId: 'strength_undulating',
       });
-      expect(w9[0].weight).toBe(115.0);
-      expect(w9[0].reps).toBe(5);
-      expect(w9[0].rpe).toBe(7.0);
+      expect(w9[0].weight).toBe(0);
+      expect(w9[0].reps).toBe(0);
 
-      // Week 10 -> 4-week profile Week 2: 4 reps @ 8.0, 0.85 -> 125.0 kg
       const w10 = calculateObjectiveSets({
         objective: 'Strength',
         exercise,
@@ -241,14 +182,13 @@ describe('MetReps Algorithm Profiles and Multi-Set Distribution Tests', () => {
         previousLogs: standardHistoricalLogs,
         algorithmId: 'strength_undulating',
       });
-      expect(w10[0].weight).toBe(125.0);
-      expect(w10[0].reps).toBe(4);
-      expect(w10[0].rpe).toBe(8.0);
+      expect(w10[0].weight).toBe(0);
+      expect(w10[0].reps).toBe(0);
     });
   });
 
   describe('2. strength_linear (LP)', () => {
-    it('Week 2 of 8-week program: Set 1 = 110.0 kg x 7 @ 7.5, with distributed back-offs', () => {
+    it('Week 2 of 8-week program: Set 1 = 107.5 kg x 7 @ 7.5, with distributed back-offs', () => {
       const exercise = createTestExercise();
       const result = calculateObjectiveSets({
         objective: 'Strength',
@@ -262,12 +202,12 @@ describe('MetReps Algorithm Profiles and Multi-Set Distribution Tests', () => {
 
       // weekNum = 2 in 8-week program:
       // progress = 1 / 7 ≈ 0.142857
-      // targetReps = 7, targetRPE = 7.5, target1RMPercent = 0.742857
-      // Raw target weight = 147.0588... * 0.742857... = 109.24 kg -> Rounded = 110.0 kg
+      // targetReps = 7, targetRPE = 7.5, RTS multiplier = 0.730
+      // Raw target weight = 147.0588... * 0.730 = 107.35 kg -> Rounded = 107.5 kg
       expect(result.length).toBe(3);
 
-      // Set 1: 110.0 kg x 7 reps @ RPE 7.5
-      expect(result[0].weight).toBe(110.0);
+      // Set 1: 107.5 kg x 7 reps @ RPE 7.5
+      expect(result[0].weight).toBe(107.5);
       expect(result[0].reps).toBe(7);
       expect(result[0].rpe).toBe(7.5);
 
@@ -293,8 +233,8 @@ describe('MetReps Algorithm Profiles and Multi-Set Distribution Tests', () => {
         algorithmId: 'strength_linear',
       });
 
-      // Week 8 progress = 1.0 -> 1 rep @ 10.0, 100% 1RM -> 147.5 kg
-      expect(result[0].weight).toBe(147.5);
+      // Week 8 progress = 1.0 -> 1 rep @ 10.0, 100% 1RM -> clamped to 145.0 kg
+      expect(result[0].weight).toBe(145.0);
       expect(result[0].reps).toBe(1);
       expect(result[0].rpe).toBe(10.0);
 
@@ -530,7 +470,7 @@ describe('MetReps Algorithm Profiles and Multi-Set Distribution Tests', () => {
         previousLogs: standardHistoricalLogs,
         algorithmId: 'strength_undulating',
       });
-      expect(result[0].weight).toBe(120.0);
+      expect(result[0].weight).toBe(117.5);
       expect(result[0].reps).toBe(5);
     });
 
@@ -544,7 +484,7 @@ describe('MetReps Algorithm Profiles and Multi-Set Distribution Tests', () => {
         previousLogs: standardHistoricalLogs,
         algorithmId: 'strength_undulating',
       });
-      expect(result[0].weight).toBe(120.0);
+      expect(result[0].weight).toBe(117.5);
       expect(result[0].reps).toBe(5);
       expect(result[0].rpe).toBe(8.0);
     });
@@ -657,23 +597,23 @@ describe('MetReps Algorithm Profiles and Multi-Set Distribution Tests', () => {
         algorithmId: 'strength_undulating',
       });
 
-      // Working set 1 weight = 120.0 kg, reps = 5, rpe = 8.0
+      // Working set 1 weight = 117.5 kg, reps = 5, rpe = 8.0
       // 2 warmups:
-      // Set 1 (warmup 1): 50% = 120.0 * 0.50 = 60.0 kg, 5 reps @ 4.0
-      // Set 2 (warmup 2): 75% = 120.0 * 0.75 = 90.0 kg, 4 reps @ 6.0
-      // Set 3 (working): 120.0 kg, 5 reps @ 8.0
+      // Set 1 (warmup 1): 50% = 117.5 * 0.50 = 58.75 -> 60.0 kg, 5 reps @ 4.0
+      // Set 2 (warmup 2): 75% = 117.5 * 0.75 = 88.125 -> 87.5 kg, 4 reps @ 6.0
+      // Set 3 (working): 117.5 kg, 5 reps @ 8.0
       expect(result[0].isWarmup).toBe(true);
       expect(result[0].weight).toBe(60.0);
       expect(result[0].reps).toBe(5);
       expect(result[0].rpe).toBe(4.0);
 
       expect(result[1].isWarmup).toBe(true);
-      expect(result[1].weight).toBe(90.0);
+      expect(result[1].weight).toBe(87.5);
       expect(result[1].reps).toBe(4);
       expect(result[1].rpe).toBe(6.0);
 
       expect(result[2].isWarmup).toBe(false);
-      expect(result[2].weight).toBe(120.0);
+      expect(result[2].weight).toBe(117.5);
       expect(result[2].reps).toBe(5);
       expect(result[2].rpe).toBe(8.0);
     });

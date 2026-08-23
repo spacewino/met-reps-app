@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, Trash2, Dumbbell, Clock, ChevronDown, ChevronUp, MessageSquare, Coffee, Droplet, Flame, Award, Info, X, Pencil, ArrowLeft, Trophy, Zap } from 'lucide-react';
+import { Calendar, Trash2, Dumbbell, Clock, ChevronDown, ChevronUp, MessageSquare, Coffee, Droplet, Flame, Award, Info, X, Pencil, ArrowLeft, Trophy, Zap, RotateCw } from 'lucide-react';
 import { WorkoutLog, mapLitersToHydration } from '../types';
 import { storage } from '../lib/storage';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -20,6 +20,13 @@ import {
   generateDiarySessionSummary,
   DiarySessionSummary,
 } from '../lib/diarySessionSummary';
+import {
+  DiaryMusclePeriod,
+  getNextDiaryMusclePeriod,
+  generateDiaryMuscleSetStats,
+  DIARY_MUSCLE_PERIOD_DISPLAY_NAMES,
+  getDiaryMusclePeriodAriaLabel,
+} from '../lib/diaryMuscleSetPeriod';
 import {
   generateDiaryScorecardMap,
   DiaryScorecardResult,
@@ -353,67 +360,32 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
 
   const activeWeightUnit = storage.getWeightUnit() || 'kg';
 
-  // Lifetime master metrics calculations
+  // Muscle group period stats
+  const [musclePeriod, setMusclePeriod] = useState<DiaryMusclePeriod>('lifetime');
+  const musclePeriodStats = React.useMemo(() => {
+    return generateDiaryMuscleSetStats(workoutLogs, musclePeriod, new Date());
+  }, [workoutLogs, musclePeriod]);
+
+  // Lifetime master metrics calculations (WORKOUTS, VOL. MOVED, titles)
   const masterStats = React.useMemo(() => {
     if (workoutLogs.length === 0) return null;
 
-    let totalWorkouts = workoutLogs.length;
-    let totalSets = 0;
-    let totalReps = 0;
+    const totalWorkouts = workoutLogs.length;
     let totalMinutes = 0;
-
-    const muscleSetsMap: Record<string, number> = {
-      'Delts': 0, 'Traps': 0, 'Biceps': 0, 'Triceps': 0,
-      'Pecs': 0, 'Back': 0, 'Abs': 0, 'Quads': 0,
-      'Hams': 0, 'Calves': 0, 'Glutes': 0, 'Forearms': 0
-    };
 
     workoutLogs.forEach(log => {
       if (log.durationMinutes) totalMinutes += log.durationMinutes;
-
-      log.exercises.forEach(ex => {
-        const mg = (ex.muscleGroup || '').trim();
-        // Match standard or fuzzy muscle group names
-        let mappedMg: string | null = null;
-        if (/delt|shoulder/i.test(mg)) mappedMg = 'Delts';
-        else if (/trap/i.test(mg)) mappedMg = 'Traps';
-        else if (/bicep/i.test(mg)) mappedMg = 'Biceps';
-        else if (/tricep/i.test(mg)) mappedMg = 'Triceps';
-        else if (/chest|pec/i.test(mg)) mappedMg = 'Pecs';
-        else if (/back|lats|rhomboid/i.test(mg)) mappedMg = 'Back';
-        else if (/abs|core|abdominal/i.test(mg)) mappedMg = 'Abs';
-        else if (/quad/i.test(mg)) mappedMg = 'Quads';
-        else if (/ham|hamstring/i.test(mg)) mappedMg = 'Hams';
-        else if (/calf|calves/i.test(mg)) mappedMg = 'Calves';
-        else if (/glute/i.test(mg)) mappedMg = 'Glutes';
-        else if (/forearm/i.test(mg)) mappedMg = 'Forearms';
-
-        if (ex.isSkipped) return;
-
-        if (ex.sets) {
-          const validSets = ex.sets.filter(s => !s.isSkipped && s.isCompleted !== false && ((s.reps || 0) > 0 || (s.weight || 0) > 0));
-          const validSetsCount = validSets.length;
-          totalSets += validSetsCount;
-
-          if (mappedMg) {
-            muscleSetsMap[mappedMg] += validSetsCount;
-          }
-
-          validSets.forEach(s => {
-            const r = s.reps || 0;
-            totalReps += r;
-          });
-        }
-      });
     });
+
+    const lifetimeMuscleStats = generateDiaryMuscleSetStats(workoutLogs, 'lifetime', new Date());
 
     const histVol = calculateDiaryHistoryVolume(workoutLogs);
     const totalVolumeFormatted = formatDiaryHistoryVolume(histVol, activeWeightUnit);
 
-    // Calculate top muscle group
+    // Calculate top muscle group from lifetime stats
     let topMuscle = '';
     let topMuscleSets = 0;
-    Object.entries(muscleSetsMap).forEach(([mg, count]) => {
+    Object.entries(lifetimeMuscleStats.muscleSets).forEach(([mg, count]) => {
       if (count > topMuscleSets) {
         topMuscleSets = count;
         topMuscle = mg;
@@ -430,12 +402,10 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
     return {
       totalWorkouts,
       totalVolumeFormatted,
-      totalSets,
-      totalReps,
+      totalSets: lifetimeMuscleStats.totalSets,
       totalHours: Math.round(totalMinutes / 60),
       topMuscle: topMuscle || 'Pecs',
       title,
-      muscleSetsMap,
     };
   }, [workoutLogs, activeWeightUnit]);
 
@@ -476,8 +446,10 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
   }, [sortedLogs]);
 
   // Expand the first/latest month by default on initial load
-  const [expandedMonthKey, setExpandedMonthKey] = useState<string | null>(null);
-  const initializedMonthRef = useRef(false);
+  const [expandedMonthKey, setExpandedMonthKey] = useState<string | null>(() => {
+    return groupedLogs.length > 0 ? groupedLogs[0].key : null;
+  });
+  const initializedMonthRef = useRef(groupedLogs.length > 0);
 
   useEffect(() => {
     if (groupedLogs.length > 0) {
@@ -658,24 +630,47 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
             </div>
           </div>
 
-          {/* Muscle Group Lifetime Set Matrix */}
+          {/* Muscle Group Period Set Matrix */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <span className={`text-[9px] font-mono font-bold uppercase tracking-widest ${
-                isDesertTheme ? 'text-[#6F6A63]' : 'text-slate-400'
-              }`}>
-                LIFETIME SETS BY MUSCLE GROUP
-              </span>
-              <span className={`text-[9px] font-mono font-bold ${
+            <div className="flex items-center justify-between mb-1.5 min-h-[24px]">
+              <button
+                type="button"
+                id="diary-muscle-period-toggle"
+                onClick={() => setMusclePeriod(prev => getNextDiaryMusclePeriod(prev))}
+                aria-label={getDiaryMusclePeriodAriaLabel(musclePeriod, getNextDiaryMusclePeriod(musclePeriod))}
+                className={`group inline-flex items-center gap-1.5 text-left text-[9px] font-mono font-bold uppercase tracking-widest transition-colors py-0.5 rounded focus:outline-none focus-visible:ring-1 ${
+                  isDesertTheme
+                    ? 'text-[#6F6A63] hover:text-[#252320] focus-visible:ring-[#E05A47]'
+                    : 'text-slate-400 hover:text-slate-200 focus-visible:ring-indigo-400'
+                }`}
+              >
+                <span className={`transition-colors ${
+                  isDesertTheme
+                    ? 'text-[#9B1C1C] group-hover:text-[#7A1515] underline decoration-[#E05A47]/40 decoration-1 underline-offset-2'
+                    : 'text-indigo-400 group-hover:text-indigo-300 underline decoration-indigo-500/40 decoration-1 underline-offset-2'
+                }`}>
+                  {DIARY_MUSCLE_PERIOD_DISPLAY_NAMES[musclePeriod]}
+                </span>
+                <RotateCw
+                  className={`w-2.5 h-2.5 shrink-0 transition-transform duration-200 group-hover:rotate-45 ${
+                    isDesertTheme ? 'text-[#E05A47]' : 'text-indigo-400'
+                  }`}
+                  aria-hidden="true"
+                />
+                <span className="shrink-0">
+                  SETS BY MUSCLE GROUP
+                </span>
+              </button>
+              <span className={`text-[9px] font-mono font-bold shrink-0 ml-2 ${
                 isDesertTheme ? 'text-[#9B1C1C]' : 'text-indigo-400'
               }`}>
-                TOTAL: {masterStats.totalSets} SETS
+                TOTAL: {musclePeriodStats.totalSets} SETS
               </span>
             </div>
 
             {/* Responsive grid of all 12 muscle groups */}
             <div className="grid grid-cols-4 sm:grid-cols-6 gap-1">
-              {Object.entries(masterStats.muscleSetsMap).map(([muscle, count]) => {
+              {Object.entries(musclePeriodStats.muscleSets).map(([muscle, count]) => {
                 const isZero = count === 0;
                 return (
                   <div
@@ -723,43 +718,58 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
             const isDesertTheme = themeId === 'amber';
 
             return (
-              <div key={group.key} className="space-y-2.5">
-                {/* Discrete Month Section Header */}
-                <button
-                  type="button"
-                  id={`month-header-${group.key}`}
-                  onClick={() => toggleMonth(group.key)}
-                  className={`w-full flex items-center justify-between px-4 py-2.5 transition-all text-left border-y scroll-mt-14 ${
-                    isDesertTheme
-                      ? 'bg-[#FAF5F0] border-[#E05A47]/40 hover:bg-[#F5EBE0] text-[#252320]'
-                      : 'bg-slate-900/90 border-slate-800 hover:bg-slate-850 text-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Calendar className={`w-3.5 h-3.5 ${isDesertTheme ? 'text-[#9B1C1C]' : 'text-indigo-400'}`} />
-                    <span className={`text-xs font-black font-mono uppercase tracking-widest ${isDesertTheme ? 'text-[#252320]' : 'text-slate-100'}`}>
+              <div key={group.key} className="space-y-0">
+                {/* Discrete Month Section Header Tab */}
+                <div className="flex justify-start">
+                  <button
+                    type="button"
+                    id={`month-header-${group.key}`}
+                    aria-expanded={isMonthExpanded}
+                    aria-controls={`month-content-${group.key}`}
+                    aria-label={`${isMonthExpanded ? 'Collapse' : 'Expand'} ${group.label} workouts`}
+                    onClick={() => toggleMonth(group.key)}
+                    className={`inline-flex items-center gap-1.5 sm:gap-2.5 px-3 sm:px-4 py-2 sm:py-2.5 min-h-[44px] transition-all text-left scroll-mt-14 max-w-full rounded-t-md focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
+                      isMonthExpanded
+                        ? 'rounded-b-none border-t border-x border-b-0 -mb-px z-10 relative'
+                        : 'rounded-b-md border'
+                    } ${
+                      isDesertTheme
+                        ? 'bg-[#FAF5F0] border-[#E05A47]/40 hover:bg-[#F5EBE0] text-[#252320] focus-visible:ring-[#E05A47]'
+                        : 'bg-slate-900 border-slate-800 hover:bg-slate-850 text-slate-200 focus-visible:ring-indigo-400'
+                    }`}
+                  >
+                    <Calendar className={`w-3.5 h-3.5 shrink-0 ${isDesertTheme ? 'text-[#9B1C1C]' : 'text-indigo-400'}`} />
+                    <span className={`text-[11px] sm:text-xs font-black font-mono uppercase tracking-wider sm:tracking-widest truncate ${
+                      isDesertTheme ? 'text-[#252320]' : 'text-slate-100'
+                    }`}>
                       {group.label}
                     </span>
-                    <span className={`text-[10px] font-bold font-mono px-2 py-0.5 border ${
+                    <span className={`text-[9px] sm:text-[10px] font-bold font-mono px-1.5 sm:px-2 py-0.5 border whitespace-nowrap shrink-0 ${
                       isDesertTheme
                         ? 'text-[#9B1C1C] bg-[#FDF2F2] border-[#E05A47]/40'
                         : 'text-indigo-400 bg-indigo-950/80 border-indigo-800/60'
                     }`}>
                       {group.logs.length} {group.logs.length === 1 ? 'SESSION' : 'SESSIONS'}
                     </span>
-                  </div>
-                  <div className={isDesertTheme ? 'text-[#9B1C1C]' : 'text-indigo-400'}>
-                    {isMonthExpanded ? (
-                      <ChevronUp className="w-4 h-4" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4 text-slate-500" />
-                    )}
-                  </div>
-                </button>
+                    <div
+                      className={`w-5 h-5 sm:w-5.5 sm:h-5.5 rounded-full border flex items-center justify-center shrink-0 ${
+                        isDesertTheme
+                          ? 'border-[#E05A47]/40 text-[#9B1C1C]'
+                          : 'border-slate-700 text-indigo-400'
+                      }`}
+                    >
+                      {isMonthExpanded ? (
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      )}
+                    </div>
+                  </button>
+                </div>
 
                 {/* Workout Cards for this Month */}
                 {isMonthExpanded && (
-                  <div className="space-y-3">
+                  <div id={`month-content-${group.key}`} className="space-y-2">
                     {group.logs.map(log => {
                       const isExpanded = expandedLogId === log.id;
                       const scorecard: DiaryScorecardResult | undefined = scorecardMap[log.id];

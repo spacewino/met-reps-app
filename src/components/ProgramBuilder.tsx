@@ -177,7 +177,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
 
     // Update snapshot with saved values to clear the dirty state
     const dur = updatedProgram.programDuration;
-    const durNum = dur && typeof dur === 'number' && [4, 6, 8, 12].includes(dur) ? dur : 8;
+    const isUndulating = updatedProgram.objective === 'Strength' && (updatedProgram.algorithmId === 'strength_undulating' || !updatedProgram.algorithmId);
+    const durNum = dur && typeof dur === 'number' && (isUndulating ? [4, 8, 12] : [4, 6, 8, 12]).includes(dur) ? dur : 8;
     const saveObj = updatedProgram.objective || 'Hypertrophy';
     const saveAlgo = updatedProgram.algorithmId || (saveObj === 'Strength' ? 'strength_undulating' : 'hypertrophy_linear');
     setSnapshot({
@@ -837,7 +838,10 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
             </button>
             {isDurationDropdownOpen && (
               <div className="absolute left-0 right-0 top-16 bg-slate-950 border border-slate-800 rounded-none shadow-2xl z-50 overflow-y-auto max-h-60 py-1 font-sans">
-                {[4, 6, 8, 12].map(opt => (
+                {((objective === 'Strength' && (algorithmId === 'strength_undulating' || !algorithmId))
+                  ? [4, 8, 12]
+                  : [4, 6, 8, 12]
+                ).map(opt => (
                   <button
                     key={opt}
                     type="button"
@@ -886,6 +890,9 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                         setAlgorithmId('hypertrophy_linear');
                       } else if (obj === 'Strength') {
                         setAlgorithmId('strength_undulating');
+                        if (durationWeeks === 6) {
+                          setDurationWeeks(8);
+                        }
                       } else {
                         setAlgorithmId('none');
                       }
@@ -954,7 +961,12 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setAlgorithmId('strength_undulating')}
+                    onClick={() => {
+                      setAlgorithmId('strength_undulating');
+                      if (durationWeeks === 6) {
+                        setDurationWeeks(8);
+                      }
+                    }}
                     className={`flex flex-col justify-between text-left p-3.5 border rounded-none transition-all cursor-pointer h-full ${
                       algorithmId === 'strength_undulating'
                         ? 'bg-indigo-950/40 border-indigo-500/80 text-indigo-200 shadow-inner'
@@ -962,8 +974,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                     }`}
                   >
                     <div>
-                      <span className="text-[11px] font-black uppercase tracking-wider text-white">Undulating</span>
-                      <span className="block text-[12px] font-medium mt-1 leading-relaxed text-slate-400">Established clinical model; varies reps & intensity profiles week-by-week.</span>
+                      <span className="text-[11px] font-black uppercase tracking-wider text-white">WAVE STRENGTH</span>
+                      <span className="block text-[12px] font-medium mt-1 leading-relaxed text-slate-400">Weekly strength waves progress main movements through lower-repetition phases and may finish with an RPE 10 peak single.</span>
                     </div>
                   </button>
                   <button
@@ -999,12 +1011,17 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                       "Step Loading: Uses 4-week microcycles where rep counts are held stable, but intensity (RPE) rises stepwise weekly (Week 1: RPE 7.0, Week 2: 7.5, Week 3: 8.0, Week 4: 8.0+). In the 4th week, accessory volume is slightly overreached to spur motor unit recruitment, triggering a deep hyper-recovery response."
                     )}
                     {algorithmId === 'strength_undulating' && (
-                      "Daily Undulating: An advanced clinical framework. We alternate high-tension target blocks (ranging between 5, 3, 2, and 1 reps) with RPE ranging from 7.0 to 9.5 based on established powerlifting models. Exclusively calculates weights for the designated 'Main Movement'."
+                      "Wave Strength: Weekly strength waves progress main movements through lower-repetition phases and may finish with an RPE 10 peak single. Exclusively calculates targets for the designated 'Main Movement'."
                     )}
                     {algorithmId === 'strength_linear' && (
-                      "Linear Periodisation: A continuous classic strength sweep across your program's duration. The algorithm automatically tapers rep targets down smoothly from 8 reps in Week 1, down to 1 rep in your peak week, while ramping intensity (RPE 7.0 to 10.0) and weights (70% to 100% of e1RM) linearly. Exclusively calculates weights for the designated 'Main Movement'."
+                      "Linear Periodisation: A continuous classic strength sweep across your program's duration. The algorithm automatically tapers rep targets down smoothly from 8 reps in Week 1, down to 1 rep in your peak week, while ramping intensity (RPE 7.0 to 10.0) and weights (70% to 100% of e1RM) linearly. Exclusively calculates targets for the designated 'Main Movement'."
                     )}
                   </p>
+                  {objective === 'Strength' && (
+                    <p className="text-[11px] text-indigo-400/90 font-mono pl-6 pt-0.5">
+                      Only mark an exercise as a Main Movement if it is suitable for low-repetition strength work and peak singles.
+                    </p>
+                  )}
                 </div>
               </div>
             )}

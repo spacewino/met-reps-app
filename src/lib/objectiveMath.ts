@@ -1,5 +1,6 @@
 import { ExerciseEntry, SetEntry, WorkoutLog, BodyweightSnapshot, WeightUnit } from '../types';
 import { getExerciseClassification } from './exerciseClassification';
+import { getTodayLocalDateString } from './dateUtils';
 import {
   DEFAULT_RTS_STYLE_PERCENT_1RM,
   isValidRPE,
@@ -28,8 +29,8 @@ export const RTS_RPE_PERCENT = DEFAULT_RTS_STYLE_PERCENT_1RM;
 
 interface StrengthProfileWeek {
   reps: number;
-  target1RMPercent: number;
   targetRPE: number;
+  target1RMPercent?: number;
 }
 
 /**
@@ -84,36 +85,36 @@ export function getPermittedRepetitionBounds(params: {
   }
 }
 
-const STRENGTH_PROFILES: Record<number, Record<number, StrengthProfileWeek>> = {
+const STRENGTH_PROFILES: Record<number, Record<number, { reps: number; targetRPE: number }>> = {
   4: {
-    1: { reps: 5, target1RMPercent: 0.786, targetRPE: 7.0 },
-    2: { reps: 4, target1RMPercent: 0.85, targetRPE: 8.0 },
-    3: { reps: 3, target1RMPercent: 0.92, targetRPE: 9.0 },
-    4: { reps: 1, target1RMPercent: 1.00, targetRPE: 10.0 },
+    1: { reps: 5, targetRPE: 7.0 },
+    2: { reps: 4, targetRPE: 8.0 },
+    3: { reps: 3, targetRPE: 9.0 },
+    4: { reps: 1, targetRPE: 10.0 },
   },
   8: {
-    1: { reps: 5, target1RMPercent: 0.786, targetRPE: 7.0 },
-    2: { reps: 5, target1RMPercent: 0.815, targetRPE: 8.0 },
-    3: { reps: 5, target1RMPercent: 0.85, targetRPE: 9.0 },
-    4: { reps: 3, target1RMPercent: 0.80, targetRPE: 7.5 },
-    5: { reps: 3, target1RMPercent: 0.88, targetRPE: 8.5 },
-    6: { reps: 2, target1RMPercent: 0.84, targetRPE: 8.0 },
-    7: { reps: 2, target1RMPercent: 0.92, targetRPE: 9.0 },
-    8: { reps: 1, target1RMPercent: 1.00, targetRPE: 10.0 },
+    1: { reps: 5, targetRPE: 7.0 },
+    2: { reps: 5, targetRPE: 8.0 },
+    3: { reps: 5, targetRPE: 9.0 },
+    4: { reps: 3, targetRPE: 7.5 },
+    5: { reps: 3, targetRPE: 8.5 },
+    6: { reps: 2, targetRPE: 8.0 },
+    7: { reps: 2, targetRPE: 9.0 },
+    8: { reps: 1, targetRPE: 10.0 },
   },
   12: {
-    1: { reps: 5, target1RMPercent: 0.786, targetRPE: 7.0 },
-    2: { reps: 5, target1RMPercent: 0.815, targetRPE: 8.0 },
-    3: { reps: 5, target1RMPercent: 0.84, targetRPE: 8.5 },
-    4: { reps: 5, target1RMPercent: 0.86, targetRPE: 9.0 },
-    5: { reps: 3, target1RMPercent: 0.80, targetRPE: 7.5 },
-    6: { reps: 3, target1RMPercent: 0.85, targetRPE: 8.0 },
-    7: { reps: 3, target1RMPercent: 0.90, targetRPE: 9.0 },
-    8: { reps: 2, target1RMPercent: 0.84, targetRPE: 8.0 },
-    9: { reps: 2, target1RMPercent: 0.89, targetRPE: 8.5 },
-    10: { reps: 2, target1RMPercent: 0.94, targetRPE: 9.5 },
-    11: { reps: 1, target1RMPercent: 0.96, targetRPE: 9.0 },
-    12: { reps: 1, target1RMPercent: 1.00, targetRPE: 10.0 },
+    1: { reps: 5, targetRPE: 7.0 },
+    2: { reps: 5, targetRPE: 8.0 },
+    3: { reps: 5, targetRPE: 8.5 },
+    4: { reps: 5, targetRPE: 9.0 },
+    5: { reps: 3, targetRPE: 7.5 },
+    6: { reps: 3, targetRPE: 8.0 },
+    7: { reps: 3, targetRPE: 9.0 },
+    8: { reps: 2, targetRPE: 8.0 },
+    9: { reps: 2, targetRPE: 8.5 },
+    10: { reps: 2, targetRPE: 9.5 },
+    11: { reps: 1, targetRPE: 9.0 },
+    12: { reps: 1, targetRPE: 10.0 },
   }
 };
 
@@ -122,32 +123,31 @@ const STRENGTH_PROFILES: Record<number, Record<number, StrengthProfileWeek>> = {
  * - 4-week duration: defined 4-week profile
  * - 8-week duration or undefined: defined 8-week profile
  * - 12-week duration: defined 12-week profile
- * - Custom durations (e.g. 6, 10): 4-week profile with modulo wrapping
+ * - Unsupported custom durations (e.g. 6, 10): returns null to safely bypass automatic target generation
  */
 export function getUndulatingProfileWeek(
   weekNum: number,
   programDuration?: number
-): StrengthProfileWeek {
-  // If undefined, default to 8-week defined profile
-  if (programDuration === undefined || programDuration === null) {
-    const profile = STRENGTH_PROFILES[8];
-    const activeWeek = Math.max(1, Math.min(weekNum, 8));
-    return profile[activeWeek] || profile[1];
+): StrengthProfileWeek | null {
+  // If undefined or null, default to 8-week defined profile
+  const effectiveDuration = (programDuration === undefined || programDuration === null) ? 8 : programDuration;
+
+  // Supported defined durations: 4, 8, 12
+  if (effectiveDuration === 4 || effectiveDuration === 8 || effectiveDuration === 12) {
+    const profile = STRENGTH_PROFILES[effectiveDuration];
+    const activeWeek = Math.max(1, Math.min(weekNum, effectiveDuration));
+    const base = profile[activeWeek] || profile[1];
+    const target1RMPercent = rpeMathGetRTSMultiplier(base.reps, base.targetRPE) ?? 1.0;
+    return {
+      reps: base.reps,
+      targetRPE: base.targetRPE,
+      target1RMPercent,
+    };
   }
 
-  // Defined durations: 4, 8, 12
-  if (programDuration === 4 || programDuration === 8 || programDuration === 12) {
-    const profile = STRENGTH_PROFILES[programDuration];
-    const activeWeek = Math.max(1, Math.min(weekNum, programDuration));
-    return profile[activeWeek] || profile[1];
-  }
-
-  // Custom durations (e.g. 6, 10): 4-week profile with modulo wrapping
-  const maxWeek = Math.max(1, programDuration);
-  const normalizedWeek = Math.max(1, Math.min(weekNum, maxWeek));
-  const activeProfileWeek = ((normalizedWeek - 1) % 4) + 1;
-  const fourWeekProfile = STRENGTH_PROFILES[4];
-  return fourWeekProfile[activeProfileWeek] || fourWeekProfile[1];
+  // Unsupported custom durations (e.g. 6, 10):
+  // Do NOT modulo-wrap. Safely bypass automatic transformation.
+  return null;
 }
 
 /**
@@ -278,14 +278,300 @@ export function extractHistoricalBaselineE1RM(
   return 0;
 }
 
+export type PrescriptionTargetChronology =
+  | {
+      mode: 'active_live';
+      sessionStartedAt: number;
+      targetLogId: null;
+      displayedDate?: string | null;
+    }
+  | {
+      mode: 'historical_edit';
+      targetLogId: string;
+      displayedDate?: string | null;
+    }
+  | {
+      mode: 'retrospective_new';
+      targetLogId: null;
+      displayedDate: string;
+      explicitTargetTimestamp?: number | null;
+    };
+
 export interface ContextualPrescriptionBaselineOptions {
   programId?: string | null;
   targetDay?: number | string | null;
   targetDate?: string | null;
+  targetLogId?: string | null;
+  targetChronology?: PrescriptionTargetChronology | null;
+  sessionStartedAt?: number | null;
+  explicitTargetTimestamp?: number | null;
   occurrenceOrdinal?: number;
   modality?: ExerciseEntry['modality'];
   activeUnit?: WeightUnit;
+  bodyweightSnapshot?: BodyweightSnapshot | null;
 }
+
+/**
+ * Resolves a unified PrescriptionTargetChronology descriptor from options.
+ */
+export function resolveTargetChronology(
+  optionsOrTargetLogId?: ContextualPrescriptionBaselineOptions | string | null,
+  targetDateParam?: string | null,
+  sessionStartedAtParam?: number | null,
+  explicitTargetTimestampParam?: number | null
+): PrescriptionTargetChronology {
+  let targetChronology: PrescriptionTargetChronology | null | undefined = null;
+  let targetLogId: string | null = null;
+  let displayedDate: string | null = null;
+  let sessionStartedAt: number | null = null;
+  let explicitTargetTimestamp: number | null = null;
+
+  if (typeof optionsOrTargetLogId === 'object' && optionsOrTargetLogId !== null) {
+    targetChronology = optionsOrTargetLogId.targetChronology;
+    targetLogId = optionsOrTargetLogId.targetLogId ? String(optionsOrTargetLogId.targetLogId).trim() : null;
+    displayedDate = optionsOrTargetLogId.targetDate ? String(optionsOrTargetLogId.targetDate).trim() : null;
+    sessionStartedAt = optionsOrTargetLogId.sessionStartedAt ?? null;
+    explicitTargetTimestamp = optionsOrTargetLogId.explicitTargetTimestamp ?? null;
+  } else {
+    targetLogId = optionsOrTargetLogId ? String(optionsOrTargetLogId).trim() : null;
+    displayedDate = targetDateParam ? String(targetDateParam).trim() : null;
+    sessionStartedAt = sessionStartedAtParam ?? null;
+    explicitTargetTimestamp = explicitTargetTimestampParam ?? null;
+  }
+
+  if (targetChronology) {
+    return targetChronology;
+  }
+
+  if (targetLogId) {
+    return {
+      mode: 'historical_edit',
+      targetLogId,
+      displayedDate,
+    };
+  }
+
+  const todayStr = getTodayLocalDateString();
+  const effectiveSessionStart = sessionStartedAt ?? Date.now();
+
+  if (displayedDate && displayedDate < todayStr) {
+    return {
+      mode: 'retrospective_new',
+      targetLogId: null,
+      displayedDate,
+      explicitTargetTimestamp,
+    };
+  }
+
+  return {
+    mode: 'active_live',
+    sessionStartedAt: effectiveSessionStart,
+    targetLogId: null,
+    displayedDate: displayedDate || todayStr,
+  };
+}
+
+/**
+ * Safely extracts a numeric millisecond timestamp from a log's explicit time, full ISO datetime, or numeric ID.
+ * Returns null if the log has only a plain date (YYYY-MM-DD) without time-of-day evidence or if the time is invalid.
+ */
+export function extractLogEffectiveTimestampMs(
+  log?: { id?: string | null; date?: string | null; startTime?: string | null } | null
+): number | null {
+  if (!log) return null;
+
+  // 1. Strict startTime validation and extraction
+  if (log.startTime && typeof log.startTime === 'string') {
+    const rawTime = log.startTime.trim();
+    const timeMatch = rawTime.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (timeMatch) {
+      const hours = parseInt(timeMatch[1], 10);
+      const minutes = parseInt(timeMatch[2], 10);
+      const seconds = timeMatch[3] ? parseInt(timeMatch[3], 10) : 0;
+
+      // Strict range validation: hours 0-23, minutes 0-59, seconds 0-59 (values like 25:90 must NOT roll over)
+      if (
+        hours >= 0 && hours <= 23 &&
+        minutes >= 0 && minutes <= 59 &&
+        seconds >= 0 && seconds <= 59
+      ) {
+        if (log.date && typeof log.date === 'string') {
+          const dateTrimmed = log.date.trim();
+          // Plain date format YYYY-MM-DD
+          if (/^\d{4}-\d{2}-\d{2}$/.test(dateTrimmed)) {
+            const pad = (n: number) => n.toString().padStart(2, '0');
+            const isoCombined = `${dateTrimmed}T${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+            const d = new Date(isoCombined);
+            const ts = d.getTime();
+            if (Number.isFinite(ts) && ts > 0) {
+              return ts;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Timestamp-bearing MetReps ID extraction (e.g. 'log-1724400000000', '1724400000000', 'log-1724400000000-abc')
+  if (log.id && typeof log.id === 'string') {
+    const str = log.id.trim();
+    const match = str.match(/^(?:log-)?(\d{10,16})/);
+    if (match) {
+      const parsed = parseInt(match[1], 10);
+      // Valid epoch timestamp in ms between year 2020 (1577836800000) and year 2100 (4102444800000)
+      if (Number.isFinite(parsed) && parsed > 1577836800000 && parsed < 4102444800000) {
+        return parsed;
+      }
+    }
+  }
+
+  // 3. Full ISO datetime parsing ONLY when date contains an explicit time component (e.g. "2026-08-23T14:30:00.000Z")
+  if (log.date && typeof log.date === 'string') {
+    const dateTrimmed = log.date.trim();
+    const isoDateTimeMatch = dateTrimmed.match(/^\d{4}-\d{2}-\d{2}[T ](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (isoDateTimeMatch) {
+      const hours = parseInt(isoDateTimeMatch[1], 10);
+      const minutes = parseInt(isoDateTimeMatch[2], 10);
+      const seconds = isoDateTimeMatch[3] ? parseInt(isoDateTimeMatch[3], 10) : 0;
+      if (
+        hours >= 0 && hours <= 23 &&
+        minutes >= 0 && minutes <= 59 &&
+        seconds >= 0 && seconds <= 59
+      ) {
+        const parsed = Date.parse(dateTrimmed);
+        if (Number.isFinite(parsed) && parsed > 1577836800000) {
+          return parsed;
+        }
+      }
+    }
+  }
+
+  // Plain dates (e.g. "2026-08-23") without startTime or timestamp ID return null
+  return null;
+}
+
+/**
+ * Pure helper to determine whether a candidate WorkoutLog occurred prior to the target workout session.
+ * Consistently applied to Tier 1, Tier 2, and Tier 3 contextual baseline evaluation.
+ */
+export function isCandidateLogChronologicallyEligible(
+  candidate: WorkoutLog,
+  chronology?: PrescriptionTargetChronology | null,
+  logs: WorkoutLog[] = []
+): boolean {
+  if (!candidate || !candidate.date) {
+    return false;
+  }
+
+  if (!chronology) {
+    return true; // Backward compatibility fallback
+  }
+
+  const candidateDate = candidate.date.trim();
+  const targetDate = (chronology.displayedDate || '').trim();
+
+  // Case 1: Candidate is on a strictly FUTURE calendar date relative to target date
+  if (candidateDate > targetDate) {
+    return false;
+  }
+
+  // Case 2: Candidate is on a strictly EARLIER calendar date relative to target date
+  if (candidateDate < targetDate) {
+    return true;
+  }
+
+  // Case 3: Candidate is on the EXACT SAME calendar date as target date
+  // Mode A: historical_edit
+  if (chronology.mode === 'historical_edit') {
+    // 1. Self-exclusion: target workout itself is never eligible baseline evidence
+    if (candidate.id && candidate.id === chronology.targetLogId) {
+      return false;
+    }
+
+    // 2. Resolve the unique permanent target log in logs
+    const matchingTargets = logs.filter(l => l && l.id && l.id === chronology.targetLogId);
+    if (matchingTargets.length !== 1) {
+      // Missing target log (0) or duplicate target IDs (> 1) -> fail closed
+      return false;
+    }
+
+    const targetLog = matchingTargets[0];
+    const targetTs = extractLogEffectiveTimestampMs(targetLog);
+    if (targetTs === null) {
+      // Historical target without resolvable time -> fail closed for same-day
+      return false;
+    }
+
+    const candidateTs = extractLogEffectiveTimestampMs(candidate);
+    if (candidateTs === null) {
+      // Same-day candidate without resolvable time -> fail closed
+      return false;
+    }
+
+    return candidateTs < targetTs;
+  }
+
+  // Mode B: active_live
+  if (chronology.mode === 'active_live') {
+    const candidateTs = extractLogEffectiveTimestampMs(candidate);
+    if (candidateTs !== null) {
+      return candidateTs < chronology.sessionStartedAt;
+    }
+    // Candidate with date only or unresolvable timestamp -> fail closed on same day to prevent unverified leakage
+    return false;
+  }
+
+  // Mode C: retrospective_new
+  if (chronology.mode === 'retrospective_new') {
+    if (chronology.explicitTargetTimestamp !== undefined && chronology.explicitTargetTimestamp !== null) {
+      const candidateTs = extractLogEffectiveTimestampMs(candidate);
+      if (candidateTs !== null) {
+        return candidateTs < chronology.explicitTargetTimestamp;
+      }
+      return false;
+    }
+    // Without explicit target timestamp for retrospective entry, same-day logs cannot be proven earlier -> fail closed
+    return false;
+  }
+
+  return false;
+}
+
+/**
+ * Safely extracts a numeric timestamp from a log ID (e.g. 'log-1724398123456', '1724398123456', 'log-1724398123456-abc' -> 1724398123456).
+ */
+export function extractTimestampFromLogId(id?: string | null): number | null {
+  return extractLogEffectiveTimestampMs({ id: id || undefined });
+}
+
+/**
+ * Safely extracts a numeric timestamp from a log's startTime or createdAt ISO string/timestamp.
+ */
+export function extractTimestampFromLogTime(log: WorkoutLog): number | null {
+  return extractLogEffectiveTimestampMs(log);
+}
+
+/**
+ * Deterministically compares logs chronologically descending (newest first).
+ */
+export const compareLogsChronologicalDesc = (a: WorkoutLog, b: WorkoutLog): number => {
+  const dateComp = (b.date || '').localeCompare(a.date || '');
+  if (dateComp !== 0) return dateComp;
+
+  const timeA = extractLogEffectiveTimestampMs(a);
+  const timeB = extractLogEffectiveTimestampMs(b);
+  if (timeA !== null && timeB !== null && timeA !== timeB) {
+    return timeB - timeA;
+  }
+
+  const schedComp = (b.scheduledDate || '').localeCompare(a.scheduledDate || '');
+  if (schedComp !== 0) return schedComp;
+
+  const idComp = (b.id || '').localeCompare(a.id || '');
+  if (idComp !== 0) return idComp;
+
+  return 0;
+};
 
 /**
  * Resolves the session capacity (maximum valid working-set e1RM) for an exercise exposure in a workout log.
@@ -380,8 +666,9 @@ export function resolveContextualPrescriptionBaselineE1RM(
   const targetProgramId = options?.programId ? String(options.programId).trim() : null;
   const targetDay = options?.targetDay !== undefined && options?.targetDay !== null ? String(options.targetDay).trim() : null;
   const targetOccurrenceOrdinal = options?.occurrenceOrdinal ?? 0;
-  const targetDate = options?.targetDate ? String(options.targetDate).trim() : null;
   const activeUnit = options?.activeUnit || 'kg';
+
+  const targetChronology = resolveTargetChronology(options);
 
   // Helper to safely parse week number from a log
   const parseLogWeek = (rawWeek: string | number | undefined): number | null => {
@@ -394,40 +681,27 @@ export function resolveContextualPrescriptionBaselineE1RM(
     return null;
   };
 
-  // Helper for deterministic sorting of logs (newest first)
-  const compareLogsChronologicalDesc = (a: WorkoutLog, b: WorkoutLog): number => {
-    const dateComp = (b.date || '').localeCompare(a.date || '');
-    if (dateComp !== 0) return dateComp;
-
-    const schedComp = (b.scheduledDate || '').localeCompare(a.scheduledDate || '');
-    if (schedComp !== 0) return schedComp;
-
-    const idComp = (b.id || '').localeCompare(a.id || '');
-    if (idComp !== 0) return idComp;
-
-    return 0;
+  // Helper to find matching exercise entry in a log based on normalized name & occurrence ordinal
+  const findMatchingExerciseInLog = (log: WorkoutLog): ExerciseEntry | null => {
+    if (!log.exercises || log.exercises.length === 0) return null;
+    const matchingExs = log.exercises.filter(
+      e => !e.isSkipped && normalizeName(e.name) === targetNorm
+    );
+    if (matchingExs.length === 0) return null;
+    if (targetOccurrenceOrdinal < matchingExs.length) {
+      return matchingExs[targetOccurrenceOrdinal];
+    }
+    return matchingExs[0];
   };
 
   // TIER 1 & TIER 2: Same-program matching
   if (targetProgramId) {
     const sameProgramLogs = logs.filter(l => {
+      if (!isCandidateLogChronologicallyEligible(l, targetChronology, logs)) return false;
       if (!l.programId || String(l.programId).trim() !== targetProgramId) return false;
       const logW = parseLogWeek(l.week);
       return logW !== null && logW < targetWeekNum;
     });
-
-    // Helper to find matching exercise entry in a log based on normalized name & occurrence ordinal
-    const findMatchingExerciseInLog = (log: WorkoutLog): ExerciseEntry | null => {
-      if (!log.exercises || log.exercises.length === 0) return null;
-      const matchingExs = log.exercises.filter(
-        e => !e.isSkipped && normalizeName(e.name) === targetNorm
-      );
-      if (matchingExs.length === 0) return null;
-      if (targetOccurrenceOrdinal < matchingExs.length) {
-        return matchingExs[targetOccurrenceOrdinal];
-      }
-      return matchingExs[0];
-    };
 
     // Tier 1: Same program AND same day
     if (targetDay !== null) {
@@ -492,17 +766,13 @@ export function resolveContextualPrescriptionBaselineE1RM(
   }
 
   // TIER 3: Cross-program bootstrap
-  // Filter eligible logs that predate the target session
   const eligibleCrossProgramLogs = logs.filter(log => {
+    if (!isCandidateLogChronologicallyEligible(log, targetChronology, logs)) return false;
+
     // Exclude logs from current program if week is >= targetWeek
     if (targetProgramId && log.programId && String(log.programId).trim() === targetProgramId) {
       const logW = parseLogWeek(log.week);
       if (logW === null || logW >= targetWeekNum) return false;
-    }
-
-    // Strictly predate targetDate if targetDate is provided
-    if (targetDate && log.date) {
-      if (log.date >= targetDate) return false;
     }
 
     return true;
@@ -921,6 +1191,10 @@ export interface ResolveSessionDistributionParams {
   programId?: string | null;
   dayNum?: number | string | null;
   targetDate?: string | null;
+  targetLogId?: string | null;
+  targetChronology?: PrescriptionTargetChronology | null;
+  sessionStartedAt?: number | null;
+  explicitTargetTimestamp?: number | null;
   occurrenceOrdinal?: number;
 }
 
@@ -943,6 +1217,10 @@ export function resolveSessionDistribution(params: ResolveSessionDistributionPar
     programId,
     dayNum,
     targetDate,
+    targetLogId,
+    targetChronology,
+    sessionStartedAt,
+    explicitTargetTimestamp,
     occurrenceOrdinal,
   } = params;
 
@@ -980,6 +1258,10 @@ export function resolveSessionDistribution(params: ResolveSessionDistributionPar
       programId,
       targetDay: dayNum,
       targetDate,
+      targetLogId,
+      targetChronology,
+      sessionStartedAt,
+      explicitTargetTimestamp,
       occurrenceOrdinal,
       modality: exercise.modality,
       activeUnit,
@@ -1075,8 +1357,6 @@ export function resolveSessionDistribution(params: ResolveSessionDistributionPar
     roundedAnchorWeight = roundToNearest25(rawAnchorWeight);
     profileType = 'hypertrophy';
   } else if (objective === 'Strength') {
-    let target1RMPercent = 0.786;
-
     if (effectiveAlgorithmId === 'strength_linear') {
       const maxWeek = programDuration || 8;
       const activeWeek = Math.min(weekNum, maxWeek);
@@ -1084,18 +1364,31 @@ export function resolveSessionDistribution(params: ResolveSessionDistributionPar
 
       anchorReps = Math.max(1, Math.round(8 - progress * 7));
       anchorRPE = Math.round((7.0 + progress * 3.0) * 2) / 2;
-      target1RMPercent = 0.70 + progress * 0.30;
     } else {
       // strength_undulating (Default)
       const weekProfile = getUndulatingProfileWeek(weekNum, programDuration);
+      if (!weekProfile) {
+        return { isBypassed: true };
+      }
 
       anchorReps = weekProfile.reps;
       anchorRPE = weekProfile.targetRPE;
-      target1RMPercent = weekProfile.target1RMPercent;
     }
 
-    rawAnchorWeight = baselineE1RM * target1RMPercent;
+    const multiplier = rpeMathGetRTSMultiplier(anchorReps, anchorRPE);
+    if (multiplier === null || !Number.isFinite(multiplier) || multiplier <= 0) {
+      return { isBypassed: true };
+    }
+
+    rawAnchorWeight = baselineE1RM * multiplier;
     roundedAnchorWeight = roundToNearest25(rawAnchorWeight);
+
+    // Boundary check against canonical RPE-10 capacity:
+    const max10Multiplier = rpeMathGetRTSMultiplier(anchorReps, 10.0) ?? 1.0;
+    const max10Weight = baselineE1RM * max10Multiplier;
+    if (roundedAnchorWeight > max10Weight + 1e-6) {
+      roundedAnchorWeight = Math.floor((max10Weight + 1e-6) / 2.5) * 2.5;
+    }
 
     if (anchorReps === 1 && anchorRPE >= 9.5) {
       profileType = 'strength_post_test';
@@ -1166,6 +1459,10 @@ export interface GenerateSessionTargetMapParams {
   programId?: string | null;
   dayNum?: number | string | null;
   targetDate?: string | null;
+  targetLogId?: string | null;
+  targetChronology?: PrescriptionTargetChronology | null;
+  sessionStartedAt?: number | null;
+  explicitTargetTimestamp?: number | null;
   occurrenceOrdinal?: number;
 }
 
@@ -1188,6 +1485,10 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
     programId,
     dayNum,
     targetDate,
+    targetLogId,
+    targetChronology,
+    sessionStartedAt,
+    explicitTargetTimestamp,
     occurrenceOrdinal,
   } = params;
 
@@ -1228,6 +1529,10 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
       programId,
       targetDay: dayNum,
       targetDate,
+      targetLogId,
+      targetChronology,
+      sessionStartedAt,
+      explicitTargetTimestamp,
       occurrenceOrdinal,
       modality: mod,
       activeUnit,
@@ -1365,6 +1670,10 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
     programId,
     dayNum,
     targetDate,
+    targetLogId,
+    targetChronology,
+    sessionStartedAt,
+    explicitTargetTimestamp,
     occurrenceOrdinal,
   });
 
@@ -1484,6 +1793,10 @@ export interface CalculateObjectiveSetsParams {
   programId?: string | null;
   dayNum?: number | string | null;
   targetDate?: string | null;
+  targetLogId?: string | null;
+  targetChronology?: PrescriptionTargetChronology | null;
+  sessionStartedAt?: number | null;
+  explicitTargetTimestamp?: number | null;
   occurrenceOrdinal?: number;
 }
 
@@ -1513,6 +1826,10 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
     programId,
     dayNum,
     targetDate,
+    targetLogId,
+    targetChronology,
+    sessionStartedAt,
+    explicitTargetTimestamp,
     occurrenceOrdinal,
   } = params;
 
@@ -1540,6 +1857,10 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
     programId,
     dayNum,
     targetDate,
+    targetLogId,
+    targetChronology,
+    sessionStartedAt,
+    explicitTargetTimestamp,
     occurrenceOrdinal,
   });
 
@@ -1562,6 +1883,10 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
     programId,
     dayNum,
     targetDate,
+    targetLogId,
+    targetChronology,
+    sessionStartedAt,
+    explicitTargetTimestamp,
     occurrenceOrdinal,
   }) : null;
   const roundedAnchorWeight = resolution?.roundedAnchorWeight || (targetsByOrdinal.get(1)?.weight || 0);
@@ -1657,6 +1982,10 @@ export interface CalculateAddedSetTargetParams {
   programId?: string | null;
   dayNum?: number | string | null;
   targetDate?: string | null;
+  targetLogId?: string | null;
+  targetChronology?: PrescriptionTargetChronology | null;
+  sessionStartedAt?: number | null;
+  explicitTargetTimestamp?: number | null;
   occurrenceOrdinal?: number;
 }
 
@@ -1696,6 +2025,10 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
     programId,
     dayNum,
     targetDate,
+    targetLogId,
+    targetChronology,
+    sessionStartedAt,
+    explicitTargetTimestamp,
     occurrenceOrdinal,
   } = params;
 
@@ -1726,6 +2059,10 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
     programId,
     dayNum,
     targetDate,
+    targetLogId,
+    targetChronology,
+    sessionStartedAt,
+    explicitTargetTimestamp,
     occurrenceOrdinal,
   });
 

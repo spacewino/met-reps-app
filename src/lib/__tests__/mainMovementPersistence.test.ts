@@ -261,8 +261,8 @@ describe('Main Movement Persistence, Recovery & Baseline Protection Integration 
 
   it('Requirement 26: strength_undulating Week 2 calculation retains 5 reps @ RPE 8.0 on Main Movement', () => {
     // Template cold start: 100 kg x 10 @ RPE 8 -> e1RM = 100 / 0.680 = 147.0588 kg
-    // Week 2 Undulating Profile: target reps = 5, target RPE = 8.0, intensity = 0.815
-    // Target = 147.0588 * 0.815 = 119.85 kg -> rounded to 120.0 kg
+    // Week 2 Undulating Profile: target reps = 5, target RPE = 8.0, canonical RTS multiplier = 0.811
+    // Target = 147.0588 * 0.811 = 119.26 kg -> rounded to 117.5 kg
     const ex: ExerciseEntry = {
       name: 'Back Squat',
       muscleGroup: 'Quads',
@@ -291,8 +291,8 @@ describe('Main Movement Persistence, Recovery & Baseline Protection Integration 
       templateExercise: templateEx,
     });
 
-    // Week 2 Set 1: 120.0 kg x 5 @ RPE 8.0
-    expect(calculatedSets[0].weight).toBe(120.0);
+    // Week 2 Set 1: 117.5 kg x 5 @ RPE 8.0
+    expect(calculatedSets[0].weight).toBe(117.5);
     expect(calculatedSets[0].reps).toBe(5);
     expect(calculatedSets[0].rpe).toBe(8.0);
 
@@ -309,8 +309,8 @@ describe('Main Movement Persistence, Recovery & Baseline Protection Integration 
 
   it('Requirement 27: strength_linear Week 2 calculation retains 7 reps @ RPE 7.5 on Main Movement', () => {
     // Template cold start: 100 kg x 10 @ RPE 8 -> e1RM = 100 / 0.680 = 147.0588 kg
-    // Week 2 Linear Profile: target reps = 7, target RPE = 7.5, intensity = 0.748
-    // Target = 147.0588 * 0.748 = 109.999 kg -> rounded to 110.0 kg
+    // Week 2 Linear Profile: target reps = 7, target RPE = 7.5, canonical RTS multiplier = 0.730
+    // Target = 147.0588 * 0.730 = 107.35 kg -> rounded to 107.5 kg
     const ex: ExerciseEntry = {
       name: 'Back Squat',
       muscleGroup: 'Quads',
@@ -339,17 +339,17 @@ describe('Main Movement Persistence, Recovery & Baseline Protection Integration 
       templateExercise: templateEx,
     });
 
-    // Week 2 Set 1: 110.0 kg x 7 @ RPE 7.5
-    expect(calculatedSets[0].weight).toBe(110.0);
+    // Week 2 Set 1: 107.5 kg x 7 @ RPE 7.5
+    expect(calculatedSets[0].weight).toBe(107.5);
     expect(calculatedSets[0].reps).toBe(7);
     expect(calculatedSets[0].rpe).toBe(7.5);
 
-    // Week 2 Set 2: 102.5 kg x 7 @ RPE 6.5
+    // Week 2 Set 2: 102.5 kg x 7 @ RPE 6.5 (147.0588 * 0.98 * 0.709 = 102.18 -> 102.5)
     expect(calculatedSets[1].weight).toBe(102.5);
     expect(calculatedSets[1].reps).toBe(7);
     expect(calculatedSets[1].rpe).toBe(6.5);
 
-    // Week 2 Set 3: 102.5 kg x 7 @ RPE 7.0
+    // Week 2 Set 3: 102.5 kg x 7 @ RPE 7.0 (147.0588 * 0.96 * 0.723 = 102.07 -> 102.5)
     expect(calculatedSets[2].weight).toBe(102.5);
     expect(calculatedSets[2].reps).toBe(7);
     expect(calculatedSets[2].rpe).toBe(7.0);
@@ -423,5 +423,158 @@ describe('Main Movement Persistence, Recovery & Baseline Protection Integration 
     expect(calculatedSets[1].weight).toBe(112.5);
     expect(calculatedSets[1].reps).toBe(5);
     expect(calculatedSets[1].rpe).toBe(7.0);
+  });
+
+  describe('ESR-3C: Full Lifecycle Integration Fixture (ESR-3B Reproduction)', () => {
+    it('executes full lifecycle: one-off baseline save -> program creation -> Week 1 activation -> Week 2 locking', () => {
+      const today = '2026-08-23';
+
+      // 1. One-off baseline workout saved on date today with 100 kg x 1 @ RPE 10
+      const baselineLog: WorkoutLog = {
+        id: '1724400123456',
+        date: today,
+        unit: 'kg',
+        exercises: [
+          {
+            name: 'ESR Strength Test Press',
+            muscleGroup: 'Delts',
+            modality: 'weighted',
+            sets: [{ setNumber: 1, weight: 100, reps: 1, rpe: 10, form: 'standard' }],
+          },
+        ],
+      };
+      storage.saveWorkoutLog(baselineLog);
+
+      // 2. Program created: ESR Strength Verification, Strength objective, Wave Strength, 4 weeks, 1 day/week
+      const esrProgram: Program = {
+        id: 'prog-esr-strength-verification',
+        name: 'ESR Strength Verification',
+        daysPerWeek: 1,
+        programDuration: 4,
+        createdAt: '2026-08-23T10:00:00.000Z',
+        assignedWeekdays: { 1: 1 },
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+        exercisesByDay: {
+          1: [
+            {
+              name: 'ESR Strength Test Press',
+              muscleGroup: 'Delts',
+              modality: 'weighted',
+              isMainMovement: false,
+              sets: [
+                { setNumber: 1, weight: 0, reps: 8, rpe: 6, form: 'standard' },
+                { setNumber: 2, weight: 0, reps: 8, rpe: 7, form: 'standard' },
+                { setNumber: 3, weight: 0, reps: 8, rpe: 8, form: 'standard' },
+              ],
+            },
+          ],
+        },
+      };
+      storage.saveProgram(esrProgram);
+      storage.setCurrentProgramId(esrProgram.id);
+
+      // 3. Week 1 Day 1 opened on same calendar day (date = today, targetLogId = null)
+      // Initially, exercise is not designated as main movement, so calculateObjectiveSets returns unchanged
+      const initialExercises = JSON.parse(JSON.stringify(esrProgram.exercisesByDay[1])) as ExerciseEntry[];
+      const preMainCalculated = calculateObjectiveSets({
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+        exercise: initialExercises[0],
+        exerciseIndex: 0,
+        totalExercises: 1,
+        weekNum: 1,
+        programDuration: 4,
+        previousLogs: storage.getWorkoutLogs(),
+        userTouchedSets: {},
+        checkedSets: {},
+        templateExercise: esrProgram.exercisesByDay[1][0],
+        activeUnit: 'kg',
+        programId: esrProgram.id,
+        dayNum: 1,
+        targetDate: today,
+        targetLogId: null,
+      });
+      // Non-main movements do not receive Strength progression
+      expect(preMainCalculated[0].weight).toBe(0);
+
+      // 4. User activates Main Movement on Week 1 Day 1
+      const updateResult = updateProgramDayMainMovement(esrProgram, 1, 0, 'ESR Strength Test Press');
+      expect(updateResult.success).toBe(true);
+      storage.saveProgram(updateResult.updatedProgram);
+
+      const activeExercise: ExerciseEntry = {
+        ...initialExercises[0],
+        isMainMovement: true,
+      };
+
+      // 5. Canonical targets calculated immediately upon activation
+      const postMainCalculated = calculateObjectiveSets({
+        objective: 'Strength',
+        algorithmId: 'strength_undulating',
+        exercise: activeExercise,
+        exerciseIndex: 0,
+        totalExercises: 1,
+        weekNum: 1,
+        programDuration: 4,
+        previousLogs: storage.getWorkoutLogs(),
+        userTouchedSets: {},
+        checkedSets: {},
+        templateExercise: updateResult.updatedProgram.exercisesByDay[1][0],
+        activeUnit: 'kg',
+        programId: esrProgram.id,
+        dayNum: 1,
+        targetDate: today,
+        targetLogId: null,
+      });
+
+      // Target verification:
+      // Baseline e1RM = 100 kg from same-day one-off log
+      // Wave Strength Week 1 (4-week program): 5 reps @ 7.0 RPE (Multiplier = 0.771)
+      // Anchor = 100 * 0.771 = 77.1 -> 77.5 kg
+      // Set 1 (Ord 1): 77.5 kg x 5 @ 7.0
+      // Set 2 (Ord 2, F2=0.980, RPE=6.0): 72.5 kg x 5 @ 6.0
+      // Set 3 (Ord 3, F3=0.960, RPE=6.5): 72.5 kg x 5 @ 6.5
+      expect(postMainCalculated.length).toBe(3);
+      expect(postMainCalculated[0].weight).toBe(77.5);
+      expect(postMainCalculated[0].reps).toBe(5);
+      expect(postMainCalculated[0].rpe).toBe(7.0);
+
+      expect(postMainCalculated[1].weight).toBe(72.5);
+      expect(postMainCalculated[1].reps).toBe(5);
+      expect(postMainCalculated[1].rpe).toBe(6.0);
+
+      expect(postMainCalculated[2].weight).toBe(72.5);
+      expect(postMainCalculated[2].reps).toBe(5);
+      expect(postMainCalculated[2].rpe).toBe(6.5);
+
+      // 6. User completes and saves Week 1 Day 1 workout
+      const completedWeek1Log: WorkoutLog = {
+        id: '1724400555555',
+        date: today,
+        programId: esrProgram.id,
+        program: esrProgram.name,
+        week: '1',
+        day: '1',
+        unit: 'kg',
+        exercises: [
+          {
+            ...activeExercise,
+            sets: postMainCalculated,
+          },
+        ],
+      };
+      storage.saveWorkoutLog(completedWeek1Log);
+
+      // 7. Week 2 Day 1: Verify Main Movement persistence & locking
+      const reloadedProgram = storage.getPrograms().find(p => p.id === esrProgram.id);
+      expect(reloadedProgram).toBeDefined();
+      const week2Day1Template = reloadedProgram!.exercisesByDay[1];
+      expect(week2Day1Template[0].isMainMovement).toBe(true);
+
+      // Verify locking rule in Week 2 (weekNum > 1 && eligibleCount === 1)
+      const isLockedInWeek2 = 2 > 1 && getEligibleMainMovementCount(week2Day1Template) === 1;
+      expect(isLockedInWeek2).toBe(true);
+    });
   });
 });

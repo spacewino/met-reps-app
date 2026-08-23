@@ -178,8 +178,8 @@ export function isSetValidForCompletion(
 
   switch (mod) {
     case 'timed': {
-      // Timed modality: seconds recorded in weight property (> 0)
-      const sec = set.weight;
+      // Timed modality: seconds recorded in weight property (> 0) or reps property (> 0)
+      const sec = typeof set.weight === 'number' && Number.isFinite(set.weight) && set.weight > 0 ? set.weight : set.reps;
       return typeof sec === 'number' && Number.isFinite(sec) && sec > 0;
     }
 

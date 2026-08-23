@@ -470,6 +470,14 @@ export function distributeStrengthSets(
 
     const rawWeight = anchor.baselineE1RM * F_i * multiplier;
     let roundedWeight = roundToNearest25(rawWeight);
+
+    // Boundary check against canonical RPE-10 capacity at current fatigue:
+    const max10Multiplier = getRTSMultiplier(anchor.anchorReps, 10.0) ?? 1.0;
+    const max10Weight = anchor.baselineE1RM * F_i * max10Multiplier;
+    if (roundedWeight > max10Weight + 1e-6) {
+      roundedWeight = Math.floor((max10Weight + 1e-6) / 2.5) * 2.5;
+    }
+
     roundedWeight = Math.min(roundedWeight, prevWeight);
 
     if (!Number.isFinite(roundedWeight) || roundedWeight <= 0) {
@@ -539,6 +547,14 @@ export function distributePeakSingleStrengthSets(
     const capacity_i = anchor.baselineE1RM * F_i;
     const rawWeight = capacity_i * multiplier;
     let roundedWeight = roundToNearest25(rawWeight);
+
+    // Boundary check against canonical 3RM @ RPE-10 capacity at current fatigue:
+    const max10Multiplier = getRTSMultiplier(3, 10.0) ?? 1.0;
+    const max10Weight = capacity_i * max10Multiplier;
+    if (roundedWeight > max10Weight + 1e-6) {
+      roundedWeight = Math.floor((max10Weight + 1e-6) / 2.5) * 2.5;
+    }
+
     roundedWeight = Math.min(roundedWeight, prevWeight);
 
     if (!Number.isFinite(roundedWeight) || roundedWeight <= 0) {
