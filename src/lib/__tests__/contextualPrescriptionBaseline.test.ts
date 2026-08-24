@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   resolveContextualPrescriptionBaselineE1RM,
   extractExposureSessionCapacity,
@@ -13,6 +13,14 @@ import {
 import { WorkoutLog, ExerciseEntry } from '../../types';
 
 describe('Contextual Prescription Baseline Resolver', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-23T12:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   describe('extractExposureSessionCapacity', () => {
     it('returns null for skipped exercises', () => {
       const ex: ExerciseEntry = {

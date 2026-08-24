@@ -12,64 +12,706 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 export const PREBUILT_TEMPLATES: Program[] = [
   {
-    id: 'prog-tpl-beginner-full-body',
-    name: 'Beginner Full Body (3 Days)',
+    id: 'prog-tpl-milhouse-mass-split',
+    name: 'Milhouse Mass Split',
     daysPerWeek: 3,
     programDuration: 4,
-    createdAt: new Date().toISOString(),
+    createdAt: '2026-08-24T00:00:00.000Z',
     objective: 'Hypertrophy',
     algorithmId: 'hypertrophy_linear',
     exercisesByDay: {
       1: [
-        { name: 'Back Squat (High Bar)', muscleGroup: 'Quads', modality: 'weighted', sets: [{ setNumber: 1, weight: 60, reps: 5, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 60, reps: 5, rpe: 8, form: 'strict' }, { setNumber: 3, weight: 60, reps: 5, rpe: 8, form: 'standard' }] },
-        { name: 'Barbell Bench Press (flat)', muscleGroup: 'Pecs', modality: 'weighted', sets: [{ setNumber: 1, weight: 40, reps: 8, rpe: 7, form: 'strict' }, { setNumber: 2, weight: 40, reps: 8, rpe: 8, form: 'strict' }] },
-        { name: 'Lat Pulldown (Wide)', muscleGroup: 'Back', modality: 'weighted', sets: [{ setNumber: 1, weight: 35, reps: 10, rpe: 8, form: 'standard' }, { setNumber: 2, weight: 35, reps: 10, rpe: 8, form: 'standard' }] },
+        {
+          name: 'Hack Squat (Machine)',
+          muscleGroup: 'Quads',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Plate-Loaded Romanian Deadlift',
+          muscleGroup: 'Hamstrings',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Standing Calf Raise',
+          muscleGroup: 'Calves',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Smith Machine Bulgarian Split Squat',
+          muscleGroup: 'Quads',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Chest-Supported Row (Dumbbell)',
+          muscleGroup: 'Back',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Lying Leg Curl (Machine)',
+          muscleGroup: 'Hamstrings',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Plate-Loaded Shrug Machine',
+          muscleGroup: 'Traps',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        }
       ],
       2: [
-        { name: 'Deadlift (Conventional)', muscleGroup: 'Hamstrings', modality: 'weighted', sets: [{ setNumber: 1, weight: 70, reps: 5, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 70, reps: 5, rpe: 8, form: 'standard' }] },
-        { name: 'Overhead Press (Barbell)', muscleGroup: 'Delts', modality: 'weighted', sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 20, reps: 8, rpe: 8, form: 'strict' }] },
-        { name: 'Dumbbell Curl (Alternating)', muscleGroup: 'Biceps', modality: 'weighted', sets: [{ setNumber: 1, weight: 10, reps: 12, rpe: 7, form: 'strict' }, { setNumber: 2, weight: 10, reps: 12, rpe: 8, form: 'standard' }] },
+        {
+          name: 'Plate-Loaded Chest Press',
+          muscleGroup: 'Pecs',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Plate-Loaded Shoulder Press',
+          muscleGroup: 'Delts',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Smith Machine Incline Bench Press',
+          muscleGroup: 'Pecs',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Leg Extension',
+          muscleGroup: 'Quads',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Machine Lateral Raise',
+          muscleGroup: 'Delts',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Hip Abduction Machine',
+          muscleGroup: 'Glutes',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Triceps Pushdown (single arm)',
+          muscleGroup: 'Triceps',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        }
       ],
       3: [
-        { name: 'Leg Press', muscleGroup: 'Quads', modality: 'weighted', sets: [{ setNumber: 1, weight: 100, reps: 10, rpe: 7, form: 'strict' }, { setNumber: 2, weight: 100, reps: 10, rpe: 8, form: 'standard' }] },
-        { name: 'Dumbell Bench Press (incline)', muscleGroup: 'Pecs', modality: 'weighted', sets: [{ setNumber: 1, weight: 16, reps: 10, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 16, reps: 10, rpe: 8, form: 'standard' }] },
-        { name: 'Seated Cable Row', muscleGroup: 'Back', modality: 'weighted', sets: [{ setNumber: 1, weight: 40, reps: 10, rpe: 8, form: 'strict' }, { setNumber: 2, weight: 40, reps: 10, rpe: 8, form: 'standard' }] },
-      ],
+        {
+          name: 'Diverging Lat Pulldown Machine',
+          muscleGroup: 'Back',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Machine Row',
+          muscleGroup: 'Back',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Pec Deck Machine Fly',
+          muscleGroup: 'Pecs',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Reverse Pec Deck',
+          muscleGroup: 'Delts',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Incline Dumbbell Curl',
+          muscleGroup: 'Biceps',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Overhead Cable Extension (Rope)',
+          muscleGroup: 'Triceps',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Lat Pulldown (Wide)',
+          muscleGroup: 'Back',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        }
+      ]
     },
-    assignedWeekdays: { 1: 0, 2: 2, 3: 4 }, // Mon, Wed, Fri
+    assignedWeekdays: { 1: 0, 2: 2, 3: 4 } // Mon, Wed, Fri
   },
   {
-    id: 'prog-tpl-upper-lower',
-    name: 'Upper / Lower Split (4 Days)',
+    id: 'prog-tpl-upper-lower-foundations',
+    name: 'Upper/Lower Foundations',
     daysPerWeek: 4,
-    programDuration: 8,
-    createdAt: new Date().toISOString(),
+    programDuration: 12,
+    createdAt: '2026-08-24T00:00:00.000Z',
     objective: 'Hypertrophy',
     algorithmId: 'hypertrophy_linear',
     exercisesByDay: {
       1: [
-        { name: 'Barbell Bench Press (flat)', muscleGroup: 'Pecs', modality: 'weighted', sets: [{ setNumber: 1, weight: 50, reps: 8 }, { setNumber: 2, weight: 50, reps: 8 }] },
-        { name: 'Barbell Row (Bent-Over)', muscleGroup: 'Back', modality: 'weighted', sets: [{ setNumber: 1, weight: 40, reps: 8 }, { setNumber: 2, weight: 40, reps: 8 }] },
-        { name: 'Seated Dumbbell Shoulder Press', muscleGroup: 'Delts', sets: [{ setNumber: 1, weight: 14, reps: 10 }] },
+        {
+          name: 'Back Squat (High Bar)',
+          muscleGroup: 'Quads',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Deadlift (Conventional)',
+          muscleGroup: 'Hamstrings',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Bulgarian Split Squat',
+          muscleGroup: 'Quads',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Standing Calf Raise',
+          muscleGroup: 'Calves',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        }
       ],
       2: [
-        { name: 'Back Squat (High Bar)', muscleGroup: 'Quads', sets: [{ setNumber: 1, weight: 70, reps: 6 }, { setNumber: 2, weight: 70, reps: 6 }] },
-        { name: 'Romanian Deadlift (RDL)', muscleGroup: 'Hamstrings', sets: [{ setNumber: 1, weight: 60, reps: 10 }] },
-        { name: 'Standing Calf Raise', muscleGroup: 'Calves', sets: [{ setNumber: 1, weight: 40, reps: 15 }] },
+        {
+          name: 'Barbell Bench Press (flat)',
+          muscleGroup: 'Pecs',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Seated Cable Row',
+          muscleGroup: 'Back',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Overhead Press (Barbell)',
+          muscleGroup: 'Delts',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Chin-Up (Underhand)',
+          muscleGroup: 'Back',
+          modality: 'bodyweight',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Cable Fly (Mid)',
+          muscleGroup: 'Pecs',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        }
       ],
       3: [
-        { name: 'Pull-Up (Wide Grip)', muscleGroup: 'Back', sets: [{ setNumber: 1, reps: 6 }] },
-        { name: 'Incline Bench Press (Barbell)', muscleGroup: 'Pecs', sets: [{ setNumber: 1, weight: 45, reps: 8 }] },
-        { name: 'Lateral Raise (Dumbbell)', muscleGroup: 'Delts', sets: [{ setNumber: 1, weight: 8, reps: 12 }] },
+        {
+          name: 'Barbell Hip Thrust',
+          muscleGroup: 'Glutes',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Leg Press',
+          muscleGroup: 'Quads',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Leg Extension',
+          muscleGroup: 'Quads',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Lying Leg Curl (Machine)',
+          muscleGroup: 'Hamstrings',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Seated Calf Raise',
+          muscleGroup: 'Calves',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        }
       ],
       4: [
-        { name: 'Lying Leg Curl (Machine)', muscleGroup: 'Hamstrings', sets: [{ setNumber: 1, weight: 30, reps: 12 }] },
-        { name: 'Leg Extension', muscleGroup: 'Quads', sets: [{ setNumber: 1, weight: 40, reps: 12 }] },
-        { name: 'Plank', muscleGroup: 'Abs', sets: [{ setNumber: 1, reps: 1 }] },
-      ],
+        {
+          name: 'Barbell Bench Press (flat)',
+          muscleGroup: 'Pecs',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Seated Cable Row',
+          muscleGroup: 'Back',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Dumbell Bench Press (incline)',
+          muscleGroup: 'Pecs',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Chin-Up (Underhand)',
+          muscleGroup: 'Back',
+          modality: 'bodyweight',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Triceps Pushdown (Straight Bar)',
+          muscleGroup: 'Triceps',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Dumbbell Curl (Alternating)',
+          muscleGroup: 'Biceps',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        }
+      ]
     },
-    assignedWeekdays: { 1: 0, 2: 1, 3: 3, 4: 4 }, // Mon, Tue, Thu, Fri
+    assignedWeekdays: { 1: 0, 2: 1, 3: 3, 4: 4 } // Mon, Tue, Thu, Fri
   },
+  {
+    id: 'prog-tpl-push-pull-legs-ab',
+    name: 'Push Pull Legs A/B',
+    daysPerWeek: 6,
+    programDuration: 8,
+    createdAt: '2026-08-24T00:00:00.000Z',
+    objective: 'Hypertrophy',
+    algorithmId: 'hypertrophy_linear',
+    exercisesByDay: {
+      1: [
+        {
+          name: 'Barbell Bench Press (flat)',
+          muscleGroup: 'Pecs',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Overhead Press (Barbell)',
+          muscleGroup: 'Delts',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Dumbell Bench Press (incline)',
+          muscleGroup: 'Pecs',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Cable Lateral Raise',
+          muscleGroup: 'Delts',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Triceps Pushdown (Rope)',
+          muscleGroup: 'Triceps',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        }
+      ],
+      2: [
+        {
+          name: 'Barbell Row (Bent-Over)',
+          muscleGroup: 'Back',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Lat Pulldown (Wide)',
+          muscleGroup: 'Back',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Chest-Supported Row (Dumbbell)',
+          muscleGroup: 'Back',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Face Pull',
+          muscleGroup: 'Delts',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Incline Dumbbell Curl',
+          muscleGroup: 'Biceps',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        }
+      ],
+      3: [
+        {
+          name: 'Back Squat (High Bar)',
+          muscleGroup: 'Quads',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Romanian Deadlift (RDL)',
+          muscleGroup: 'Hamstrings',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Leg Extension',
+          muscleGroup: 'Quads',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Lying Leg Curl (Machine)',
+          muscleGroup: 'Hamstrings',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Standing Calf Raise',
+          muscleGroup: 'Calves',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        }
+      ],
+      4: [
+        {
+          name: 'Incline Bench Press (Barbell)',
+          muscleGroup: 'Pecs',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Seated Dumbbell Shoulder Press',
+          muscleGroup: 'Delts',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Pec Deck Machine Fly',
+          muscleGroup: 'Pecs',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Lateral Raise (Dumbbell)',
+          muscleGroup: 'Delts',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Overhead Cable Extension (Rope)',
+          muscleGroup: 'Triceps',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        }
+      ],
+      5: [
+        {
+          name: 'Pull-Up (Wide Grip)',
+          muscleGroup: 'Back',
+          modality: 'bodyweight',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Seated Cable Row',
+          muscleGroup: 'Back',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Single-Arm Dumbbell Row',
+          muscleGroup: 'Back',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Reverse Pec Deck',
+          muscleGroup: 'Delts',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Rope Hammer Curl',
+          muscleGroup: 'Biceps',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        }
+      ],
+      6: [
+        {
+          name: 'Deadlift (Conventional)',
+          muscleGroup: 'Hamstrings',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Leg Press',
+          muscleGroup: 'Quads',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Bulgarian Split Squat',
+          muscleGroup: 'Quads',
+          modality: 'weighted',
+          movementCategory: 'compound',
+          equipment: 'freeweight',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Seated Leg Curl',
+          muscleGroup: 'Hamstrings',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        },
+        {
+          name: 'Seated Calf Raise',
+          muscleGroup: 'Calves',
+          modality: 'weighted',
+          movementCategory: 'isolation',
+          equipment: 'machine',
+          isMainMovement: false,
+          sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' }]
+        }
+      ]
+    },
+    assignedWeekdays: { 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5 } // Mon, Tue, Wed, Thu, Fri, Sat
+  }
 ];
 
 // Helper keys matching your old app's keys

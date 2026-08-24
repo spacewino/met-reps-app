@@ -324,10 +324,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     onDirtyChange
   ]);
 
-  // Apply static template program
-  const handleApplyPrebuiltTemplate = (tpl: any) => {
-    const tplObjective = tpl.objective || 'Hypertrophy';
-    const tplAlgorithm = tpl.algorithmId || (tplObjective === 'Strength' ? 'strength_undulating' : 'hypertrophy_linear');
+  // Apply static template program (preserves current creation-form objective and algorithm)
+  const handleSelectPrebuiltTemplate = (tpl: any) => {
     const tplDuration = tpl.programDuration === '∞' ? 8 : Number(tpl.programDuration);
     const tplWeekdays = tpl.assignedWeekdays ? JSON.parse(JSON.stringify(tpl.assignedWeekdays)) : getDefaultWeekdays(tpl.daysPerWeek);
 
@@ -338,8 +336,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     setDurationWeeks(tplDuration);
     setExercisesByDay(JSON.parse(JSON.stringify(tpl.exercisesByDay)));
     setAssignedWeekdays(tplWeekdays);
-    setObjective(tplObjective);
-    setAlgorithmId(tplAlgorithm);
+    // Note: objective and algorithmId are intentionally preserved to honour the user's creation-form selection
     setActiveTabDay(1);
 
     // Update snapshot
@@ -348,45 +345,15 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       name: tpl.name,
       daysPerWeek: tpl.daysPerWeek,
       durationWeeks: tplDuration,
-      objective: tplObjective,
-      algorithmId: tplAlgorithm,
+      objective: objective,
+      algorithmId: algorithmId,
       exercisesByDay: JSON.parse(JSON.stringify(tpl.exercisesByDay)),
       assignedWeekdays: tplWeekdays
     });
   };
 
-  // Apply custom saved program template
-  const handleApplySavedProgram = (prog: Program) => {
-    const progObjective = prog.objective || 'Hypertrophy';
-    const progAlgorithm = prog.algorithmId || (progObjective === 'Strength' ? 'strength_undulating' : 'hypertrophy_linear');
-    const progDuration = prog.programDuration === '∞' ? 8 : Number(prog.programDuration);
-    const progWeekdays = prog.assignedWeekdays ? JSON.parse(JSON.stringify(prog.assignedWeekdays)) : getDefaultWeekdays(prog.daysPerWeek);
-
-    setEditingProgramId(prog.id);
-    setName(prog.name);
-    setOriginalName(prog.name);
-    setDaysPerWeek(prog.daysPerWeek);
-    setDurationWeeks(progDuration);
-    setExercisesByDay(JSON.parse(JSON.stringify(prog.exercisesByDay)));
-    setAssignedWeekdays(progWeekdays);
-    setObjective(progObjective);
-    setAlgorithmId(progAlgorithm);
-    setActiveTabDay(1);
-
-    // Update snapshot
-    setSnapshot({
-      id: prog.id,
-      name: prog.name,
-      daysPerWeek: prog.daysPerWeek,
-      durationWeeks: progDuration,
-      objective: progObjective,
-      algorithmId: progAlgorithm,
-      exercisesByDay: JSON.parse(JSON.stringify(prog.exercisesByDay)),
-      assignedWeekdays: progWeekdays
-    });
-  };
-
-  const handleProgramClick = (prog: any) => {
+  // Apply custom saved program (restores the saved program's objective and algorithm)
+  const handleSelectSavedProgram = (prog: Program) => {
     const progObjective = prog.objective || 'Hypertrophy';
     const progAlgorithm = prog.algorithmId || (progObjective === 'Strength' ? 'strength_undulating' : 'hypertrophy_linear');
     const progDuration = prog.programDuration === '∞' ? 8 : Number(prog.programDuration);
@@ -704,7 +671,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
             return (
               <button
                 key={`prebuilt-${tpl.id}`}
-                onClick={() => handleProgramClick(tpl)}
+                onClick={() => handleSelectPrebuiltTemplate(tpl)}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-none text-xs font-bold transition border cursor-pointer ${
                   isCurrent
                     ? 'bg-slate-950 border-emerald-500 text-emerald-400 font-extrabold shadow-[0_0_8px_rgba(16,185,129,0.15)]'
@@ -721,7 +688,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
             return (
               <button
                 key={`saved-${prog.id}`}
-                onClick={() => handleProgramClick(prog)}
+                onClick={() => handleSelectSavedProgram(prog)}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-none text-xs font-bold transition border cursor-pointer ${
                   isCurrent
                     ? 'bg-slate-950 border-emerald-500 text-emerald-400 font-extrabold shadow-[0_0_8px_rgba(16,185,129,0.15)]'

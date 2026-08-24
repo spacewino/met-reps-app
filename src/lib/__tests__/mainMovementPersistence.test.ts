@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ExerciseEntry, Program, WorkoutLog } from '../../types';
 import {
   isEligibleStrengthMainMovement,
@@ -6,6 +6,7 @@ import {
   updateProgramDayMainMovement,
 } from '../programMetadata';
 import { calculateObjectiveSets } from '../objectiveMath';
+import { getTodayLocalDateString } from '../dateUtils';
 import { storage } from '../storage';
 
 // In-memory localStorage mock for node test runner
@@ -27,7 +28,13 @@ globalThis.localStorage = {
 
 describe('Main Movement Persistence, Recovery & Baseline Protection Integration Tests', () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-23T12:00:00.000Z'));
     localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   const pristineTemplateDay1: ExerciseEntry[] = [
@@ -427,11 +434,11 @@ describe('Main Movement Persistence, Recovery & Baseline Protection Integration 
 
   describe('ESR-3C: Full Lifecycle Integration Fixture (ESR-3B Reproduction)', () => {
     it('executes full lifecycle: one-off baseline save -> program creation -> Week 1 activation -> Week 2 locking', () => {
-      const today = '2026-08-23';
+      const today = getTodayLocalDateString();
 
       // 1. One-off baseline workout saved on date today with 100 kg x 1 @ RPE 10
       const baselineLog: WorkoutLog = {
-        id: '1724400123456',
+        id: `${Date.now() - 100000}`,
         date: today,
         unit: 'kg',
         exercises: [

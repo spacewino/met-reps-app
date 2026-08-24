@@ -72,6 +72,16 @@ const EXPLICIT_CLASSIFICATIONS: Record<string, { category: MovementCategory; equ
   'standing calf raise (machine)': { category: 'isolation', equipment: 'machine' },
   'single-leg calf raise (db)': { category: 'isolation', equipment: 'freeweight' },
   'cable glute kickback': { category: 'isolation', equipment: 'machine' },
+  'plate-loaded romanian deadlift': { category: 'compound', equipment: 'machine' },
+  'smith machine bulgarian split squat': { category: 'compound', equipment: 'machine' },
+  'standing leg curl (machine)': { category: 'isolation', equipment: 'machine' },
+  'plate-loaded shrug machine': { category: 'isolation', equipment: 'machine' },
+  'plate-loaded chest press': { category: 'compound', equipment: 'machine' },
+  'plate-loaded shoulder press': { category: 'compound', equipment: 'machine' },
+  'smith machine incline bench press': { category: 'compound', equipment: 'machine' },
+  'glute kickback machine': { category: 'isolation', equipment: 'machine' },
+  'hip abduction machine': { category: 'isolation', equipment: 'machine' },
+  'diverging lat pulldown machine': { category: 'compound', equipment: 'machine' },
 };
 
 /**
