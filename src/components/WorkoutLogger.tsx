@@ -11,7 +11,7 @@ import { getTodayLocalDateString } from '../lib/dateUtils';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { WarmupIcon } from './WarmupIcon';
-import { calculateObjectiveSets, calculateAddedSetTarget, roundToNearest25, getRTSMultiplier, findMatchingTemplateExercise, syncAddedSetStructureToProgramDay, extractHistoricalBaselineE1RM, extractTemplateBaselineE1RM, getExerciseOccurrenceOrdinal, PrescriptionTargetChronology } from '../lib/objectiveMath';
+import { calculateObjectiveSets, calculateAddedSetTarget, roundToNearest25, getRTSMultiplier, findMatchingTemplateExercise, syncAddedSetStructureToProgramDay, extractHistoricalBaselineE1RM, extractTemplateBaselineE1RM, getExerciseOccurrenceOrdinal, PrescriptionTargetChronology, AddedSetCommittedEvidenceEntry } from '../lib/objectiveMath';
 import { generateAssistedWarmupTargets, convertWeightUnit } from '../lib/assistedLoadMath';
 import {
   validateBodyweightSnapshot,
@@ -59,6 +59,7 @@ import {
   canRestorePlannedTargets,
   restorePlannedTargetsForExercise,
   getWorkingSetRowIndex,
+  deriveWorkingSetOrdinal,
   shouldShowLowRPEExplanation,
   scheduleToastNotification,
   cleanupToastNotification,
@@ -383,12 +384,14 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       });
 
       const nextExs = [...exercises, ...calculatedNewItems];
+      const nextSnapshots = capturePrescribedSnapshotsFromExercises(calculatedNewItems, prescribedTargetSnapshots, {}, exercises.length);
       setExercises(nextExs);
-      setPrescribedTargetSnapshots(prev =>
-        capturePrescribedSnapshotsFromExercises(calculatedNewItems, prev, {}, exercises.length)
-      );
-      syncExercisesToActiveProgram(nextExs);
+      setPrescribedTargetSnapshots(nextSnapshots);
       setSelectorTargetIdx(null);
+      saveWorkoutDraftImmediately({
+        exercises: nextExs,
+        prescribedTargetSnapshots: nextSnapshots,
+      });
     } else if (selectorTargetIdx !== null) {
       const first = selectedList[0];
       const prevSets = getPreviousSetsForExercise(first.name);
@@ -403,17 +406,20 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       const cleanChecked = remapAfterExerciseReplace(checkedSets, selectorTargetIdx);
       const cleanTouched = remapAfterExerciseReplace(userTouchedSets, selectorTargetIdx);
       const cleanCompletionTouched = remapAfterExerciseReplace(completionTouchedSets, selectorTargetIdx);
+      const cleanEvidence = remapAfterExerciseReplace(committedLiveEvidenceBySet, selectorTargetIdx);
+      const cleanLiveAdjusted = remapAfterExerciseReplace(liveAdjustedSets, selectorTargetIdx);
+
       setCheckedSets(cleanChecked);
       setUserTouchedSets(cleanTouched);
       setCompletionTouchedSets(cleanCompletionTouched);
-      setCommittedLiveEvidenceBySet(prev => remapAfterExerciseReplace(prev, selectorTargetIdx));
-      setLiveAdjustedSets(prev => remapAfterExerciseReplace(prev, selectorTargetIdx));
+      setCommittedLiveEvidenceBySet(cleanEvidence);
+      setLiveAdjustedSets(cleanLiveAdjusted);
 
       // Update userRawExercises backup
-      setUserRawExercises(prev => {
-        if (!prev) return [replacedItem];
-        return prev.map((ex, idx) => idx === selectorTargetIdx ? replacedItem : ex);
-      });
+      const nextUserRaw = userRawExercises
+        ? userRawExercises.map((ex, idx) => idx === selectorTargetIdx ? replacedItem : ex)
+        : [replacedItem];
+      setUserRawExercises(nextUserRaw);
 
       // Calculate the replacement sets with cleaned touched/checked states
       const calculatedSets = calculateObjectiveSets({
@@ -438,20 +444,30 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       });
       const finalReplaced = { ...replacedItem, sets: calculatedSets };
 
-      setPrescribedTargetSnapshots(prev => {
-        const cleaned = remapAfterExerciseReplace(prev, selectorTargetIdx);
-        return capturePrescribedSnapshotsFromExercises([finalReplaced], cleaned, {}, selectorTargetIdx);
-      });
+      const cleanedSnapshots = remapAfterExerciseReplace(prescribedTargetSnapshots, selectorTargetIdx);
+      const nextSnapshots = capturePrescribedSnapshotsFromExercises([finalReplaced], cleanedSnapshots, {}, selectorTargetIdx);
+      setPrescribedTargetSnapshots(nextSnapshots);
 
       const nextExs = exercises.map((ex, idx) => (idx === selectorTargetIdx ? finalReplaced : ex));
+      const nextGuideKey = highlightCurrentSet
+        ? reconcileGuideAfterExerciseReplace(currentSetGuideKey, selectorTargetIdx, nextExs)
+        : null;
+
       setExercises(nextExs);
-      syncExercisesToActiveProgram(nextExs);
-      if (highlightCurrentSet) {
-        setCurrentSetGuideKey(current => reconcileGuideAfterExerciseReplace(current, selectorTargetIdx, nextExs));
-      } else {
-        setCurrentSetGuideKey(null);
-      }
+      setCurrentSetGuideKey(nextGuideKey);
       setSelectorTargetIdx(null);
+
+      saveWorkoutDraftImmediately({
+        exercises: nextExs,
+        userRawExercises: nextUserRaw,
+        checkedSets: cleanChecked,
+        userTouchedSets: cleanTouched,
+        completionTouchedSets: cleanCompletionTouched,
+        committedLiveEvidenceBySet: cleanEvidence,
+        liveAdjustedSets: cleanLiveAdjusted,
+        prescribedTargetSnapshots: nextSnapshots,
+        currentSetGuideKey: nextGuideKey,
+      });
     }
   };
   const [duration, setDuration] = useState<number | ''>(() => {
@@ -1135,10 +1151,20 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     setIsDraftLoaded(true);
   }, [programId, dayNum, isOneOff, weekNum, initialParams]);
 
-  // Auto-save draft on every modification
-  useEffect(() => {
-    if (!isDraftLoaded) return;
-
+  const serializeWorkoutDraftPayload = (overrides?: {
+    exercises?: ExerciseEntry[];
+    userRawExercises?: ExerciseEntry[] | null;
+    notes?: string;
+    checkedSets?: Record<string, boolean>;
+    completionTouchedSets?: Record<string, boolean>;
+    collapsed?: Record<number, boolean>;
+    objective?: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload';
+    userTouchedSets?: Record<string, boolean>;
+    prescribedTargetSnapshots?: Record<string, { weight: number | null; reps: number | null; rpe: number | null }>;
+    committedLiveEvidenceBySet?: CommittedLiveEvidenceMap;
+    liveAdjustedSets?: Record<string, boolean>;
+    currentSetGuideKey?: string | null;
+  }): Record<string, any> => {
     const draftData: Record<string, any> = {
       programId,
       programName,
@@ -1147,32 +1173,52 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       dateStr,
       isOneOff,
       scheduledDate,
-      exercises,
+      exercises: overrides?.exercises !== undefined ? overrides.exercises : exercises,
       duration,
-      notes,
+      notes: overrides?.notes !== undefined ? overrides.notes : notes,
       sleep,
       hydration,
       calories,
       protein,
       soreness,
       motivation,
-      checkedSets,
-      completionTouchedSets,
-      collapsed,
-      objective,
-      userRawExercises,
-      userTouchedSets,
+      checkedSets: overrides?.checkedSets !== undefined ? overrides.checkedSets : checkedSets,
+      completionTouchedSets: overrides?.completionTouchedSets !== undefined ? overrides.completionTouchedSets : completionTouchedSets,
+      collapsed: overrides?.collapsed !== undefined ? overrides.collapsed : collapsed,
+      objective: overrides?.objective !== undefined ? overrides.objective : objective,
+      userRawExercises: overrides?.userRawExercises !== undefined ? overrides.userRawExercises : userRawExercises,
+      userTouchedSets: overrides?.userTouchedSets !== undefined ? overrides.userTouchedSets : userTouchedSets,
       startTime,
-      prescribedTargetSnapshots,
-      committedLiveEvidenceBySet,
-      liveAdjustedSets,
+      prescribedTargetSnapshots: overrides?.prescribedTargetSnapshots !== undefined ? overrides.prescribedTargetSnapshots : prescribedTargetSnapshots,
+      committedLiveEvidenceBySet: overrides?.committedLiveEvidenceBySet !== undefined ? overrides.committedLiveEvidenceBySet : committedLiveEvidenceBySet,
+      liveAdjustedSets: overrides?.liveAdjustedSets !== undefined ? overrides.liveAdjustedSets : liveAdjustedSets,
       bodyweightSnapshot,
     };
 
+    const guideKey = overrides?.currentSetGuideKey !== undefined ? overrides.currentSetGuideKey : currentSetGuideKey;
     if (highlightCurrentSet) {
-      draftData.currentSetGuideKey = currentSetGuideKey;
+      draftData.currentSetGuideKey = guideKey;
     }
 
+    return draftData;
+  };
+
+  const saveWorkoutDraftImmediately = (overrides?: Parameters<typeof serializeWorkoutDraftPayload>[0]) => {
+    if (!isDraftLoaded) return;
+    try {
+      const payload = serializeWorkoutDraftPayload(overrides);
+      localStorage.setItem('metreps_workout_draft', JSON.stringify(payload));
+      setHasExistingDraft(true);
+    } catch (e) {
+      console.error('Failed to immediately save workout draft:', e);
+    }
+  };
+
+  // Auto-save draft on every modification
+  useEffect(() => {
+    if (!isDraftLoaded) return;
+
+    const draftData = serializeWorkoutDraftPayload();
     localStorage.setItem('metreps_workout_draft', JSON.stringify(draftData));
     setHasExistingDraft(true);
   }, [
@@ -1479,11 +1525,14 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       });
 
       const updated = applyObjectiveCalculationsToExercises(baseUpdated, objective);
+      const nextSnaps = capturePrescribedSnapshotsFromExercises(updated, prescribedTargetSnapshots, userTouchedSets);
       setExercises(updated);
-      setPrescribedTargetSnapshots(prevSnaps =>
-        capturePrescribedSnapshotsFromExercises(updated, prevSnaps, userTouchedSets)
-      );
+      setPrescribedTargetSnapshots(nextSnaps);
       persistMainMovementMetadata(null);
+      saveWorkoutDraftImmediately({
+        exercises: updated,
+        prescribedTargetSnapshots: nextSnaps,
+      });
     } else {
       const currentMainIdx = exercises.findIndex(ex => !!ex.isMainMovement);
       if (currentMainIdx !== -1 && eligibleCount === 1) {
@@ -1494,11 +1543,14 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         });
 
         const updated = applyObjectiveCalculationsToExercises(baseUpdated, objective);
+        const nextSnaps = capturePrescribedSnapshotsFromExercises(updated, prescribedTargetSnapshots, userTouchedSets);
         setExercises(updated);
-        setPrescribedTargetSnapshots(prevSnaps =>
-          capturePrescribedSnapshotsFromExercises(updated, prevSnaps, userTouchedSets)
-        );
+        setPrescribedTargetSnapshots(nextSnaps);
         persistMainMovementMetadata(targetIdx, targetEx.name);
+        saveWorkoutDraftImmediately({
+          exercises: updated,
+          prescribedTargetSnapshots: nextSnaps,
+        });
       }
     }
   };
@@ -1513,61 +1565,16 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     });
 
     const updated = applyObjectiveCalculationsToExercises(baseUpdated, objective);
+    const nextSnaps = capturePrescribedSnapshotsFromExercises(updated, prescribedTargetSnapshots, userTouchedSets);
     setExercises(updated);
-    setPrescribedTargetSnapshots(prevSnaps =>
-      capturePrescribedSnapshotsFromExercises(updated, prevSnaps, userTouchedSets)
-    );
+    setPrescribedTargetSnapshots(nextSnaps);
 
     persistMainMovementMetadata(swapMainTargetIdx, targetName);
     setSwapMainTargetIdx(null);
-  };
-
-  const syncAddedSetStructureToActiveProgram = (currentEx: ExerciseEntry, exIdx: number) => {
-    if (!programId) return;
-    try {
-      const activeProg = storage.getPrograms().find(p => p.id === programId);
-      const dayIndex = Number(dayNum);
-      if (activeProg && activeProg.exercisesByDay?.[dayIndex]) {
-        const currentDayTemplates = activeProg.exercisesByDay[dayIndex];
-        const updatedTemplates = syncAddedSetStructureToProgramDay(currentDayTemplates, currentEx, exIdx);
-        activeProg.exercisesByDay[dayIndex] = updatedTemplates;
-        storage.saveProgram(activeProg);
-      }
-    } catch (e) {
-      console.error('Failed to sync added set structure to active program:', e);
-    }
-  };
-
-  const syncExercisesToActiveProgram = (currentExercises: ExerciseEntry[]) => {
-    if (!programId) return;
-    try {
-      const activeProg = storage.getPrograms().find(p => p.id === programId);
-      if (activeProg && activeProg.exercisesByDay[Number(dayNum)]) {
-        const templatesToSave: ExerciseEntry[] = currentExercises.map(ex => ({
-          name: ex.name,
-          muscleGroup: ex.muscleGroup,
-          modality: ex.modality || 'weighted',
-          isSuperset: !!ex.isSuperset,
-          isMainMovement: !!ex.isMainMovement, // Persist designated main movement state to the program template
-          sets: ex.sets.map(s => ({
-            setNumber: s.setNumber,
-            weight: 0,
-            reps: 0,
-            rpe: s.rpe || 8,
-            form: s.form || 'standard',
-            comment: s.comment || null,
-            isWarmup: !!s.isWarmup,
-            isDropSet: !!s.isDropSet,
-            dropSubSets: s.dropSubSets ? s.dropSubSets.map(ds => ({ weight: ds.weight, reps: ds.reps })) : null
-          })),
-        }));
-
-        activeProg.exercisesByDay[Number(dayNum)] = templatesToSave;
-        storage.saveProgram(activeProg);
-      }
-    } catch (e) {
-      console.error('Failed to sync exercises to active program:', e);
-    }
+    saveWorkoutDraftImmediately({
+      exercises: updated,
+      prescribedTargetSnapshots: nextSnaps,
+    });
   };
 
   const handleAddExercise = () => {
@@ -1578,10 +1585,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 8, form: 'standard' as const }],
     };
 
-    setUserRawExercises(prev => {
-      const base = prev || [];
-      return [...base, newItem];
-    });
+    const baseRaw = userRawExercises || [];
+    const nextUserRaw = [...baseRaw, newItem];
 
     const activeProg = programId ? storage.getPrograms().find(p => p.id === programId) : null;
     const programDuration = activeProg && activeProg.programDuration !== '∞' ? Number(activeProg.programDuration) : 8;
@@ -1607,42 +1612,59 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     });
     const finalNew = { ...newItem, sets: calculatedSets };
 
-    setPrescribedTargetSnapshots(prev =>
-      capturePrescribedSnapshotsFromExercises([finalNew], prev, {}, exercises.length)
-    );
+    const nextSnapshots = capturePrescribedSnapshotsFromExercises([finalNew], prescribedTargetSnapshots, {}, exercises.length);
+    const nextExercises = [...exercises, finalNew];
 
-    setExercises(prev => {
-      const nextExs = [...prev, finalNew];
-      syncExercisesToActiveProgram(nextExs);
-      return nextExs;
+    setUserRawExercises(nextUserRaw);
+    setPrescribedTargetSnapshots(nextSnapshots);
+    setExercises(nextExercises);
+
+    saveWorkoutDraftImmediately({
+      exercises: nextExercises,
+      userRawExercises: nextUserRaw,
+      prescribedTargetSnapshots: nextSnapshots,
     });
   };
 
   const handleDeleteExercise = (idx: number) => {
-    setUserRawExercises(prev => {
-      if (!prev) return null;
-      return prev.filter((_, i) => i !== idx);
+    const nextUserRaw = userRawExercises ? userRawExercises.filter((_, i) => i !== idx) : null;
+    const nextExercises = exercises.filter((_, i) => i !== idx);
+    const nextGuideKey = reconcileGuideAfterExerciseDelete(currentSetGuideKey, idx, nextExercises);
+    const nextChecked = remapAfterExerciseDelete(checkedSets, idx);
+    const nextTouched = remapAfterExerciseDelete(userTouchedSets, idx);
+    const nextCompletionTouched = remapAfterExerciseDelete(completionTouchedSets, idx);
+    const nextSnapshots = remapAfterExerciseDelete(prescribedTargetSnapshots, idx);
+    const nextEvidence = remapAfterExerciseDelete(committedLiveEvidenceBySet, idx);
+    const nextLiveAdjusted = remapAfterExerciseDelete(liveAdjustedSets, idx);
+    const nextCollapsed: Record<number, boolean> = {};
+    Object.entries(collapsed).forEach(([k, v]) => {
+      const i = parseInt(k, 10);
+      if (i < idx) nextCollapsed[i] = v;
+      else if (i > idx) nextCollapsed[i - 1] = v;
     });
-    setExercises(prev => {
-      const nextExs = prev.filter((_, i) => i !== idx);
-      syncExercisesToActiveProgram(nextExs);
-      setCurrentSetGuideKey(current => reconcileGuideAfterExerciseDelete(current, idx, nextExs));
-      return nextExs;
-    });
-    setCheckedSets(prev => remapAfterExerciseDelete(prev, idx));
-    setUserTouchedSets(prev => remapAfterExerciseDelete(prev, idx));
-    setCompletionTouchedSets(prev => remapAfterExerciseDelete(prev, idx));
-    setPrescribedTargetSnapshots(prev => remapAfterExerciseDelete(prev, idx));
-    setCommittedLiveEvidenceBySet(prev => remapAfterExerciseDelete(prev, idx));
-    setLiveAdjustedSets(prev => remapAfterExerciseDelete(prev, idx));
-    setCollapsed(prev => {
-      const next: Record<number, boolean> = {};
-      Object.entries(prev).forEach(([k, v]) => {
-        const i = parseInt(k, 10);
-        if (i < idx) next[i] = v;
-        else if (i > idx) next[i - 1] = v;
-      });
-      return next;
+
+    setUserRawExercises(nextUserRaw);
+    setExercises(nextExercises);
+    setCurrentSetGuideKey(nextGuideKey);
+    setCheckedSets(nextChecked);
+    setUserTouchedSets(nextTouched);
+    setCompletionTouchedSets(nextCompletionTouched);
+    setPrescribedTargetSnapshots(nextSnapshots);
+    setCommittedLiveEvidenceBySet(nextEvidence);
+    setLiveAdjustedSets(nextLiveAdjusted);
+    setCollapsed(nextCollapsed);
+
+    saveWorkoutDraftImmediately({
+      exercises: nextExercises,
+      userRawExercises: nextUserRaw,
+      checkedSets: nextChecked,
+      userTouchedSets: nextTouched,
+      completionTouchedSets: nextCompletionTouched,
+      prescribedTargetSnapshots: nextSnapshots,
+      committedLiveEvidenceBySet: nextEvidence,
+      liveAdjustedSets: nextLiveAdjusted,
+      collapsed: nextCollapsed,
+      currentSetGuideKey: nextGuideKey,
     });
   };
 
@@ -1873,43 +1895,61 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const newWarmupCount = warmupTargets.length;
     let nextCombinedSets: SetEntry[] | null = null;
 
-    setExercises(prev => {
-      const nextExs = prev.map((ex, i) => {
-        if (i === exIdx) {
-          const workingSetsOnly = ex.sets.filter(s => !s.isWarmup);
-          const autoWarmupSets: SetEntry[] = warmupTargets.map((t, tIdx) => ({
-            setNumber: tIdx + 1,
-            weight: t.weight,
-            reps: t.reps,
-            rpe: t.rpe,
-            form: 'standard',
-            isWarmup: true,
-          }));
+    const nextExercises = exercises.map((ex, i) => {
+      if (i === exIdx) {
+        const workingSetsOnly = ex.sets.filter(s => !s.isWarmup);
+        const autoWarmupSets: SetEntry[] = warmupTargets.map((t, tIdx) => ({
+          setNumber: tIdx + 1,
+          weight: t.weight,
+          reps: t.reps,
+          rpe: t.rpe,
+          form: 'standard',
+          isWarmup: true,
+        }));
 
-          const combined = [...autoWarmupSets, ...workingSetsOnly].map((s, idx) => ({
-            ...s,
-            setNumber: idx + 1,
-          }));
-          nextCombinedSets = combined;
+        const combined = [...autoWarmupSets, ...workingSetsOnly].map((s, idx) => ({
+          ...s,
+          setNumber: idx + 1,
+        }));
+        nextCombinedSets = combined;
 
-          return { ...ex, sets: combined };
-        }
-        return ex;
-      });
-      syncExercisesToActiveProgram(nextExs);
-      return nextExs;
+        return { ...ex, sets: combined };
+      }
+      return ex;
     });
 
-    if (highlightCurrentSet && nextCombinedSets) {
-      setCurrentSetGuideKey(current => reconcileGuideAfterWarmupChange(current, exIdx, currentEx.sets, nextCombinedSets!));
-    }
+    const nextGuideKey = highlightCurrentSet && nextCombinedSets
+      ? reconcileGuideAfterWarmupChange(currentSetGuideKey, exIdx, currentEx.sets, nextCombinedSets!)
+      : currentSetGuideKey;
 
-    setCheckedSets(prev => remapAfterWarmupChange(prev, exIdx, priorWarmupCount, newWarmupCount));
-    setUserTouchedSets(prev => remapAfterWarmupChange(prev, exIdx, priorWarmupCount, newWarmupCount));
-    setCompletionTouchedSets(prev => remapAfterWarmupChange(prev, exIdx, priorWarmupCount, newWarmupCount));
-    setPrescribedTargetSnapshots(prev => remapAfterWarmupChange(prev, exIdx, priorWarmupCount, newWarmupCount));
-    setCommittedLiveEvidenceBySet(prev => remapAfterWarmupChange(prev, exIdx, priorWarmupCount, newWarmupCount));
-    setLiveAdjustedSets(prev => remapAfterWarmupChange(prev, exIdx, priorWarmupCount, newWarmupCount));
+    const nextChecked = remapAfterWarmupChange(checkedSets, exIdx, priorWarmupCount, newWarmupCount);
+    const nextTouched = remapAfterWarmupChange(userTouchedSets, exIdx, priorWarmupCount, newWarmupCount);
+    const nextCompletionTouched = remapAfterWarmupChange(completionTouchedSets, exIdx, priorWarmupCount, newWarmupCount);
+    const nextSnapshots = remapAfterWarmupChange(prescribedTargetSnapshots, exIdx, priorWarmupCount, newWarmupCount);
+    const nextEvidence = remapAfterWarmupChange(committedLiveEvidenceBySet, exIdx, priorWarmupCount, newWarmupCount);
+    const nextLiveAdjusted = remapAfterWarmupChange(liveAdjustedSets, exIdx, priorWarmupCount, newWarmupCount);
+
+    setExercises(nextExercises);
+    if (highlightCurrentSet && nextCombinedSets) {
+      setCurrentSetGuideKey(nextGuideKey);
+    }
+    setCheckedSets(nextChecked);
+    setUserTouchedSets(nextTouched);
+    setCompletionTouchedSets(nextCompletionTouched);
+    setPrescribedTargetSnapshots(nextSnapshots);
+    setCommittedLiveEvidenceBySet(nextEvidence);
+    setLiveAdjustedSets(nextLiveAdjusted);
+
+    saveWorkoutDraftImmediately({
+      exercises: nextExercises,
+      checkedSets: nextChecked,
+      userTouchedSets: nextTouched,
+      completionTouchedSets: nextCompletionTouched,
+      prescribedTargetSnapshots: nextSnapshots,
+      committedLiveEvidenceBySet: nextEvidence,
+      liveAdjustedSets: nextLiveAdjusted,
+      currentSetGuideKey: nextGuideKey,
+    });
   };
 
   const handleAutoWarmup = (exIdx: number, setIdx: number) => {
@@ -1992,17 +2032,17 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleUpdateSetComment = (exIdx: number, setIdx: number, comment: string) => {
-    setExercises(prev =>
-      prev.map((ex, i) => {
-        if (i === exIdx) {
-          const sets = ex.sets.map((s, sIdx) =>
-            sIdx === setIdx ? { ...s, comment: comment || null } : s
-          );
-          return { ...ex, sets };
-        }
-        return ex;
-      })
-    );
+    const nextExercises = exercises.map((ex, i) => {
+      if (i === exIdx) {
+        const sets = ex.sets.map((s, sIdx) =>
+          sIdx === setIdx ? { ...s, comment: comment || null } : s
+        );
+        return { ...ex, sets };
+      }
+      return ex;
+    });
+    setExercises(nextExercises);
+    saveWorkoutDraftImmediately({ exercises: nextExercises });
   };
 
   const handleMoveSet = (exIdx: number, setIdx: number, direction: 'up' | 'down') => {
@@ -2020,45 +2060,62 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       return;
     }
 
-    setUserRawExercises(prev => {
-      if (!prev) return null;
-      return prev.map((ex, i) => {
-        if (i === exIdx) {
-          if (targetIdx < 0 || targetIdx >= ex.sets.length) return ex;
-          const sets = [...ex.sets];
-          const temp = sets[setIdx];
-          sets[setIdx] = sets[targetIdx];
-          sets[targetIdx] = temp;
-          const reindexed = sets.map((s, idx) => ({ ...s, setNumber: idx + 1 }));
-          return { ...ex, sets: reindexed };
-        }
-        return ex;
-      });
+    const nextUserRaw = userRawExercises
+      ? userRawExercises.map((ex, i) => {
+          if (i === exIdx) {
+            if (targetIdx < 0 || targetIdx >= ex.sets.length) return ex;
+            const sets = [...ex.sets];
+            const temp = sets[setIdx];
+            sets[setIdx] = sets[targetIdx];
+            sets[targetIdx] = temp;
+            const reindexed = sets.map((s, idx) => ({ ...s, setNumber: idx + 1 }));
+            return { ...ex, sets: reindexed };
+          }
+          return ex;
+        })
+      : null;
+
+    const nextExercises = exercises.map((ex, i) => {
+      if (i === exIdx) {
+        const sets = [...ex.sets];
+        const temp = sets[setIdx];
+        sets[setIdx] = sets[targetIdx];
+        sets[targetIdx] = temp;
+        const reindexed = sets.map((s, idx) => ({ ...s, setNumber: idx + 1 }));
+        return { ...ex, sets: reindexed };
+      }
+      return ex;
     });
 
-    setExercises(prev => {
-      const nextExs = prev.map((ex, i) => {
-        if (i === exIdx) {
-          const sets = [...ex.sets];
-          const temp = sets[setIdx];
-          sets[setIdx] = sets[targetIdx];
-          sets[targetIdx] = temp;
-          const reindexed = sets.map((s, idx) => ({ ...s, setNumber: idx + 1 }));
-          return { ...ex, sets: reindexed };
-        }
-        return ex;
-      });
-      syncExercisesToActiveProgram(nextExs);
-      return nextExs;
-    });
+    const nextChecked = remapAfterSetMove(checkedSets, exIdx, setIdx, targetIdx);
+    const nextTouched = remapAfterSetMove(userTouchedSets, exIdx, setIdx, targetIdx);
+    const nextCompletionTouched = remapAfterSetMove(completionTouchedSets, exIdx, setIdx, targetIdx);
+    const nextSnapshots = remapAfterSetMove(prescribedTargetSnapshots, exIdx, setIdx, targetIdx);
+    const nextEvidence = remapAfterSetMove(committedLiveEvidenceBySet, exIdx, setIdx, targetIdx);
+    const nextLiveAdjusted = remapAfterSetMove(liveAdjustedSets, exIdx, setIdx, targetIdx);
+    const nextGuideKey = reconcileGuideAfterSetMove(currentSetGuideKey, exIdx, setIdx, targetIdx);
 
-    setCheckedSets(prev => remapAfterSetMove(prev, exIdx, setIdx, targetIdx));
-    setUserTouchedSets(prev => remapAfterSetMove(prev, exIdx, setIdx, targetIdx));
-    setCompletionTouchedSets(prev => remapAfterSetMove(prev, exIdx, setIdx, targetIdx));
-    setPrescribedTargetSnapshots(prev => remapAfterSetMove(prev, exIdx, setIdx, targetIdx));
-    setCommittedLiveEvidenceBySet(prev => remapAfterSetMove(prev, exIdx, setIdx, targetIdx));
-    setLiveAdjustedSets(prev => remapAfterSetMove(prev, exIdx, setIdx, targetIdx));
-    setCurrentSetGuideKey(prev => reconcileGuideAfterSetMove(prev, exIdx, setIdx, targetIdx));
+    setUserRawExercises(nextUserRaw);
+    setExercises(nextExercises);
+    setCheckedSets(nextChecked);
+    setUserTouchedSets(nextTouched);
+    setCompletionTouchedSets(nextCompletionTouched);
+    setPrescribedTargetSnapshots(nextSnapshots);
+    setCommittedLiveEvidenceBySet(nextEvidence);
+    setLiveAdjustedSets(nextLiveAdjusted);
+    setCurrentSetGuideKey(nextGuideKey);
+
+    saveWorkoutDraftImmediately({
+      exercises: nextExercises,
+      userRawExercises: nextUserRaw,
+      checkedSets: nextChecked,
+      userTouchedSets: nextTouched,
+      completionTouchedSets: nextCompletionTouched,
+      prescribedTargetSnapshots: nextSnapshots,
+      committedLiveEvidenceBySet: nextEvidence,
+      liveAdjustedSets: nextLiveAdjusted,
+      currentSetGuideKey: nextGuideKey,
+    });
   };
 
   const handleMoveExercise = (exIdx: number, direction: 'up' | 'down') => {
@@ -2066,96 +2123,84 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     if (targetIdx < 0 || targetIdx >= exercises.length) return;
 
     // 1. Swap in exercises state
-    setExercises(prev => {
-      const copy = [...prev];
-      const temp = copy[exIdx];
-      copy[exIdx] = copy[targetIdx];
-      copy[targetIdx] = temp;
-      return copy;
-    });
+    const nextExercises = [...exercises];
+    const tempEx = nextExercises[exIdx];
+    nextExercises[exIdx] = nextExercises[targetIdx];
+    nextExercises[targetIdx] = tempEx;
 
     // 2. Swap in userRawExercises state if present
-    setUserRawExercises(prev => {
-      if (!prev) return null;
-      const copy = [...prev];
-      if (exIdx >= copy.length || targetIdx >= copy.length) return prev;
-      const temp = copy[exIdx];
-      copy[exIdx] = copy[targetIdx];
-      copy[targetIdx] = temp;
-      return copy;
-    });
+    let nextUserRaw = userRawExercises;
+    if (userRawExercises && exIdx < userRawExercises.length && targetIdx < userRawExercises.length) {
+      const copyRaw = [...userRawExercises];
+      const tempRaw = copyRaw[exIdx];
+      copyRaw[exIdx] = copyRaw[targetIdx];
+      copyRaw[targetIdx] = tempRaw;
+      nextUserRaw = copyRaw;
+    }
 
     // 3. Swap in collapsed state
-    setCollapsed(prev => {
-      const copy = { ...prev };
-      const val1 = copy[exIdx];
-      const val2 = copy[targetIdx];
-      if (val1 !== undefined) copy[targetIdx] = val1;
-      else delete copy[targetIdx];
-      if (val2 !== undefined) copy[exIdx] = val2;
-      else delete copy[exIdx];
-      return copy;
-    });
+    const nextCollapsed = { ...collapsed };
+    const val1 = nextCollapsed[exIdx];
+    const val2 = nextCollapsed[targetIdx];
+    if (val1 !== undefined) nextCollapsed[targetIdx] = val1;
+    else delete nextCollapsed[targetIdx];
+    if (val2 !== undefined) nextCollapsed[exIdx] = val2;
+    else delete nextCollapsed[exIdx];
 
     // 4. Remap checkedSets, userTouchedSets, and completionTouchedSets keys using shared helper
-    setCheckedSets(prev => remapAfterExerciseMove(prev, exIdx, targetIdx));
-    setUserTouchedSets(prev => remapAfterExerciseMove(prev, exIdx, targetIdx));
-    setCompletionTouchedSets(prev => remapAfterExerciseMove(prev, exIdx, targetIdx));
-    setPrescribedTargetSnapshots(prev => remapAfterExerciseMove(prev, exIdx, targetIdx));
-    setCommittedLiveEvidenceBySet(prev => remapAfterExerciseMove(prev, exIdx, targetIdx));
-    setLiveAdjustedSets(prev => remapAfterExerciseMove(prev, exIdx, targetIdx));
-    setCurrentSetGuideKey(prev => reconcileGuideAfterExerciseMove(prev, exIdx, targetIdx));
+    const nextChecked = remapAfterExerciseMove(checkedSets, exIdx, targetIdx);
+    const nextTouched = remapAfterExerciseMove(userTouchedSets, exIdx, targetIdx);
+    const nextCompletionTouched = remapAfterExerciseMove(completionTouchedSets, exIdx, targetIdx);
+    const nextSnapshots = remapAfterExerciseMove(prescribedTargetSnapshots, exIdx, targetIdx);
+    const nextEvidence = remapAfterExerciseMove(committedLiveEvidenceBySet, exIdx, targetIdx);
+    const nextLiveAdjusted = remapAfterExerciseMove(liveAdjustedSets, exIdx, targetIdx);
+    const nextGuideKey = reconcileGuideAfterExerciseMove(currentSetGuideKey, exIdx, targetIdx);
 
-    // 5. Persist to active program (exercisesByDay) if inside a program workout
-    if (programId) {
-      try {
-        const activeProg = storage.getPrograms().find(p => p.id === programId);
-        if (activeProg && activeProg.exercisesByDay[Number(dayNum)]) {
-          const progExercises = [...activeProg.exercisesByDay[Number(dayNum)]];
-          if (exIdx < progExercises.length && targetIdx < progExercises.length) {
-            const temp = progExercises[exIdx];
-            progExercises[exIdx] = progExercises[targetIdx];
-            progExercises[targetIdx] = temp;
-            activeProg.exercisesByDay[Number(dayNum)] = progExercises;
-            storage.saveProgram(activeProg);
-          }
-        }
-      } catch (e) {
-        console.error('Failed to update exercise order in program:', e);
-      }
-    }
+    setExercises(nextExercises);
+    setUserRawExercises(nextUserRaw);
+    setCollapsed(nextCollapsed);
+    setCheckedSets(nextChecked);
+    setUserTouchedSets(nextTouched);
+    setCompletionTouchedSets(nextCompletionTouched);
+    setPrescribedTargetSnapshots(nextSnapshots);
+    setCommittedLiveEvidenceBySet(nextEvidence);
+    setLiveAdjustedSets(nextLiveAdjusted);
+    setCurrentSetGuideKey(nextGuideKey);
+
+    saveWorkoutDraftImmediately({
+      exercises: nextExercises,
+      userRawExercises: nextUserRaw,
+      collapsed: nextCollapsed,
+      checkedSets: nextChecked,
+      userTouchedSets: nextTouched,
+      completionTouchedSets: nextCompletionTouched,
+      prescribedTargetSnapshots: nextSnapshots,
+      committedLiveEvidenceBySet: nextEvidence,
+      liveAdjustedSets: nextLiveAdjusted,
+      currentSetGuideKey: nextGuideKey,
+    });
   };
 
   const handleToggleSuperset = (exIdx: number) => {
-    setExercises(prev => {
-      const nextExs = prev.map((ex, i) => (i === exIdx ? { ...ex, isSuperset: !ex.isSuperset } : ex));
-      syncExercisesToActiveProgram(nextExs);
-      return nextExs;
-    });
+    const nextExs = exercises.map((ex, i) => (i === exIdx ? { ...ex, isSuperset: !ex.isSuperset } : ex));
+    setExercises(nextExs);
+    saveWorkoutDraftImmediately({ exercises: nextExs });
   };
 
   const handleUpdateExerciseName = (idx: number, name: string) => {
-    setUserRawExercises(prev => {
-      if (!prev) return null;
-      return prev.map((ex, i) => (i === idx ? { ...ex, name } : ex));
-    });
-    setExercises(prev => {
-      const nextExs = prev.map((ex, i) => (i === idx ? { ...ex, name } : ex));
-      syncExercisesToActiveProgram(nextExs);
-      return nextExs;
-    });
+    const nextUserRaw = userRawExercises ? userRawExercises.map((ex, i) => (i === idx ? { ...ex, name } : ex)) : null;
+    const nextExs = exercises.map((ex, i) => (i === idx ? { ...ex, name } : ex));
+    setUserRawExercises(nextUserRaw);
+    setExercises(nextExs);
+    saveWorkoutDraftImmediately({ exercises: nextExs, userRawExercises: nextUserRaw });
   };
 
   const handleUpdateMuscleGroup = (idx: number, muscleGroup: string) => {
-    setUserRawExercises(prev => {
-      if (!prev) return null;
-      return prev.map((ex, i) => (i === idx ? { ...ex, muscleGroup } : ex));
-    });
-    setExercises(prev => {
-      const nextExs = prev.map((ex, i) => (i === idx ? { ...ex, muscleGroup } : ex));
-      syncExercisesToActiveProgram(nextExs);
-      return nextExs;
-    });
+    const nextUserRaw = userRawExercises ? userRawExercises.map((ex, i) => (i === idx ? { ...ex, muscleGroup } : ex)) : null;
+    const nextExs = exercises.map((ex, i) => (i === idx ? { ...ex, muscleGroup } : ex));
+    setUserRawExercises(nextUserRaw);
+    setExercises(nextExs);
+    saveWorkoutDraftImmediately({ exercises: nextExs, userRawExercises: nextUserRaw });
   };
 
   const handleAddSet = (exIdx: number) => {
@@ -2180,6 +2225,24 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const templateEx = findMatchingTemplateExercise(currentEx, programDayTemplates, exIdx);
     const occurrenceOrdinal = getExerciseOccurrenceOrdinal(exercises, exIdx);
 
+    const exerciseCommittedEvidence: AddedSetCommittedEvidenceEntry[] = [];
+    (currentEx.sets || []).forEach((s, sIdx) => {
+      const key = `${exIdx}-${sIdx}`;
+      const ev = committedLiveEvidenceBySet[key];
+      if (ev && typeof ev.weight === 'number' && typeof ev.reps === 'number' && typeof ev.rpe === 'number') {
+        const workingOrdinal = deriveWorkingSetOrdinal(currentEx.sets, sIdx);
+        if (workingOrdinal !== null) {
+          exerciseCommittedEvidence.push({
+            workingSetOrdinal: workingOrdinal,
+            weight: ev.weight,
+            reps: ev.reps,
+            rpe: ev.rpe,
+            form: (ev.form || undefined) as 'standard' | 'strict' | 'loose' | undefined,
+          });
+        }
+      }
+    });
+
     // Calculate target for newly added set using authoritative inputs and distribution engine
     const targetResult = calculateAddedSetTarget({
       objective,
@@ -2198,6 +2261,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       targetChronology,
       sessionStartedAt: sessionStartedAtRef.current,
       occurrenceOrdinal,
+      committedEvidence: exerciseCommittedEvidence,
     });
 
     const isPrescribed = targetResult.isPrescribed && !!targetResult.target;
@@ -2209,83 +2273,105 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       form: (isPrescribed ? targetResult.target!.form : 'standard') as 'standard' | 'strict' | 'loose',
     };
 
+    let nextSnapshots = prescribedTargetSnapshots;
     if (isPrescribed && targetResult.target) {
       const newSetKey = `${exIdx}-${currentEx.sets.length}`;
-      setPrescribedTargetSnapshots(prev => ({
-        ...prev,
+      nextSnapshots = {
+        ...prescribedTargetSnapshots,
         [newSetKey]: {
           weight: targetResult.target!.weight,
           reps: targetResult.target!.reps,
           rpe: targetResult.target!.rpe,
         },
-      }));
+      };
+      setPrescribedTargetSnapshots(nextSnapshots);
     }
 
-    setUserRawExercises(prev => {
-      if (!prev) return null;
-      return prev.map((ex, i) => {
-        if (i === exIdx) {
-          return { ...ex, sets: [...ex.sets, { ...newSetEntry }] };
-        }
-        return ex;
-      });
+    const nextUserRaw = userRawExercises
+      ? userRawExercises.map((ex, i) => {
+          if (i === exIdx) {
+            return { ...ex, sets: [...ex.sets, { ...newSetEntry }] };
+          }
+          return ex;
+        })
+      : null;
+
+    const nextExercises = exercises.map((ex, i) => {
+      if (i === exIdx) {
+        return {
+          ...ex,
+          sets: [
+            ...ex.sets,
+            { ...newSetEntry },
+          ],
+        };
+      }
+      return ex;
     });
 
-    setExercises(prev => {
-      const nextExs = prev.map((ex, i) => {
-        if (i === exIdx) {
-          return {
-            ...ex,
-            sets: [
-              ...ex.sets,
-              { ...newSetEntry },
-            ],
-          };
-        }
-        return ex;
-      });
-      return nextExs;
-    });
+    setUserRawExercises(nextUserRaw);
+    setExercises(nextExercises);
 
-    syncAddedSetStructureToActiveProgram(currentEx, exIdx);
+    saveWorkoutDraftImmediately({
+      exercises: nextExercises,
+      userRawExercises: nextUserRaw,
+      prescribedTargetSnapshots: nextSnapshots,
+    });
   };
 
   const handleDeleteSet = (exIdx: number, setIdx: number) => {
-    setUserRawExercises(prev => {
-      if (!prev) return null;
-      return prev.map((ex, i) => {
-        if (i === exIdx) {
-          const filtered = ex.sets.filter((_, sIdx) => sIdx !== setIdx);
-          const reindexed = filtered.map((s, sIdx) => ({ ...s, setNumber: sIdx + 1 }));
-          return { ...ex, sets: reindexed };
-        }
-        return ex;
-      });
+    const nextUserRaw = userRawExercises
+      ? userRawExercises.map((ex, i) => {
+          if (i === exIdx) {
+            const filtered = ex.sets.filter((_, sIdx) => sIdx !== setIdx);
+            const reindexed = filtered.map((s, sIdx) => ({ ...s, setNumber: sIdx + 1 }));
+            return { ...ex, sets: reindexed };
+          }
+          return ex;
+        })
+      : null;
+
+    const nextExercises = exercises.map((ex, i) => {
+      if (i === exIdx) {
+        const filteredSets = ex.sets.filter((_, sIdx) => sIdx !== setIdx);
+        const reindexed = filteredSets.map((s, sIdx) => ({
+          ...s,
+          setNumber: sIdx + 1,
+        }));
+        return { ...ex, sets: reindexed };
+      }
+      return ex;
     });
 
-    setExercises(prev => {
-      const nextExs = prev.map((ex, i) => {
-        if (i === exIdx) {
-          const filteredSets = ex.sets.filter((_, sIdx) => sIdx !== setIdx);
-          const reindexed = filteredSets.map((s, sIdx) => ({
-            ...s,
-            setNumber: sIdx + 1,
-          }));
-          return { ...ex, sets: reindexed };
-        }
-        return ex;
-      });
-      syncExercisesToActiveProgram(nextExs);
-      setCurrentSetGuideKey(current => reconcileGuideAfterSetDelete(current, exIdx, setIdx, nextExs));
-      return nextExs;
-    });
+    const nextChecked = remapAfterSetDelete(checkedSets, exIdx, setIdx);
+    const nextTouched = remapAfterSetDelete(userTouchedSets, exIdx, setIdx);
+    const nextCompletionTouched = remapAfterSetDelete(completionTouchedSets, exIdx, setIdx);
+    const nextSnapshots = remapAfterSetDelete(prescribedTargetSnapshots, exIdx, setIdx);
+    const nextEvidence = remapAfterSetDelete(committedLiveEvidenceBySet, exIdx, setIdx);
+    const nextLiveAdjusted = remapAfterSetDelete(liveAdjustedSets, exIdx, setIdx);
+    const nextGuideKey = reconcileGuideAfterSetDelete(currentSetGuideKey, exIdx, setIdx, nextExercises);
 
-    setCheckedSets(prev => remapAfterSetDelete(prev, exIdx, setIdx));
-    setUserTouchedSets(prev => remapAfterSetDelete(prev, exIdx, setIdx));
-    setCompletionTouchedSets(prev => remapAfterSetDelete(prev, exIdx, setIdx));
-    setPrescribedTargetSnapshots(prev => remapAfterSetDelete(prev, exIdx, setIdx));
-    setCommittedLiveEvidenceBySet(prev => remapAfterSetDelete(prev, exIdx, setIdx));
-    setLiveAdjustedSets(prev => remapAfterSetDelete(prev, exIdx, setIdx));
+    setUserRawExercises(nextUserRaw);
+    setExercises(nextExercises);
+    setCurrentSetGuideKey(nextGuideKey);
+    setCheckedSets(nextChecked);
+    setUserTouchedSets(nextTouched);
+    setCompletionTouchedSets(nextCompletionTouched);
+    setPrescribedTargetSnapshots(nextSnapshots);
+    setCommittedLiveEvidenceBySet(nextEvidence);
+    setLiveAdjustedSets(nextLiveAdjusted);
+
+    saveWorkoutDraftImmediately({
+      exercises: nextExercises,
+      userRawExercises: nextUserRaw,
+      checkedSets: nextChecked,
+      userTouchedSets: nextTouched,
+      completionTouchedSets: nextCompletionTouched,
+      prescribedTargetSnapshots: nextSnapshots,
+      committedLiveEvidenceBySet: nextEvidence,
+      liveAdjustedSets: nextLiveAdjusted,
+      currentSetGuideKey: nextGuideKey,
+    });
   };
 
   const handleUpdateSet = <K extends keyof SetEntry>(
@@ -2391,8 +2477,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     delete finalUpdatedLiveAdjustedSets[setKey];
 
     if (
-      (objective === 'Hypertrophy' || objective === 'Strength') &&
-      baselineE1RM > 0
+      objective === 'Hypertrophy' ||
+      (objective === 'Strength' && (targetEx.isMainMovement ?? false))
     ) {
       const adapterPrep = prepareLiveAdjustmentParams({
         exercise: updatedTargetEx,
@@ -2608,6 +2694,40 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     };
 
     storage.saveWorkoutLog(newLog);
+
+    // Commit confirmed exercise and working-set template structure to program
+    if (programId && !editLogId) {
+      try {
+        const activeProg = storage.getPrograms().find(p => p.id === programId);
+        const dayKey = Number(dayNum);
+        if (activeProg && activeProg.exercisesByDay?.[dayKey]) {
+          const templatesToSave: ExerciseEntry[] = exercises.map(ex => ({
+            name: ex.name,
+            muscleGroup: ex.muscleGroup,
+            modality: ex.modality || 'weighted',
+            isSuperset: !!ex.isSuperset,
+            isMainMovement: !!ex.isMainMovement,
+            sets: ex.sets.map(s => ({
+              setNumber: s.setNumber,
+              weight: 0,
+              reps: 0,
+              rpe: s.rpe || 8,
+              form: s.form || 'standard',
+              comment: s.comment || null,
+              isWarmup: !!s.isWarmup,
+              isDropSet: !!s.isDropSet,
+              dropSubSets: s.dropSubSets ? s.dropSubSets.map(ds => ({ weight: ds.weight, reps: ds.reps })) : null
+            })),
+          }));
+
+          activeProg.exercisesByDay[dayKey] = templatesToSave;
+          storage.saveProgram(activeProg);
+        }
+      } catch (e) {
+        console.error('Failed to sync confirmed exercises to active program template upon save:', e);
+      }
+    }
+
     localStorage.removeItem('metreps_workout_draft');
     if (isFinalWorkout) {
       // Unenrol the user from the current program automatically at the conclusion of the program

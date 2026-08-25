@@ -1,5 +1,5 @@
 import { ExerciseEntry, SetEntry, BodyweightSnapshot, WeightUnit } from '../types';
-import type { FatiguePriorProfile } from './setDistribution';
+import { getFatiguePrior, type FatiguePriorProfile } from './setDistribution';
 import {
   LiveAdjustmentParams,
   LiveTargetSnapshot,
@@ -7,9 +7,11 @@ import {
   LiveAdjustmentResult,
 } from './liveAdjustmentMath';
 import { getRTSMultiplier } from './rpeMath';
+import { roundToNearest25 } from './weightMath';
 import { projectAssistedTarget, solveBodyweightRepTarget } from './modalityTargetMath';
 import { getPermittedRepetitionBounds } from './objectiveMath';
 import { resolveSessionBodyweightInUnit, validateBodyweightSnapshot } from './bodyweightSessionMath';
+import { deriveColdStartPlannedCapacityE1RM } from './coldStartCalibration';
 
 /**
  * Immutable snapshot value of a prescribed target.
@@ -93,8 +95,6 @@ export function capturePrescribedSnapshotsFromExercises(
   exerciseList.forEach((ex, i) => {
     if (!ex || !ex.sets) return;
     const exIdx = startExIdx + i;
-    const isZeroWeightAllowed = ex.modality === 'bodyweight' || ex.modality === 'assisted';
-
     let workingOrdinal = 0;
     ex.sets.forEach((s, sIdx) => {
       if (s.isWarmup) return;
@@ -115,7 +115,7 @@ export function capturePrescribedSnapshotsFromExercises(
       const isWeightValid =
         typeof weight === 'number' &&
         Number.isFinite(weight) &&
-        (isZeroWeightAllowed ? weight >= 0 : weight > 0);
+        weight >= 0;
 
       if (
         isWeightValid &&
@@ -266,6 +266,47 @@ export function prepareLiveAdjustmentParams(
     if (sessionBW === null || sessionBW <= 0 || !Number.isFinite(sessionBW)) {
       return { success: false, failureReason: 'missing_or_invalid_bodyweight_snapshot' };
     }
+  }
+
+  let effectiveBaselineE1RM = baselineE1RM;
+  let isColdStartWeighted = false;
+
+  if (
+    effectiveBaselineE1RM <= 0 &&
+    mod === 'weighted' &&
+    (objective === 'Hypertrophy' || (objective === 'Strength' && (exercise.isMainMovement ?? false)))
+  ) {
+    const ws1RowIdx = getWorkingSetRowIndex(exercise.sets, 1);
+    const ws1Key = ws1RowIdx !== null ? `${exIdx}-${ws1RowIdx}` : null;
+    const ws1Evidence = ws1Key ? committedLiveEvidenceBySet[ws1Key] : undefined;
+    const ws1Snapshot = ws1Key ? prescribedTargetSnapshots[ws1Key] : undefined;
+
+    if (
+      ws1Evidence &&
+      typeof ws1Evidence.weight === 'number' &&
+      ws1Evidence.weight > 0 &&
+      typeof ws1Evidence.reps === 'number' &&
+      ws1Evidence.reps > 0 &&
+      typeof ws1Evidence.rpe === 'number' &&
+      ws1Evidence.rpe >= 6.0 &&
+      ws1Evidence.rpe <= 10.0 &&
+      ws1Snapshot &&
+      typeof ws1Snapshot.reps === 'number' &&
+      ws1Snapshot.reps > 0 &&
+      typeof ws1Snapshot.rpe === 'number' &&
+      ws1Snapshot.rpe >= 6.0 &&
+      ws1Snapshot.rpe <= 10.0
+    ) {
+      const derivedPlannedCap = deriveColdStartPlannedCapacityE1RM(ws1Evidence.weight, ws1Snapshot.reps, ws1Snapshot.rpe);
+      if (derivedPlannedCap && derivedPlannedCap > 0) {
+        effectiveBaselineE1RM = derivedPlannedCap;
+        isColdStartWeighted = true;
+      }
+    }
+  }
+
+  if (effectiveBaselineE1RM <= 0) {
+    return { success: false, failureReason: 'invalid_baseline_e1rm' };
   }
 
   const prescribedTargets: LiveTargetSnapshot[] = [];
@@ -457,25 +498,37 @@ export function prepareLiveAdjustmentParams(
       if (
         snapshot &&
         typeof snapshot.weight === 'number' &&
-        snapshot.weight > 0 &&
+        snapshot.weight >= 0 &&
         typeof snapshot.reps === 'number' &&
         snapshot.reps > 0 &&
         typeof snapshot.rpe === 'number' &&
         snapshot.rpe >= 6.0 &&
         snapshot.rpe <= 10.0
       ) {
-        prescribedTargets.push({
-          workingSetOrdinal: currentOrdinal,
-          weight: snapshot.weight,
-          reps: snapshot.reps,
-          rpe: snapshot.rpe,
-        });
+        let presWeight = snapshot.weight;
+        if (isColdStartWeighted && presWeight <= 0 && effectiveBaselineE1RM > 0) {
+          const fatiguePriors = getFatiguePrior(profileType);
+          const fatigueFactor = fatiguePriors[currentOrdinal - 1] ?? 1.0;
+          const mult = getRTSMultiplier(snapshot.reps, snapshot.rpe);
+          if (mult && mult > 0) {
+            presWeight = roundToNearest25(effectiveBaselineE1RM * fatigueFactor * mult);
+          }
+        }
+
+        if (presWeight > 0) {
+          prescribedTargets.push({
+            workingSetOrdinal: currentOrdinal,
+            weight: presWeight,
+            reps: snapshot.reps,
+            rpe: snapshot.rpe,
+          });
+        }
       }
 
       // 2. Current active targets mapping (Weighted)
       if (
         typeof s.weight === 'number' &&
-        s.weight > 0 &&
+        s.weight >= 0 &&
         typeof s.reps === 'number' &&
         s.reps > 0 &&
         typeof s.rpe === 'number' &&
@@ -521,7 +574,7 @@ export function prepareLiveAdjustmentParams(
     objective: objective === 'Strength' ? 'Strength' : 'Hypertrophy',
     algorithmId,
     profileType,
-    baselineE1RM,
+    baselineE1RM: effectiveBaselineE1RM,
     movementCategory: exercise.movementCategory,
     equipment: exercise.equipment,
     modality: 'weighted',

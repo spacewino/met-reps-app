@@ -31,7 +31,7 @@ describe('MetReps — App Information Version Presentation Test', () => {
     localStorage.clear();
   });
 
-  it('renders exact version 1.0.6.0 in the default (slate/Subnautic) theme', () => {
+  it('renders exact version 1.0.6.0 and creator credit in the default (slate/Subnautic) theme', () => {
     storage.setTheme('slate');
     const html = renderToString(<InfoView onClose={() => {}} />);
 
@@ -39,7 +39,10 @@ describe('MetReps — App Information Version Presentation Test', () => {
     expect(html).toContain('Ver:');
     expect(html).toContain('1.0.6.0');
     expect(html).not.toContain('1.0.2');
+    expect(html).toContain('MetReps by');
     expect(html).toContain('Fil Filidei');
+    expect(html).not.toContain('Designed &amp; Engineered by');
+    expect(html).not.toContain('Designed & Engineered by');
     expect(html).toContain('MetRepsApp@gmail.com');
   });
 

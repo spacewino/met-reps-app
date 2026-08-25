@@ -20,6 +20,11 @@ import {
 import { extractSetPerformanceEvidence } from './progressionEvidence';
 import { projectAssistedTarget, solveBodyweightRepTarget } from './modalityTargetMath';
 import { resolveSessionBodyweightInUnit, validateBodyweightSnapshot } from './bodyweightSessionMath';
+import {
+  deriveColdStartPlannedCapacityE1RM,
+  deriveColdStartObservedCapacityE1RM,
+  deriveColdStartOrdinalShape,
+} from './coldStartCalibration';
 
 // Re-export roundToNearest25 for backward compatibility with existing imports
 export { roundToNearest25 } from './weightMath';
@@ -1073,7 +1078,7 @@ export function syncAddedSetStructureToProgramDay(
 /**
  * Resolves the effective algorithm ID following Policy B.
  */
-function resolveEffectiveAlgorithm(
+export function resolveEffectiveAlgorithm(
   objective: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload',
   rawAlgorithmId?: string
 ): 'hypertrophy_linear' | 'hypertrophy_step' | 'strength_undulating' | 'strength_linear' | null {
@@ -1198,6 +1203,118 @@ export interface ResolveSessionDistributionParams {
   occurrenceOrdinal?: number;
 }
 
+export interface PrescriptionShape {
+  anchorReps: number;
+  anchorRPE: number;
+  profileType: FatiguePriorProfile;
+}
+
+/**
+ * Pure helper to derive the canonical algorithm prescription shape (reps, RPE, and fatigue profile)
+ * for Hypertrophy and Strength objectives across supported program weeks and durations.
+ * Does not require or fabricate baseline load or e1RM.
+ */
+export function deriveCanonicalPrescriptionShape(params: {
+  objective: 'Hypertrophy' | 'Strength';
+  effectiveAlgorithmId: 'hypertrophy_linear' | 'hypertrophy_step' | 'strength_undulating' | 'strength_linear';
+  exercise: ExerciseEntry;
+  weekNum: number;
+  programDuration?: number;
+}): PrescriptionShape | null {
+  const { objective, effectiveAlgorithmId, exercise, weekNum, programDuration = 8 } = params;
+  const classification = getExerciseClassification(exercise);
+  const isIsolation = classification.category === 'isolation';
+  const isMachine = classification.equipment === 'machine';
+
+  let anchorReps = 10;
+  let anchorRPE = 8.0;
+  let profileType: FatiguePriorProfile = 'hypertrophy';
+
+  if (objective === 'Hypertrophy') {
+    if (effectiveAlgorithmId === 'hypertrophy_step') {
+      const maxWeek = programDuration || 8;
+      const activeWeek = Math.min(weekNum, maxWeek);
+      const activeBlock = Math.min(2, Math.floor((activeWeek - 1) / 4));
+      const stepNum = ((activeWeek - 1) % 4) + 1;
+
+      let baseReps = 10;
+      let baseRPE = 7.5;
+
+      if (activeBlock === 0) {
+        baseReps = stepNum === 4 ? 12 : 10;
+        baseRPE = stepNum === 1 ? 7.0 : (stepNum === 2 ? 7.5 : 8.0);
+      } else if (activeBlock === 1) {
+        baseReps = stepNum === 4 ? 10 : 8;
+        baseRPE = stepNum === 1 ? 7.5 : (stepNum === 2 ? 8.0 : 8.5);
+      } else {
+        baseReps = stepNum === 4 ? 8 : 6;
+        baseRPE = stepNum === 1 ? 8.0 : (stepNum === 2 ? 8.5 : 9.0);
+      }
+
+      if (isIsolation && isMachine) {
+        baseReps = Math.max(12, baseReps + 4);
+      } else if (isIsolation && !isMachine) {
+        baseReps = Math.max(10, baseReps + 2);
+      } else if (!isIsolation && isMachine) {
+        baseReps = baseReps + 2;
+      }
+
+      anchorReps = baseReps;
+      anchorRPE = baseRPE;
+    } else {
+      // hypertrophy_linear (Wave Volume)
+      const isOddWeek = weekNum % 2 !== 0;
+
+      if (isOddWeek) {
+        if (isIsolation) {
+          anchorReps = 15;
+        } else {
+          anchorReps = 12;
+        }
+      } else {
+        if (!isIsolation && !isMachine) {
+          anchorReps = 6;
+        } else if (!isIsolation && isMachine) {
+          anchorReps = 8;
+        } else if (isIsolation && !isMachine) {
+          anchorReps = 10;
+        } else {
+          anchorReps = 12;
+        }
+      }
+
+      anchorRPE = 8.0;
+    }
+    profileType = 'hypertrophy';
+  } else if (objective === 'Strength') {
+    if (effectiveAlgorithmId === 'strength_linear') {
+      const maxWeek = programDuration || 8;
+      const activeWeek = Math.min(weekNum, maxWeek);
+      const progress = maxWeek > 1 ? (activeWeek - 1) / (maxWeek - 1) : 0;
+
+      anchorReps = Math.max(1, Math.round(8 - progress * 7));
+      anchorRPE = Math.round((7.0 + progress * 3.0) * 2) / 2;
+    } else {
+      // strength_undulating (Default)
+      const weekProfile = getUndulatingProfileWeek(weekNum, programDuration);
+      if (!weekProfile) {
+        return null;
+      }
+
+      anchorReps = weekProfile.reps;
+      anchorRPE = weekProfile.targetRPE;
+    }
+
+    if (anchorReps === 1 && anchorRPE >= 9.5) {
+      profileType = 'strength_post_test';
+    } else {
+      profileType = 'strength_normal';
+    }
+  }
+
+  return { anchorReps, anchorRPE, profileType };
+}
+
 /**
  * Pure helper to resolve the session anchor and calculate multi-set distribution targets.
  * Shared by calculateObjectiveSets and calculateAddedSetTarget to guarantee mathematical consistency.
@@ -1282,118 +1399,36 @@ export function resolveSessionDistribution(params: ResolveSessionDistributionPar
     return { isBypassed: true };
   }
 
-  const classification = getExerciseClassification(exercise);
-  const isIsolation = classification.category === 'isolation';
-  const isMachine = classification.equipment === 'machine';
+  const shape = deriveCanonicalPrescriptionShape({
+    objective: objective as 'Hypertrophy' | 'Strength',
+    effectiveAlgorithmId,
+    exercise,
+    weekNum,
+    programDuration,
+  });
 
-  let anchorReps = 10;
-  let anchorRPE = 8.0;
+  if (!shape) {
+    return { isBypassed: true };
+  }
+
+  const { anchorReps, anchorRPE, profileType } = shape;
   let rawAnchorWeight = 0;
   let roundedAnchorWeight = 0;
-  let profileType: FatiguePriorProfile = 'hypertrophy';
 
-  if (objective === 'Hypertrophy') {
-    if (effectiveAlgorithmId === 'hypertrophy_step') {
-      const maxWeek = programDuration || 8;
-      const activeWeek = Math.min(weekNum, maxWeek);
-      const activeBlock = Math.min(2, Math.floor((activeWeek - 1) / 4));
-      const stepNum = ((activeWeek - 1) % 4) + 1;
+  const multiplier = rpeMathGetRTSMultiplier(anchorReps, anchorRPE);
+  if (multiplier === null || !Number.isFinite(multiplier) || multiplier <= 0) {
+    return { isBypassed: true };
+  }
 
-      let baseReps = 10;
-      let baseRPE = 7.5;
+  rawAnchorWeight = baselineE1RM * multiplier;
+  roundedAnchorWeight = roundToNearest25(rawAnchorWeight);
 
-      if (activeBlock === 0) {
-        baseReps = stepNum === 4 ? 12 : 10;
-        baseRPE = stepNum === 1 ? 7.0 : (stepNum === 2 ? 7.5 : 8.0);
-      } else if (activeBlock === 1) {
-        baseReps = stepNum === 4 ? 10 : 8;
-        baseRPE = stepNum === 1 ? 7.5 : (stepNum === 2 ? 8.0 : 8.5);
-      } else {
-        baseReps = stepNum === 4 ? 8 : 6;
-        baseRPE = stepNum === 1 ? 8.0 : (stepNum === 2 ? 8.5 : 9.0);
-      }
-
-      if (isIsolation && isMachine) {
-        baseReps = Math.max(12, baseReps + 4);
-      } else if (isIsolation && !isMachine) {
-        baseReps = Math.max(10, baseReps + 2);
-      } else if (!isIsolation && isMachine) {
-        baseReps = baseReps + 2;
-      }
-
-      anchorReps = baseReps;
-      anchorRPE = baseRPE;
-    } else {
-      // hypertrophy_linear (Wave Volume)
-      const isOddWeek = weekNum % 2 !== 0;
-
-      if (isOddWeek) {
-        if (isIsolation) {
-          anchorReps = 15;
-        } else {
-          anchorReps = 12;
-        }
-      } else {
-        if (!isIsolation && !isMachine) {
-          anchorReps = 6;
-        } else if (!isIsolation && isMachine) {
-          anchorReps = 8;
-        } else if (isIsolation && !isMachine) {
-          anchorReps = 10;
-        } else {
-          anchorReps = 12;
-        }
-      }
-
-      anchorRPE = 8.0;
-    }
-
-    const multiplier = rpeMathGetRTSMultiplier(anchorReps, anchorRPE);
-    if (multiplier === null || !Number.isFinite(multiplier) || multiplier <= 0) {
-      return { isBypassed: true };
-    }
-
-    rawAnchorWeight = baselineE1RM * multiplier;
-    roundedAnchorWeight = roundToNearest25(rawAnchorWeight);
-    profileType = 'hypertrophy';
-  } else if (objective === 'Strength') {
-    if (effectiveAlgorithmId === 'strength_linear') {
-      const maxWeek = programDuration || 8;
-      const activeWeek = Math.min(weekNum, maxWeek);
-      const progress = maxWeek > 1 ? (activeWeek - 1) / (maxWeek - 1) : 0;
-
-      anchorReps = Math.max(1, Math.round(8 - progress * 7));
-      anchorRPE = Math.round((7.0 + progress * 3.0) * 2) / 2;
-    } else {
-      // strength_undulating (Default)
-      const weekProfile = getUndulatingProfileWeek(weekNum, programDuration);
-      if (!weekProfile) {
-        return { isBypassed: true };
-      }
-
-      anchorReps = weekProfile.reps;
-      anchorRPE = weekProfile.targetRPE;
-    }
-
-    const multiplier = rpeMathGetRTSMultiplier(anchorReps, anchorRPE);
-    if (multiplier === null || !Number.isFinite(multiplier) || multiplier <= 0) {
-      return { isBypassed: true };
-    }
-
-    rawAnchorWeight = baselineE1RM * multiplier;
-    roundedAnchorWeight = roundToNearest25(rawAnchorWeight);
-
+  if (objective === 'Strength') {
     // Boundary check against canonical RPE-10 capacity:
     const max10Multiplier = rpeMathGetRTSMultiplier(anchorReps, 10.0) ?? 1.0;
     const max10Weight = baselineE1RM * max10Multiplier;
     if (roundedAnchorWeight > max10Weight + 1e-6) {
       roundedAnchorWeight = Math.floor((max10Weight + 1e-6) / 2.5) * 2.5;
-    }
-
-    if (anchorReps === 1 && anchorRPE >= 9.5) {
-      profileType = 'strength_post_test';
-    } else {
-      profileType = 'strength_normal';
     }
   }
 
@@ -1407,6 +1442,7 @@ export function resolveSessionDistribution(params: ResolveSessionDistributionPar
     return { isBypassed: true };
   }
 
+  const classification = getExerciseClassification(exercise);
   const anchor: SessionAnchor = {
     algorithmId: effectiveAlgorithmId,
     profileType,
@@ -1541,7 +1577,87 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
   const baselineE1RM = historicalE1RM > 0 ? historicalE1RM : extractTemplateBaselineE1RM(templateExercise || undefined, bodyweightSnapshot, activeUnit);
 
   if (baselineE1RM <= 0) {
-    return null;
+    // Stage 1: Zero-Baseline Algorithm Guidance
+    // Only weighted modality (or undefined) is eligible
+    if (mod !== undefined && mod !== 'weighted') {
+      return null;
+    }
+
+    if (objective !== 'Hypertrophy' && objective !== 'Strength') {
+      return null;
+    }
+
+    if (objective === 'Strength' && !exercise.isMainMovement) {
+      return null;
+    }
+
+    const effectiveAlgorithmId = resolveEffectiveAlgorithm(objective, algorithmId);
+    if (!effectiveAlgorithmId) {
+      return null;
+    }
+
+    const shape = deriveCanonicalPrescriptionShape({
+      objective,
+      effectiveAlgorithmId,
+      exercise,
+      weekNum,
+      programDuration,
+    });
+
+    if (!shape) {
+      return null;
+    }
+
+    const { anchorReps, anchorRPE, profileType } = shape;
+    const count = Math.min(workingSetCount, 6);
+    const zeroMap = new Map<number, CanonicalTargetEntry>();
+
+    if (profileType === 'hypertrophy') {
+      for (let ord = 1; ord <= count; ord++) {
+        zeroMap.set(ord, {
+          weight: 0,
+          reps: anchorReps,
+          rpe: anchorRPE,
+          form: 'standard',
+        });
+      }
+    } else if (profileType === 'strength_post_test') {
+      zeroMap.set(1, {
+        weight: 0,
+        reps: 1,
+        rpe: anchorRPE,
+        form: 'standard',
+      });
+      const backoffRPESchedule = [7.5, 8.0, 8.0, 8.5, 8.5];
+      for (let ord = 2; ord <= count; ord++) {
+        zeroMap.set(ord, {
+          weight: 0,
+          reps: 3,
+          rpe: backoffRPESchedule[ord - 2] ?? 8.5,
+          form: 'standard',
+        });
+      }
+    } else {
+      // strength_normal
+      zeroMap.set(1, {
+        weight: 0,
+        reps: anchorReps,
+        rpe: anchorRPE,
+        form: 'standard',
+      });
+      const backoffBaseRPE = Math.max(6.0, Math.min(8.0, anchorRPE - 1.0));
+      for (let ord = 2; ord <= count; ord++) {
+        const targetRPE_i = Math.min(anchorRPE, 8.5, backoffBaseRPE + 0.5 * (ord - 2));
+        zeroMap.set(ord, {
+          weight: 0,
+          reps: anchorReps,
+          rpe: targetRPE_i,
+          form: 'standard',
+        });
+      }
+    }
+
+    return zeroMap;
   }
 
   // 6. Deload Handling
@@ -1969,6 +2085,14 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
   });
 }
 
+export interface AddedSetCommittedEvidenceEntry {
+  workingSetOrdinal: number;
+  weight: number;
+  reps: number;
+  rpe: number;
+  form?: 'standard' | 'strict' | 'loose';
+}
+
 export interface CalculateAddedSetTargetParams {
   objective: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload';
   exercise: ExerciseEntry;
@@ -1987,6 +2111,7 @@ export interface CalculateAddedSetTargetParams {
   sessionStartedAt?: number | null;
   explicitTargetTimestamp?: number | null;
   occurrenceOrdinal?: number;
+  committedEvidence?: AddedSetCommittedEvidenceEntry[];
 }
 
 export interface AddedSetTargetResult {
@@ -2009,7 +2134,11 @@ export interface AddedSetTargetResult {
  * 1. Determines the added working-set ordinal (ignores warmups).
  * 2. If ordinal > 6, returns unprescribed default (isPrescribed: false).
  * 3. Asks canonical target generation path for target sequence up through targetWorkingOrdinal.
- * 4. Extracts ONLY the target for targetWorkingOrdinal.
+ * 4. If baselineE1RM <= 0, applies the 4-tier Cold-Start Active-Session Authority:
+ *    Tier 1: Explicitly committed same-exercise evidence on Working Set 1
+ *    Tier 2: Positive provisional current-session planning anchor on Working Set 1
+ *    Tier 3: Zero-load canonical prescription shape
+ *    Tier 4: Unprescribed fallback
  */
 export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): AddedSetTargetResult {
   const {
@@ -2030,6 +2159,7 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
     sessionStartedAt,
     explicitTargetTimestamp,
     occurrenceOrdinal,
+    committedEvidence = [],
   } = params;
 
   // 1. Calculate the new working-set ordinal (warmups do not consume working-set ordinals)
@@ -2044,7 +2174,197 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
     };
   }
 
-  // 3. Delegate directly to the canonical Stage 2A target generation path
+  // 3. Baseline extraction check
+  const historicalE1RM = resolveContextualPrescriptionBaselineE1RM(
+    exercise.name,
+    weekNum,
+    previousLogs,
+    {
+      programId,
+      targetDay: dayNum,
+      targetDate,
+      targetLogId,
+      targetChronology,
+      sessionStartedAt,
+      explicitTargetTimestamp,
+      occurrenceOrdinal,
+      modality: exercise.modality,
+      activeUnit,
+    }
+  );
+  const baselineE1RM = historicalE1RM > 0 ? historicalE1RM : extractTemplateBaselineE1RM(templateExercise || undefined, bodyweightSnapshot, activeUnit);
+
+  if (baselineE1RM > 0) {
+    const targetMap = generateSessionTargetMap({
+      objective,
+      exercise,
+      workingSetCount: targetWorkingOrdinal,
+      weekNum,
+      programDuration,
+      previousLogs,
+      algorithmId,
+      templateExercise,
+      bodyweightSnapshot,
+      activeUnit,
+      programId,
+      dayNum,
+      targetDate,
+      targetLogId,
+      targetChronology,
+      sessionStartedAt,
+      explicitTargetTimestamp,
+      occurrenceOrdinal,
+    });
+
+    if (!targetMap) {
+      return {
+        isPrescribed: false,
+        workingSetOrdinal: targetWorkingOrdinal,
+      };
+    }
+
+    const target = targetMap.get(targetWorkingOrdinal);
+    if (!target) {
+      return {
+        isPrescribed: false,
+        workingSetOrdinal: targetWorkingOrdinal,
+      };
+    }
+
+    return {
+      isPrescribed: true,
+      target: {
+        weight: target.weight,
+        reps: target.reps,
+        rpe: target.rpe,
+        form: target.form,
+      },
+      workingSetOrdinal: targetWorkingOrdinal,
+    };
+  }
+
+  // 4. Cold-Start Active-Session Calibration Authority (when baselineE1RM <= 0)
+  // Gated to weighted modality (or undefined) for Hypertrophy and Strength (main movement only)
+  const mod = exercise.modality;
+  if (mod !== undefined && mod !== 'weighted') {
+    return {
+      isPrescribed: false,
+      workingSetOrdinal: targetWorkingOrdinal,
+    };
+  }
+
+  if (objective !== 'Hypertrophy' && objective !== 'Strength') {
+    return {
+      isPrescribed: false,
+      workingSetOrdinal: targetWorkingOrdinal,
+    };
+  }
+
+  if (objective === 'Strength' && !exercise.isMainMovement) {
+    return {
+      isPrescribed: false,
+      workingSetOrdinal: targetWorkingOrdinal,
+    };
+  }
+
+  const effectiveAlgorithmId = resolveEffectiveAlgorithm(objective, algorithmId);
+  if (!effectiveAlgorithmId) {
+    return {
+      isPrescribed: false,
+      workingSetOrdinal: targetWorkingOrdinal,
+    };
+  }
+
+  const ordinalShape = deriveColdStartOrdinalShape({
+    objective,
+    algorithmId: effectiveAlgorithmId,
+    exercise,
+    weekNum,
+    programDuration,
+    ordinal: targetWorkingOrdinal,
+  });
+
+  if (!ordinalShape) {
+    return {
+      isPrescribed: false,
+      workingSetOrdinal: targetWorkingOrdinal,
+    };
+  }
+
+  const fatiguePriors = getFatiguePrior(ordinalShape.profileType);
+  const fatigueFactor = fatiguePriors[targetWorkingOrdinal - 1] ?? 1.0;
+  const ordinalMult = rpeMathGetRTSMultiplier(ordinalShape.reps, ordinalShape.rpe);
+
+  // Tier 1: Valid explicitly committed same-exercise evidence on Working Set 1
+  const ev1 = committedEvidence.find(e => e.workingSetOrdinal === 1);
+  if (
+    ev1 &&
+    typeof ev1.weight === 'number' &&
+    ev1.weight > 0 &&
+    typeof ev1.reps === 'number' &&
+    ev1.reps > 0 &&
+    typeof ev1.rpe === 'number' &&
+    ev1.rpe >= 6.0 &&
+    ev1.rpe <= 10.0 &&
+    ev1.form !== 'loose'
+  ) {
+    const observedCap = deriveColdStartObservedCapacityE1RM(ev1.weight, ev1.reps, ev1.rpe);
+    if (observedCap && observedCap > 0 && ordinalMult && ordinalMult > 0) {
+      const rawTargetLoad = observedCap * fatigueFactor * ordinalMult;
+      const roundedTargetLoad = roundToNearest25(rawTargetLoad);
+      return {
+        isPrescribed: true,
+        target: {
+          weight: roundedTargetLoad,
+          reps: ordinalShape.reps,
+          rpe: ordinalShape.rpe,
+          form: ordinalShape.form,
+        },
+        workingSetOrdinal: targetWorkingOrdinal,
+      };
+    }
+  }
+
+  // Tier 2: Valid positive provisional current-session planning anchor on Working Set 1
+  const ws1 = currentWorkingSets[0];
+  if (
+    ws1 &&
+    typeof ws1.weight === 'number' &&
+    ws1.weight > 0 &&
+    typeof ws1.reps === 'number' &&
+    ws1.reps > 0 &&
+    typeof ws1.rpe === 'number' &&
+    ws1.rpe >= 6.0 &&
+    ws1.rpe <= 10.0
+  ) {
+    const ws1Shape = deriveColdStartOrdinalShape({
+      objective,
+      algorithmId: effectiveAlgorithmId,
+      exercise,
+      weekNum,
+      programDuration,
+      ordinal: 1,
+    });
+    if (ws1Shape) {
+      const plannedCap = deriveColdStartPlannedCapacityE1RM(ws1.weight, ws1Shape.reps, ws1Shape.rpe);
+      if (plannedCap && plannedCap > 0 && ordinalMult && ordinalMult > 0) {
+        const rawTargetLoad = plannedCap * fatigueFactor * ordinalMult;
+        const roundedTargetLoad = roundToNearest25(rawTargetLoad);
+        return {
+          isPrescribed: true,
+          target: {
+            weight: roundedTargetLoad,
+            reps: ordinalShape.reps,
+            rpe: ordinalShape.rpe,
+            form: ordinalShape.form,
+          },
+          workingSetOrdinal: targetWorkingOrdinal,
+        };
+      }
+    }
+  }
+
+  // Tier 3: Zero-load canonical prescription shape
   const targetMap = generateSessionTargetMap({
     objective,
     exercise,
@@ -2066,29 +2386,26 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
     occurrenceOrdinal,
   });
 
-  if (!targetMap) {
-    return {
-      isPrescribed: false,
-      workingSetOrdinal: targetWorkingOrdinal,
-    };
+  if (targetMap) {
+    const target = targetMap.get(targetWorkingOrdinal);
+    if (target) {
+      return {
+        isPrescribed: true,
+        target: {
+          weight: 0,
+          reps: target.reps,
+          rpe: target.rpe,
+          form: target.form,
+        },
+        workingSetOrdinal: targetWorkingOrdinal,
+      };
+    }
   }
 
-  const target = targetMap.get(targetWorkingOrdinal);
-  if (!target) {
-    return {
-      isPrescribed: false,
-      workingSetOrdinal: targetWorkingOrdinal,
-    };
-  }
-
+  // Tier 4: Unprescribed fallback
   return {
-    isPrescribed: true,
-    target: {
-      weight: target.weight,
-      reps: target.reps,
-      rpe: target.rpe,
-      form: target.form,
-    },
+    isPrescribed: false,
     workingSetOrdinal: targetWorkingOrdinal,
   };
 }
+

@@ -618,7 +618,7 @@ describe('MetReps Phase 2B-1 — Target-Aware Add Set Using Existing Session Pre
       }
     });
 
-    it('Cold-start Set 1 at zero produces a blank/zero unprescribed new set', () => {
+    it('Cold-start Set 1 at zero produces a zero-load prescribed shape in Stage 2', () => {
       const ex = createTestExercise({
         name: 'Unknown Custom Exercise',
         sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 8.0, isWarmup: false }],
@@ -633,11 +633,14 @@ describe('MetReps Phase 2B-1 — Target-Aware Add Set Using Existing Session Pre
         templateExercise: undefined, // No template baseline
       });
 
-      expect(res.isPrescribed).toBe(false);
-      expect(res.target).toBeUndefined();
+      expect(res.isPrescribed).toBe(true);
+      expect(res.target).toBeDefined();
+      expect(res.target!.weight).toBe(0);
+      expect(res.target!.reps).toBeGreaterThan(0);
+      expect(res.target!.rpe).toBe(8.0);
     });
 
-    it('Cold-start manually entered Set 1 still produces an unprescribed blank/zero set in Phase 2B-1', () => {
+    it('Cold-start manually entered Set 1 produces a calibrated prescribed target in Stage 2', () => {
       const ex = createTestExercise({
         name: 'Brand New Machine',
         sets: [{ setNumber: 1, weight: 120, reps: 10, rpe: 8.0, isWarmup: false }], // Manually entered today
@@ -652,8 +655,9 @@ describe('MetReps Phase 2B-1 — Target-Aware Add Set Using Existing Session Pre
         templateExercise: undefined, // No template baseline
       });
 
-      expect(res.isPrescribed).toBe(false);
-      expect(res.target).toBeUndefined();
+      expect(res.isPrescribed).toBe(true);
+      expect(res.target).toBeDefined();
+      expect(res.target!.weight).toBeGreaterThan(0);
     });
 
     it('Historical baseline produces a valid prescribed target', () => {

@@ -473,7 +473,7 @@ describe('MetReps Phase 2B-2A-2 Live Adjustment Session Foundation Suite', () =>
         sets: [
           { setNumber: 1, weight: 0, reps: 0, rpe: 0 },
           { setNumber: 2, weight: 100, reps: 0, rpe: 8 },
-          { setNumber: 3, weight: 0, reps: 10, rpe: 8 },
+          { setNumber: 3, weight: -5, reps: 10, rpe: 8 },
           { setNumber: 4, weight: 100, reps: 10, rpe: 5 }, // RPE < 6
           { setNumber: 5, weight: 100, reps: 10, rpe: 8, isSkipped: true }, // Skipped
         ],

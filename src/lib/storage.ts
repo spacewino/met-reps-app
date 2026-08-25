@@ -997,4 +997,23 @@ export const storage = {
       }
     );
   },
+
+  getOnboardingVersion: (): number | null => {
+    try {
+      const val = localStorage.getItem('metreps_onboarding_version');
+      if (val === null || val === undefined) return null;
+      const num = Number(val);
+      return isNaN(num) ? null : num;
+    } catch {
+      return null;
+    }
+  },
+
+  setOnboardingVersion: (version: number) => {
+    try {
+      localStorage.setItem('metreps_onboarding_version', String(version));
+    } catch (e) {
+      console.error('Failed to set onboarding version:', e);
+    }
+  },
 };

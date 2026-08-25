@@ -318,15 +318,17 @@ describe('objectiveMath - Phase 2A-3 Multi-Set Distribution Integration', () => 
   });
 
   describe('3. Cold-Start, Modality & Bypasses', () => {
-    it('Cold start (no history, no template) leaves exercise.sets completely unchanged without fabricating targets', () => {
+    it('Cold start (no history, no template) prescribes algorithm-derived reps and RPE with weight 0', () => {
       const coldEx: ExerciseEntry = {
         name: 'Incline Dumbbell Press',
         muscleGroup: 'Chest',
         modality: 'weighted',
+        movementCategory: 'compound',
+        equipment: 'freeweight',
         isMainMovement: true,
         sets: [
-          { setNumber: 1, weight: 24, reps: 10, rpe: 8.0, form: 'strict', comment: 'Draft note' },
-          { setNumber: 2, weight: 24, reps: 10, rpe: 8.0, form: 'strict' },
+          { setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'strict', comment: 'Draft note' },
+          { setNumber: 2, weight: 0, reps: 0, rpe: 0, form: 'strict' },
         ],
       };
 
@@ -340,12 +342,14 @@ describe('objectiveMath - Phase 2A-3 Multi-Set Distribution Integration', () => 
         algorithmId: 'hypertrophy_linear',
       });
 
-      expect(result).toEqual(coldEx.sets);
-      expect(result[0].weight).toBe(24);
-      expect(result[0].reps).toBe(10);
+      expect(result[0].weight).toBe(0);
+      expect(result[0].reps).toBe(12);
       expect(result[0].rpe).toBe(8.0);
       expect(result[0].form).toBe('strict');
       expect(result[0].comment).toBe('Draft note');
+      expect(result[1].weight).toBe(0);
+      expect(result[1].reps).toBe(12);
+      expect(result[1].rpe).toBe(8.0);
     });
 
     it('Actively skipped exercise is preserved unchanged', () => {

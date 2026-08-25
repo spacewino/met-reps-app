@@ -21,6 +21,8 @@ import { InfoView } from './components/InfoView';
 import { useModalHistory, initHomeGuard } from './lib/useModalHistory';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import { WorkoutConflictModal } from './components/WorkoutConflictModal';
+import { OnboardingModal } from './components/OnboardingModal';
+import { initializeOnboardingStartup } from './lib/onboarding';
 import { resolveWorkoutNavigation, getWorkoutIdentityFromParams, getActiveWorkoutDraft, ActiveWorkoutIdentity } from './lib/navigationGuard';
 
 export default function App() {
@@ -93,6 +95,7 @@ export default function App() {
     return getTodayLocalDateString();
   });
   const [showNoProgramPopup, setShowNoProgramPopup] = useState<boolean>(false);
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(() => initializeOnboardingStartup());
 
   // Back button physical popstate interceptor
   const { dismiss: dismissNoProgramPopup } = useModalHistory(showNoProgramPopup, () => setShowNoProgramPopup(false), 'no-program-popup');
@@ -484,9 +487,21 @@ export default function App() {
             )}
 
             {currentView === 'info' && (
-              <InfoView onClose={() => handleNavigate('home')} />
+              <InfoView
+                onClose={() => handleNavigate('home')}
+                onOpenOnboarding={() => setShowOnboarding(true)}
+              />
             )}
           </div>
+
+          {/* Quick Start First-Use Onboarding Guide Modal */}
+          {showOnboarding && (
+            <OnboardingModal
+              isOpen={showOnboarding}
+              onClose={() => setShowOnboarding(false)}
+              themeId={themeId}
+            />
+          )}
 
           {/* Elegant Program Guidance Popup */}
           {showNoProgramPopup && (
