@@ -16,6 +16,9 @@ import {
   FatiguePriorProfile,
   MultiSetDistributionResult,
   GeneratedWorkingSetTarget,
+  distributeHypertrophySets,
+  distributeStrengthSets,
+  distributePeakSingleStrengthSets,
 } from './setDistribution';
 import { extractSetPerformanceEvidence } from './progressionEvidence';
 import { projectAssistedTarget, solveBodyweightRepTarget } from './modalityTargetMath';
@@ -25,6 +28,12 @@ import {
   deriveColdStartObservedCapacityE1RM,
   deriveColdStartOrdinalShape,
 } from './coldStartCalibration';
+import { calculateLiveSetAdjustments, LiveTargetSnapshot } from './liveAdjustmentMath';
+import {
+  calculatePlannedBodyweightCapacity,
+  calculateObservedBodyweightCapacity,
+  clampBodyweightReadinessRatio,
+} from './bodyweightLiveAdjustment';
 
 // Re-export roundToNearest25 for backward compatibility with existing imports
 export { roundToNearest25 } from './weightMath';
@@ -2174,7 +2183,38 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
     };
   }
 
-  // 3. Baseline extraction check
+  if (objective === 'Off' || exercise.isSkipped) {
+    return {
+      isPrescribed: false,
+      workingSetOrdinal: targetWorkingOrdinal,
+    };
+  }
+
+  const mod = exercise.modality || 'weighted';
+  if (mod === 'timed' || mod === 'distance' || mod === 'distance_loaded') {
+    return {
+      isPrescribed: false,
+      workingSetOrdinal: targetWorkingOrdinal,
+    };
+  }
+
+  const effectiveAlgorithmId = resolveEffectiveAlgorithm(objective, algorithmId);
+  if (objective !== 'Deload' && !effectiveAlgorithmId) {
+    return {
+      isPrescribed: false,
+      workingSetOrdinal: targetWorkingOrdinal,
+    };
+  }
+
+  // Strength non-main accessory bypass: non-main movements are not prescribed in Strength objective
+  if (objective === 'Strength' && !exercise.isMainMovement) {
+    return {
+      isPrescribed: false,
+      workingSetOrdinal: targetWorkingOrdinal,
+    };
+  }
+
+  // Resolve historical/contextual baseline if available
   const historicalE1RM = resolveContextualPrescriptionBaselineE1RM(
     exercise.name,
     weekNum,
@@ -2192,8 +2232,288 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
       activeUnit,
     }
   );
-  const baselineE1RM = historicalE1RM > 0 ? historicalE1RM : extractTemplateBaselineE1RM(templateExercise || undefined, bodyweightSnapshot, activeUnit);
+  const templateBaselineE1RM = extractTemplateBaselineE1RM(templateExercise || undefined, bodyweightSnapshot, activeUnit);
+  const baselineE1RM = historicalE1RM > 0 ? historicalE1RM : templateBaselineE1RM;
 
+  // Check for valid committed Set 1 evidence
+  const ev1 = committedEvidence.find(e => e.workingSetOrdinal === 1);
+  const hasValidCommittedEv1 =
+    ev1 &&
+    typeof ev1.reps === 'number' &&
+    ev1.reps > 0 &&
+    typeof ev1.rpe === 'number' &&
+    ev1.rpe >= 6.0 &&
+    ev1.rpe <= 10.0 &&
+    ev1.form !== 'loose';
+
+  // =========================================================================
+  // AUTHORITY 1: VALID COMMITTED ACTIVE-SESSION EVIDENCE
+  // =========================================================================
+  if (hasValidCommittedEv1 && effectiveAlgorithmId && (objective === 'Hypertrophy' || (objective === 'Strength' && (exercise.isMainMovement ?? false)))) {
+    // -----------------------------------------------------------------------
+    // Authority 1A: Pure Bodyweight Modality
+    // -----------------------------------------------------------------------
+    if (mod === 'bodyweight') {
+      const bwVal = resolveSessionBodyweightInUnit(bodyweightSnapshot, activeUnit);
+      if (bwVal && bwVal > 0) {
+        // Resolve canonical Set 1 shape
+        let snap1Reps = 10;
+        let snap1Rpe = 8.0;
+        let targetOrdinalReps = 10;
+        let targetOrdinalRpe = 8.0;
+        let targetOrdinalForm: 'standard' | 'strict' | 'loose' = 'standard';
+        let profileType: FatiguePriorProfile = objective === 'Strength' ? 'strength_normal' : 'hypertrophy';
+
+        if (baselineE1RM > 0) {
+          const targetMap = generateSessionTargetMap({
+            objective,
+            exercise,
+            workingSetCount: Math.max(targetWorkingOrdinal, 4),
+            weekNum,
+            programDuration,
+            previousLogs,
+            algorithmId,
+            templateExercise,
+            bodyweightSnapshot,
+            activeUnit,
+            programId,
+            dayNum,
+            targetDate,
+            targetLogId,
+            targetChronology,
+            sessionStartedAt,
+            explicitTargetTimestamp,
+            occurrenceOrdinal,
+          });
+
+          if (targetMap) {
+            const t1 = targetMap.get(1);
+            if (t1) {
+              snap1Reps = t1.reps;
+              snap1Rpe = t1.rpe;
+            }
+            const tOrd = targetMap.get(targetWorkingOrdinal);
+            if (tOrd) {
+              targetOrdinalReps = tOrd.reps;
+              targetOrdinalRpe = tOrd.rpe;
+              targetOrdinalForm = (tOrd.form || 'standard') as 'standard' | 'strict' | 'loose';
+            }
+          }
+        } else {
+          const s1Shape = deriveColdStartOrdinalShape({
+            objective,
+            algorithmId: effectiveAlgorithmId,
+            exercise,
+            weekNum,
+            programDuration,
+            ordinal: 1,
+          });
+          if (s1Shape) {
+            snap1Reps = s1Shape.reps;
+            snap1Rpe = s1Shape.rpe;
+          }
+          const sOrdShape = deriveColdStartOrdinalShape({
+            objective,
+            algorithmId: effectiveAlgorithmId,
+            exercise,
+            weekNum,
+            programDuration,
+            ordinal: targetWorkingOrdinal,
+          });
+          if (sOrdShape) {
+            targetOrdinalReps = sOrdShape.reps;
+            targetOrdinalRpe = sOrdShape.rpe;
+            targetOrdinalForm = (sOrdShape.form || 'standard') as 'standard' | 'strict' | 'loose';
+            profileType = sOrdShape.profileType;
+          }
+        }
+
+        const plannedCap = calculatePlannedBodyweightCapacity(bwVal, snap1Reps, snap1Rpe);
+        const observedCap = calculateObservedBodyweightCapacity(bwVal, ev1.reps, ev1.rpe);
+
+        if (plannedCap && observedCap) {
+          const rawR = observedCap / plannedCap;
+          const clampedR = clampBodyweightReadinessRatio(rawR);
+          const adjustedBaseline = (baselineE1RM > 0 ? baselineE1RM : plannedCap) * clampedR;
+
+          const priors = getFatiguePrior(profileType);
+          const fatiguePrior = priors[targetWorkingOrdinal - 1] ?? priors[priors.length - 1] ?? 1.0;
+          const targetOrdinalCap = adjustedBaseline * fatiguePrior;
+
+          const isIsolation = exercise.muscleGroup === 'Biceps' || exercise.muscleGroup === 'Triceps' || exercise.muscleGroup === 'Calves';
+          const bounds = getPermittedRepetitionBounds({
+            objective,
+            algorithmId: effectiveAlgorithmId,
+            isIsolation,
+            isMachine: false,
+            anchorReps: targetOrdinalReps,
+          });
+
+          const solved = solveBodyweightRepTarget({
+            targetE1RM: targetOrdinalCap,
+            sessionBodyweight: bwVal,
+            targetRPE: targetOrdinalRpe,
+            anchorReps: targetOrdinalReps,
+            minReps: bounds.minReps,
+            maxReps: bounds.maxReps,
+            unit: activeUnit,
+          });
+
+          return {
+            isPrescribed: true,
+            target: {
+              weight: 0,
+              reps: solved.reps,
+              rpe: targetOrdinalRpe,
+              form: targetOrdinalForm,
+            },
+            workingSetOrdinal: targetWorkingOrdinal,
+          };
+        }
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Authority 1B: Weighted Modality
+    // -----------------------------------------------------------------------
+    if (mod === 'weighted') {
+      if (typeof ev1.weight === 'number' && ev1.weight > 0) {
+        let profileType: FatiguePriorProfile = 'hypertrophy';
+        if (objective === 'Strength') {
+          const s1Shape = deriveColdStartOrdinalShape({
+            objective,
+            algorithmId: effectiveAlgorithmId,
+            exercise,
+            weekNum,
+            programDuration,
+            ordinal: 1,
+          });
+          if (s1Shape && s1Shape.reps === 1 && s1Shape.rpe >= 9.5) {
+            profileType = 'strength_post_test';
+          } else {
+            profileType = 'strength_normal';
+          }
+        }
+
+        let prescribedTargets: LiveTargetSnapshot[] = [];
+        let effectiveBaseline = baselineE1RM;
+
+        if (baselineE1RM > 0) {
+          const targetMap = generateSessionTargetMap({
+            objective,
+            exercise,
+            workingSetCount: Math.max(targetWorkingOrdinal, 4),
+            weekNum,
+            programDuration,
+            previousLogs,
+            algorithmId,
+            templateExercise,
+            bodyweightSnapshot,
+            activeUnit,
+            programId,
+            dayNum,
+            targetDate,
+            targetLogId,
+            targetChronology,
+            sessionStartedAt,
+            explicitTargetTimestamp,
+            occurrenceOrdinal,
+          });
+
+          if (targetMap) {
+            for (let ord = 1; ord <= Math.max(targetWorkingOrdinal, 4); ord++) {
+              const t = targetMap.get(ord);
+              if (t) {
+                prescribedTargets.push({
+                  workingSetOrdinal: ord,
+                  weight: t.weight,
+                  reps: t.reps,
+                  rpe: t.rpe,
+                });
+              }
+            }
+          }
+        }
+
+        if (prescribedTargets.length === 0) {
+          const s1Shape = deriveColdStartOrdinalShape({
+            objective,
+            algorithmId: effectiveAlgorithmId,
+            exercise,
+            weekNum,
+            programDuration,
+            ordinal: 1,
+          });
+          if (s1Shape) {
+            effectiveBaseline = deriveColdStartPlannedCapacityE1RM(ev1.weight, s1Shape.reps, s1Shape.rpe) ?? 0;
+            for (let ord = 1; ord <= Math.max(targetWorkingOrdinal, 4); ord++) {
+              const s = deriveColdStartOrdinalShape({
+                objective,
+                algorithmId: effectiveAlgorithmId,
+                exercise,
+                weekNum,
+                programDuration,
+                ordinal: ord,
+              });
+              if (s) {
+                prescribedTargets.push({
+                  workingSetOrdinal: ord,
+                  weight: ev1.weight,
+                  reps: s.reps,
+                  rpe: s.rpe,
+                });
+              }
+            }
+          }
+        }
+
+        if (prescribedTargets.length > 0 && effectiveBaseline > 0) {
+          const classification = getExerciseClassification(exercise);
+          const movementCategory = classification.category || (exercise.isMainMovement ? 'compound' : 'isolation');
+          const equipment = classification.equipment || 'freeweight';
+
+          const adjustmentResult = calculateLiveSetAdjustments({
+            objective: (objective === 'Strength' ? 'Strength' : 'Hypertrophy') as 'Hypertrophy' | 'Strength',
+            algorithmId: effectiveAlgorithmId,
+            profileType,
+            baselineE1RM: effectiveBaseline,
+            movementCategory,
+            equipment,
+            modality: 'weighted',
+            isMainMovement: exercise.isMainMovement ?? undefined,
+            prescribedTargets,
+            currentTargets: prescribedTargets,
+            committedEvidence: committedEvidence.map(e => ({
+              workingSetOrdinal: e.workingSetOrdinal,
+              weight: e.weight,
+              reps: e.reps,
+              rpe: e.rpe,
+              form: e.form,
+            })),
+            triggeringWorkingSetOrdinal: ev1.workingSetOrdinal,
+          });
+
+          const candidate = adjustmentResult.candidateTargets.find(t => t.workingSetOrdinal === targetWorkingOrdinal);
+          if (candidate) {
+            return {
+              isPrescribed: true,
+              target: {
+                weight: candidate.weight,
+                reps: candidate.reps,
+                rpe: candidate.rpe,
+                form: 'standard',
+              },
+              workingSetOrdinal: targetWorkingOrdinal,
+            };
+          }
+        }
+      }
+    }
+  }
+
+  // =========================================================================
+  // AUTHORITY 2: CONTEXTUAL HISTORICAL OR TEMPLATE BASELINE (No committed evidence)
+  // =========================================================================
   if (baselineE1RM > 0) {
     const targetMap = generateSessionTargetMap({
       objective,
@@ -2216,118 +2536,29 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
       occurrenceOrdinal,
     });
 
-    if (!targetMap) {
-      return {
-        isPrescribed: false,
-        workingSetOrdinal: targetWorkingOrdinal,
-      };
-    }
-
-    const target = targetMap.get(targetWorkingOrdinal);
-    if (!target) {
-      return {
-        isPrescribed: false,
-        workingSetOrdinal: targetWorkingOrdinal,
-      };
-    }
-
-    return {
-      isPrescribed: true,
-      target: {
-        weight: target.weight,
-        reps: target.reps,
-        rpe: target.rpe,
-        form: target.form,
-      },
-      workingSetOrdinal: targetWorkingOrdinal,
-    };
-  }
-
-  // 4. Cold-Start Active-Session Calibration Authority (when baselineE1RM <= 0)
-  // Gated to weighted modality (or undefined) for Hypertrophy and Strength (main movement only)
-  const mod = exercise.modality;
-  if (mod !== undefined && mod !== 'weighted') {
-    return {
-      isPrescribed: false,
-      workingSetOrdinal: targetWorkingOrdinal,
-    };
-  }
-
-  if (objective !== 'Hypertrophy' && objective !== 'Strength') {
-    return {
-      isPrescribed: false,
-      workingSetOrdinal: targetWorkingOrdinal,
-    };
-  }
-
-  if (objective === 'Strength' && !exercise.isMainMovement) {
-    return {
-      isPrescribed: false,
-      workingSetOrdinal: targetWorkingOrdinal,
-    };
-  }
-
-  const effectiveAlgorithmId = resolveEffectiveAlgorithm(objective, algorithmId);
-  if (!effectiveAlgorithmId) {
-    return {
-      isPrescribed: false,
-      workingSetOrdinal: targetWorkingOrdinal,
-    };
-  }
-
-  const ordinalShape = deriveColdStartOrdinalShape({
-    objective,
-    algorithmId: effectiveAlgorithmId,
-    exercise,
-    weekNum,
-    programDuration,
-    ordinal: targetWorkingOrdinal,
-  });
-
-  if (!ordinalShape) {
-    return {
-      isPrescribed: false,
-      workingSetOrdinal: targetWorkingOrdinal,
-    };
-  }
-
-  const fatiguePriors = getFatiguePrior(ordinalShape.profileType);
-  const fatigueFactor = fatiguePriors[targetWorkingOrdinal - 1] ?? 1.0;
-  const ordinalMult = rpeMathGetRTSMultiplier(ordinalShape.reps, ordinalShape.rpe);
-
-  // Tier 1: Valid explicitly committed same-exercise evidence on Working Set 1
-  const ev1 = committedEvidence.find(e => e.workingSetOrdinal === 1);
-  if (
-    ev1 &&
-    typeof ev1.weight === 'number' &&
-    ev1.weight > 0 &&
-    typeof ev1.reps === 'number' &&
-    ev1.reps > 0 &&
-    typeof ev1.rpe === 'number' &&
-    ev1.rpe >= 6.0 &&
-    ev1.rpe <= 10.0 &&
-    ev1.form !== 'loose'
-  ) {
-    const observedCap = deriveColdStartObservedCapacityE1RM(ev1.weight, ev1.reps, ev1.rpe);
-    if (observedCap && observedCap > 0 && ordinalMult && ordinalMult > 0) {
-      const rawTargetLoad = observedCap * fatigueFactor * ordinalMult;
-      const roundedTargetLoad = roundToNearest25(rawTargetLoad);
-      return {
-        isPrescribed: true,
-        target: {
-          weight: roundedTargetLoad,
-          reps: ordinalShape.reps,
-          rpe: ordinalShape.rpe,
-          form: ordinalShape.form,
-        },
-        workingSetOrdinal: targetWorkingOrdinal,
-      };
+    if (targetMap) {
+      const target = targetMap.get(targetWorkingOrdinal);
+      if (target) {
+        return {
+          isPrescribed: true,
+          target: {
+            weight: target.weight,
+            reps: target.reps,
+            rpe: target.rpe,
+            form: target.form,
+          },
+          workingSetOrdinal: targetWorkingOrdinal,
+        };
+      }
     }
   }
 
-  // Tier 2: Valid positive provisional current-session planning anchor on Working Set 1
+  // =========================================================================
+  // AUTHORITY 3: PROVISIONAL POSITIVE SET 1 ANCHOR (Cold start: baselineE1RM <= 0, no committed evidence)
+  // =========================================================================
   const ws1 = currentWorkingSets[0];
   if (
+    mod === 'weighted' &&
     ws1 &&
     typeof ws1.weight === 'number' &&
     ws1.weight > 0 &&
@@ -2338,8 +2569,8 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
     ws1.rpe <= 10.0
   ) {
     const ws1Shape = deriveColdStartOrdinalShape({
-      objective,
-      algorithmId: effectiveAlgorithmId,
+      objective: (objective === 'Strength' ? 'Strength' : 'Hypertrophy') as 'Hypertrophy' | 'Strength',
+      algorithmId: effectiveAlgorithmId ?? undefined,
       exercise,
       weekNum,
       programDuration,
@@ -2347,13 +2578,74 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
     });
     if (ws1Shape) {
       const plannedCap = deriveColdStartPlannedCapacityE1RM(ws1.weight, ws1Shape.reps, ws1Shape.rpe);
-      if (plannedCap && plannedCap > 0 && ordinalMult && ordinalMult > 0) {
-        const rawTargetLoad = plannedCap * fatigueFactor * ordinalMult;
-        const roundedTargetLoad = roundToNearest25(rawTargetLoad);
+      if (plannedCap && plannedCap > 0) {
+        let profileType: FatiguePriorProfile = 'hypertrophy';
+        if (objective === 'Strength') {
+          profileType = ws1Shape.reps === 1 && ws1Shape.rpe >= 9.5 ? 'strength_post_test' : 'strength_normal';
+        }
+        const fatiguePriors = getFatiguePrior(profileType);
+        const classification = getExerciseClassification(exercise);
+        const anchor: SessionAnchor = {
+          algorithmId: effectiveAlgorithmId as any,
+          profileType,
+          baselineE1RM: plannedCap,
+          rawAnchorWeight: ws1.weight,
+          roundedAnchorWeight: ws1.weight,
+          anchorReps: ws1Shape.reps,
+          anchorRPE: ws1Shape.rpe,
+          workingSetCount: Math.min(6, Math.max(targetWorkingOrdinal, 4)),
+          movementCategory: classification.category || 'compound',
+          equipment: classification.equipment || 'freeweight',
+          modality: 'weighted',
+        };
+
+        let distributed: Array<{ workingSetOrdinal: number; reps: number; rpe: number; weight: number }> | null = null;
+        if (objective === 'Hypertrophy') {
+          distributed = distributeHypertrophySets(anchor, fatiguePriors);
+        } else if (objective === 'Strength') {
+          if (profileType === 'strength_post_test') {
+            distributed = distributePeakSingleStrengthSets(anchor, fatiguePriors);
+          } else {
+            distributed = distributeStrengthSets(anchor, fatiguePriors);
+          }
+        }
+
+        const candidate = distributed?.find(d => d.workingSetOrdinal === targetWorkingOrdinal);
+        if (candidate) {
+          return {
+            isPrescribed: true,
+            target: {
+              weight: candidate.weight,
+              reps: candidate.reps,
+              rpe: candidate.rpe,
+              form: 'standard',
+            },
+            workingSetOrdinal: targetWorkingOrdinal,
+          };
+        }
+      }
+    }
+  }
+
+  // =========================================================================
+  // AUTHORITY 4: CANONICAL ZERO-BASELINE / PRE-EVIDENCE GUIDANCE
+  // =========================================================================
+  if (mod === 'bodyweight') {
+    const bwVal = resolveSessionBodyweightInUnit(bodyweightSnapshot, activeUnit);
+    if (bwVal && bwVal > 0) {
+      const ordinalShape = deriveColdStartOrdinalShape({
+        objective: (objective === 'Strength' ? 'Strength' : 'Hypertrophy') as 'Hypertrophy' | 'Strength',
+        algorithmId: effectiveAlgorithmId ?? undefined,
+        exercise,
+        weekNum,
+        programDuration,
+        ordinal: targetWorkingOrdinal,
+      });
+      if (ordinalShape) {
         return {
           isPrescribed: true,
           target: {
-            weight: roundedTargetLoad,
+            weight: 0,
             reps: ordinalShape.reps,
             rpe: ordinalShape.rpe,
             form: ordinalShape.form,
@@ -2364,45 +2656,32 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
     }
   }
 
-  // Tier 3: Zero-load canonical prescription shape
-  const targetMap = generateSessionTargetMap({
-    objective,
-    exercise,
-    workingSetCount: targetWorkingOrdinal,
-    weekNum,
-    programDuration,
-    previousLogs,
-    algorithmId,
-    templateExercise,
-    bodyweightSnapshot,
-    activeUnit,
-    programId,
-    dayNum,
-    targetDate,
-    targetLogId,
-    targetChronology,
-    sessionStartedAt,
-    explicitTargetTimestamp,
-    occurrenceOrdinal,
-  });
-
-  if (targetMap) {
-    const target = targetMap.get(targetWorkingOrdinal);
-    if (target) {
+  if (mod === 'weighted') {
+    const ordinalShape = deriveColdStartOrdinalShape({
+      objective: (objective === 'Strength' ? 'Strength' : 'Hypertrophy') as 'Hypertrophy' | 'Strength',
+      algorithmId: effectiveAlgorithmId ?? undefined,
+      exercise,
+      weekNum,
+      programDuration,
+      ordinal: targetWorkingOrdinal,
+    });
+    if (ordinalShape) {
       return {
         isPrescribed: true,
         target: {
           weight: 0,
-          reps: target.reps,
-          rpe: target.rpe,
-          form: target.form,
+          reps: ordinalShape.reps,
+          rpe: ordinalShape.rpe,
+          form: ordinalShape.form,
         },
         workingSetOrdinal: targetWorkingOrdinal,
       };
     }
   }
 
-  // Tier 4: Unprescribed fallback
+  // =========================================================================
+  // AUTHORITY 5: SAFE UNPRESCRIBED FALLBACK
+  // =========================================================================
   return {
     isPrescribed: false,
     workingSetOrdinal: targetWorkingOrdinal,

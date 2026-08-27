@@ -4,8 +4,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Dumbbell, Plus, Minus, Trash2, Check, ArrowLeft, Clock, Flame, Smile, Droplet, Coffee, Award, ChevronDown, ChevronUp, BookOpen, Pencil, History, Info, MoreVertical, Link, Lock, Unlock, ClipboardCheck, Gamepad2, Compass, Activity, X, AlertTriangle } from 'lucide-react';
-import { Program, WorkoutLog, ExerciseEntry, SetEntry, WeightUnit, DailyRecoveryMetrics, HydrationLevel, mapHydrationToLiters, mapLitersToHydration, BodyweightSnapshot } from '../types';
+import { Dumbbell, Plus, Minus, Trash2, Check, ArrowLeft, Clock, Timer, Flame, Smile, Droplet, Coffee, Award, ChevronDown, ChevronUp, BookOpen, Pencil, History, Info, MoreVertical, Link, Lock, Unlock, ClipboardCheck, Gamepad2, Compass, Activity, X, AlertTriangle } from 'lucide-react';
+import { Program, WorkoutLog, ExerciseEntry, SetEntry, WeightUnit, DailyRecoveryMetrics, HydrationLevel, mapHydrationToLiters, mapLitersToHydration, BodyweightSnapshot, RestInterval, RestTimerStartContext } from '../types';
 import { storage, PREBUILT_TEMPLATES } from '../lib/storage';
 import { getTodayLocalDateString } from '../lib/dateUtils';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
@@ -48,6 +48,12 @@ import {
   remapAfterSetInsert,
   remapAfterWarmupChange,
 } from '../lib/workoutCompletion';
+import {
+  isValidRestIntervalDuration,
+  getLastCompletedWorkingSetNumber,
+  createRestInterval,
+  parseRestStartContext,
+} from '../lib/restTimerMath';
 import {
   PrescribedTargetSnapshotMap,
   CommittedLiveEvidenceMap,
@@ -231,6 +237,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         : undefined;
     }
 
+    const settingsBw = storage.getBodyweightWithUnit();
+    const prevLogs = storage.getWorkoutLogs();
+
     try {
       const draftStr = localStorage.getItem('metreps_workout_draft');
       if (draftStr) {
@@ -240,19 +249,24 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum));
         if (matches && 'bodyweightSnapshot' in draft) {
           const validatedDraft = draft.bodyweightSnapshot === null ? null : validateBodyweightSnapshot(draft.bodyweightSnapshot);
-          const settingsBw = storage.getBodyweightWithUnit();
           return reconcileSessionSnapshot({
             draftSnapshot: validatedDraft,
             settingsSnapshot: settingsBw,
             isEditMode: false,
+            previousLogs: prevLogs,
           });
         }
       }
     } catch (_) {}
 
-    const settingsBw = storage.getBodyweightWithUnit();
-    return settingsBw ? validateBodyweightSnapshot(settingsBw) : null;
+    return reconcileSessionSnapshot({
+      settingsSnapshot: settingsBw,
+      isEditMode: false,
+      previousLogs: prevLogs,
+    });
   });
+
+  const [sessionBwInputString, setSessionBwInputString] = useState<string | null>(null);
 
   const sessionBodyweightInActiveUnit = React.useMemo(() => {
     return resolveSessionBodyweightInUnit(bodyweightSnapshot, unit);
@@ -583,7 +597,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const [soreness, setSoreness] = useState<number>(3);
   const [motivation, setMotivation] = useState<number>(5);
 
-  // Easter Egg Rest Timer states
+  // Rest Timer states
   const [restSeconds, setRestSeconds] = useState<number>(0);
   const [isResting, setIsResting] = useState<boolean>(() => {
     const saved = localStorage.getItem('isResting');
@@ -593,6 +607,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const saved = localStorage.getItem('restStartTime');
     return saved ? Number(saved) : null;
   });
+  const [restStartContext, setRestStartContext] = useState<RestTimerStartContext | null>(() => {
+    return parseRestStartContext(localStorage.getItem('restStartContext'));
+  });
+  const [restIntervals, setRestIntervals] = useState<RestInterval[]>([]);
 
   useEffect(() => {
     if (isResting) {
@@ -611,6 +629,14 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   }, [restStartTime]);
 
   useEffect(() => {
+    if (restStartContext !== null) {
+      localStorage.setItem('restStartContext', JSON.stringify(restStartContext));
+    } else {
+      localStorage.removeItem('restStartContext');
+    }
+  }, [restStartContext]);
+
+  useEffect(() => {
     let interval: any = null;
     if (isResting && restStartTime !== null) {
       // Immediately calculate the correct elapsed seconds on startup/resume
@@ -626,6 +652,52 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       if (interval) clearInterval(interval);
     };
   }, [isResting, restStartTime]);
+
+  const clearActiveRestTimer = () => {
+    setIsResting(false);
+    setRestStartTime(null);
+    setRestSeconds(0);
+    setRestStartContext(null);
+    localStorage.removeItem('isResting');
+    localStorage.removeItem('restStartTime');
+    localStorage.removeItem('restStartContext');
+  };
+
+  const handleToggleRestTimer = (startContext?: RestTimerStartContext) => {
+    if (isResting) {
+      // 1. Authoritative duration calculated as Math.floor((Date.now() - restStartTime) / 1000)
+      const duration = restStartTime !== null ? Math.floor((Date.now() - restStartTime) / 1000) : 0;
+
+      // 2. Storage boundary: 1-599 seconds -> append completed interval (unless in edit mode); <=0 or >=600 -> silently discard
+      if (!editLogId && isValidRestIntervalDuration(duration)) {
+        const completedInterval = createRestInterval({
+          durationSeconds: duration,
+          startContext: restStartContext,
+          startTime: restStartTime,
+        });
+        if (completedInterval) {
+          setRestIntervals(prev => [...prev, completedInterval]);
+        }
+      }
+
+      // 3. Clear timer state and storage
+      clearActiveRestTimer();
+    } else {
+      // Starting timer: Capture authoritative context
+      const now = Date.now();
+      const ctx: RestTimerStartContext = startContext || {
+        source: 'footer',
+        startedAt: new Date(now).toISOString(),
+      };
+      setRestStartTime(now);
+      setRestSeconds(0);
+      setRestStartContext(ctx);
+      setIsResting(true);
+      localStorage.setItem('isResting', 'true');
+      localStorage.setItem('restStartTime', now.toString());
+      localStorage.setItem('restStartContext', JSON.stringify(ctx));
+    }
+  };
 
   const [alertMsg, setAlertMsg] = useState<string | null>(null);
 
@@ -846,6 +918,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       setCommittedLiveEvidenceBySet({});
       setLiveAdjustedSets({});
       setCurrentSetGuideKey(null);
+      setRestIntervals(existingLog.restIntervals || []);
       setIsDraftLoaded(true);
       return;
     }
@@ -989,6 +1062,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           setCommittedLiveEvidenceBySet(draft.committedLiveEvidenceBySet || {});
           setLiveAdjustedSets(draft.liveAdjustedSets || {});
           setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(draft, loadedExercises) : null);
+          setRestIntervals(draft.restIntervals || []);
           if (draft.startTime) {
             setStartTime(draft.startTime);
           }
@@ -996,10 +1070,13 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             ? (draft.bodyweightSnapshot === null ? null : validateBodyweightSnapshot(draft.bodyweightSnapshot))
             : null;
           const settingsBw = storage.getBodyweightWithUnit();
+          const prevLogs = storage.getWorkoutLogs();
           const reconciled = reconcileSessionSnapshot({
             draftSnapshot: draftBw,
             settingsSnapshot: settingsBw,
             isEditMode: false,
+            previousLogs: prevLogs,
+            chronology: targetChronology,
           });
           setBodyweightSnapshot(reconciled);
           setHasExistingDraft(true);
@@ -1164,6 +1241,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     committedLiveEvidenceBySet?: CommittedLiveEvidenceMap;
     liveAdjustedSets?: Record<string, boolean>;
     currentSetGuideKey?: string | null;
+    bodyweightSnapshot?: BodyweightSnapshot | null;
+    restIntervals?: RestInterval[];
   }): Record<string, any> => {
     const draftData: Record<string, any> = {
       programId,
@@ -1192,7 +1271,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       prescribedTargetSnapshots: overrides?.prescribedTargetSnapshots !== undefined ? overrides.prescribedTargetSnapshots : prescribedTargetSnapshots,
       committedLiveEvidenceBySet: overrides?.committedLiveEvidenceBySet !== undefined ? overrides.committedLiveEvidenceBySet : committedLiveEvidenceBySet,
       liveAdjustedSets: overrides?.liveAdjustedSets !== undefined ? overrides.liveAdjustedSets : liveAdjustedSets,
-      bodyweightSnapshot,
+      bodyweightSnapshot: overrides?.bodyweightSnapshot !== undefined ? overrides.bodyweightSnapshot : bodyweightSnapshot,
+      restIntervals: overrides?.restIntervals !== undefined ? overrides.restIntervals : restIntervals,
     };
 
     const guideKey = overrides?.currentSetGuideKey !== undefined ? overrides.currentSetGuideKey : currentSetGuideKey;
@@ -1252,12 +1332,15 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     currentSetGuideKey,
     highlightCurrentSet,
     bodyweightSnapshot,
+    restIntervals,
   ]);
 
   const handleDiscardDraft = () => {
     localStorage.removeItem('metreps_workout_draft');
     setHasExistingDraft(false);
     setIsDraftLoaded(false);
+    setRestIntervals([]);
+    clearActiveRestTimer();
 
     let defaultObjective: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload' = 'Off';
     const activeProgLocal = programId
@@ -2403,6 +2486,71 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     );
   };
 
+  const handleUpdateSessionBodyweight = (rawString: string) => {
+    setSessionBwInputString(rawString);
+    const trimmed = rawString.trim();
+    let nextSnapshot: BodyweightSnapshot | null = null;
+    if (trimmed !== '') {
+      const num = Number(trimmed);
+      if (Number.isFinite(num) && num > 0) {
+        nextSnapshot = {
+          value: num,
+          unit,
+          timestamp: new Date().toISOString(),
+        };
+      }
+    }
+
+    setBodyweightSnapshot(nextSnapshot);
+
+    const activeProg = programId ? storage.getPrograms().find(p => p.id === programId) : null;
+    const programDuration = activeProg && activeProg.programDuration !== '∞' ? Number(activeProg.programDuration) : 8;
+    const programDayTemplates = (activeProg && activeProg.exercisesByDay?.[Number(dayNum)]) || null;
+
+    // Recalculate objective sets for bodyweight and assisted exercises that are not touched
+    const nextExercises = exercises.map((ex, exIdx) => {
+      if (ex.modality !== 'bodyweight' && ex.modality !== 'assisted') {
+        return ex;
+      }
+      if (objective === 'Off') {
+        return ex;
+      }
+      const templateEx = findMatchingTemplateExercise(ex, programDayTemplates, exIdx);
+      const occurrenceOrdinal = getExerciseOccurrenceOrdinal(exercises, exIdx);
+
+      const calculated = calculateObjectiveSets({
+        objective,
+        exercise: ex,
+        exerciseIndex: exIdx,
+        totalExercises: exercises.length,
+        weekNum: Number(weekNum),
+        programDuration,
+        previousLogs: storage.getWorkoutLogs(),
+        userTouchedSets,
+        checkedSets,
+        algorithmId: activeProg?.algorithmId,
+        templateExercise: templateEx,
+        bodyweightSnapshot: nextSnapshot,
+        activeUnit: unit,
+        programId: programId ? String(programId) : null,
+        dayNum: dayNum !== undefined && dayNum !== null ? String(dayNum) : null,
+        targetDate: dateStr || null,
+        targetLogId: editLogId || null,
+        targetChronology,
+        sessionStartedAt: sessionStartedAtRef.current,
+        occurrenceOrdinal,
+      });
+
+      return { ...ex, sets: calculated };
+    });
+
+    setExercises(nextExercises);
+    saveWorkoutDraftImmediately({
+      exercises: nextExercises,
+      bodyweightSnapshot: nextSnapshot,
+    });
+  };
+
   const handleCommitUserRPE = (exIdx: number, setIdx: number, newRpe: number) => {
     const setKey = `${exIdx}-${setIdx}`;
     setUserTouchedSets(prev => ({ ...prev, [setKey]: true }));
@@ -2570,6 +2718,22 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     setCommittedLiveEvidenceBySet(nextCommittedLiveEvidence);
     setLiveAdjustedSets(finalUpdatedLiveAdjustedSets);
 
+    // Settings persistence on confirmed performance:
+    // If this is a current new live workout, and the confirmed set is a valid pure-bodyweight working set,
+    // persist the active bodyweight snapshot through Settings storage authority.
+    if (!editLogId && (!targetChronology || targetChronology.mode === 'active_live') && !existingLog) {
+      if (targetEx.modality === 'bodyweight' && !targetSet?.isWarmup && !targetSet?.isSkipped) {
+        const validReps = typeof targetSet?.reps === 'number' && Number.isFinite(targetSet.reps) && targetSet.reps > 0;
+        const validRpe = typeof newRpe === 'number' && Number.isFinite(newRpe) && newRpe > 0;
+        if (validReps && validRpe) {
+          const validSnapshot = validateBodyweightSnapshot(bodyweightSnapshot);
+          if (validSnapshot) {
+            storage.setBodyweightWithUnit(validSnapshot.value, validSnapshot.unit);
+          }
+        }
+      }
+    }
+
     if (highlightCurrentSet) {
       const nextGuide = findNextEligibleGuideRow(nextExercises, exIdx, setIdx);
       setCurrentSetGuideKey(nextGuide);
@@ -2665,6 +2829,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       isEditMode: !!(editLogId && existingLog),
     });
 
+    const effectiveRestIntervals = editLogId && existingLog
+      ? existingLog.restIntervals
+      : (restIntervals.length > 0 ? restIntervals : undefined);
+
     const newLog: WorkoutLog = {
       id: editLogId || `log-${Date.now()}`,
       date: dateStr,
@@ -2682,6 +2850,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       bodyweightSnapshot: editLogId && existingLog
         ? (existingLog.bodyweightSnapshot !== undefined ? cloneBodyweightSnapshot(existingLog.bodyweightSnapshot) : (bodyweightSnapshot !== undefined ? cloneBodyweightSnapshot(bodyweightSnapshot) : undefined))
         : (bodyweightSnapshot !== undefined ? cloneBodyweightSnapshot(bodyweightSnapshot) : null),
+      ...(effectiveRestIntervals ? { restIntervals: effectiveRestIntervals } : {}),
       recovery: {
         sleepHours: sleep === '' ? null : Number(sleep),
         hydrationLiters: mapHydrationToLiters(hydration),
@@ -2694,6 +2863,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     };
 
     storage.saveWorkoutLog(newLog);
+    clearActiveRestTimer();
 
     // Commit confirmed exercise and working-set template structure to program
     if (programId && !editLogId) {
@@ -2766,16 +2936,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 
     const handleTimerClick = () => {
-      if (isResting) {
-        setIsResting(false);
-        setRestSeconds(0);
-        setRestStartTime(null);
-      } else {
-        const now = Date.now();
-        setRestStartTime(now);
-        setRestSeconds(0);
-        setIsResting(true);
-      }
+      handleToggleRestTimer({ source: 'footer', startedAt: new Date().toISOString() });
     };
 
     const segmentDuration = objective === 'Strength' ? 60 : 30;
@@ -2850,9 +3011,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 
     const handleFloatingClick = () => {
-      setIsResting(false);
-      setRestSeconds(0);
-      setRestStartTime(null);
+      handleToggleRestTimer();
     };
 
     const segmentDuration = objective === 'Strength' ? 60 : 30;
@@ -3069,8 +3228,44 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
               >
                 {/* Exercise Card Title Header */}
                 <div className="flex flex-col gap-1 pt-10 pb-3.5 px-4 bg-slate-950/30 border-b border-slate-850/60 relative">
-                  <div className="absolute top-1.5 right-1.5 flex items-center gap-2 z-10">
+                  <div className="absolute top-1.5 right-1.5 flex items-center gap-1.5 sm:gap-2 z-10">
                     <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const lastSetNum = getLastCompletedWorkingSetNumber(ex, exIdx, checkedSets);
+                        handleToggleRestTimer({
+                          source: 'exercise_header',
+                          exerciseName: ex.name,
+                          exerciseIndex: exIdx,
+                          setNumber: lastSetNum,
+                          startedAt: new Date().toISOString(),
+                        });
+                      }}
+                      className={`p-2 rounded-none transition border ${
+                        isResting
+                          ? (themeId === 'amber'
+                              ? 'border-amber-600/40 bg-amber-100/60 ring-1 ring-amber-500/20 text-amber-800 animate-pulse'
+                              : (themeId === 'onyx'
+                                  ? 'border-emerald-500/40 bg-slate-950/90 ring-1 ring-emerald-500/20 text-emerald-400 animate-pulse'
+                                  : 'border-cyan-500/40 bg-slate-950/90 ring-1 ring-cyan-500/20 text-cyan-400 animate-pulse'
+                                )
+                            )
+                          : (themeId === 'amber'
+                              ? 'border-amber-600/20 bg-amber-50/50 hover:bg-amber-100 text-amber-700/70 hover:text-amber-800'
+                              : (themeId === 'onyx'
+                                  ? 'border-slate-800 bg-slate-950/50 hover:bg-slate-800 text-slate-400 hover:text-emerald-400'
+                                  : 'border-slate-800 bg-slate-950/50 hover:bg-slate-800 text-slate-400 hover:text-cyan-400'
+                                )
+                            )
+                      }`}
+                      title={isResting ? 'Stop rest timer' : 'Start rest timer'}
+                      aria-label={isResting ? 'Stop rest timer' : 'Start rest timer'}
+                    >
+                      <Timer className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => openSelectorForIdx(exIdx)}
                       className="p-2 hover:bg-slate-800 text-indigo-400 hover:text-indigo-300 rounded-none transition border border-slate-800 bg-slate-950/50"
                       title="Edit Exercise"
@@ -3078,6 +3273,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                       <Pencil className="w-4 h-4" />
                     </button>
                     <button
+                      type="button"
                       onClick={() => setHistoryExerciseName(ex.name)}
                       className="p-2 hover:bg-slate-800 text-cyan-400 hover:text-cyan-300 rounded-none transition border border-slate-800 bg-slate-950/50"
                       title="Lifting History"
@@ -3085,6 +3281,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                       <History className="w-4 h-4" />
                     </button>
                     <button
+                      type="button"
                       onClick={() => setActiveExAction(exIdx)}
                       className="p-2 hover:bg-slate-800 text-slate-400 hover:text-white rounded-none transition border border-slate-800 bg-slate-950/50"
                       title="Exercise Settings"
@@ -3215,30 +3412,37 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                             {/* Weight Input */}
                             <div>
                               {ex.modality === 'bodyweight' ? (
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.1"
-                                  disabled={isSetSkipped}
-                                  value={set.weight !== null && set.weight !== undefined && set.weight !== 0 ? set.weight : (sessionBodyweightInActiveUnit ?? '')}
-                                  onFocus={() => {
-                                    setFocusedSetKey(`${exIdx}-${setIdx}`);
-                                    if (highlightCurrentSet && isRowEligibleForGuide(ex, set)) {
-                                      setCurrentSetGuideKey(`${exIdx}-${setIdx}`);
+                                <>
+                                  <label htmlFor={`bw-input-${exIdx}-${setIdx}`} className="sr-only">
+                                    Session bodyweight — applies to all bodyweight exercises
+                                  </label>
+                                  <input
+                                    id={`bw-input-${exIdx}-${setIdx}`}
+                                    type="number"
+                                    min="0"
+                                    step="0.1"
+                                    disabled={isSetSkipped}
+                                    aria-label="Session bodyweight — applies to all bodyweight exercises"
+                                    value={
+                                      sessionBwInputString !== null
+                                        ? sessionBwInputString
+                                        : (sessionBodyweightInActiveUnit !== null ? String(sessionBodyweightInActiveUnit) : '')
                                     }
-                                  }}
-                                  onBlur={() => setFocusedSetKey(prev => prev === `${exIdx}-${setIdx}` ? null : prev)}
-                                  onChange={e =>
-                                    handleUpdateSet(
-                                      exIdx,
-                                      setIdx,
-                                      'weight',
-                                      e.target.value === '' ? null : Number(e.target.value)
-                                    )
-                                  }
-                                  className={`bg-slate-950 text-base font-black text-center text-white border border-slate-800 rounded-none h-10 w-full focus:outline-none focus:border-indigo-500 font-mono ${isSetSkipped ? 'cursor-not-allowed opacity-75' : ''}`}
-                                  placeholder={sessionBodyweightInActiveUnit ? String(sessionBodyweightInActiveUnit) : 'BODYWT'}
-                                />
+                                    onFocus={() => {
+                                      setFocusedSetKey(`${exIdx}-${setIdx}`);
+                                      if (highlightCurrentSet && isRowEligibleForGuide(ex, set)) {
+                                        setCurrentSetGuideKey(`${exIdx}-${setIdx}`);
+                                      }
+                                    }}
+                                    onBlur={() => {
+                                      setFocusedSetKey(prev => prev === `${exIdx}-${setIdx}` ? null : prev);
+                                      setSessionBwInputString(null);
+                                    }}
+                                    onChange={e => handleUpdateSessionBodyweight(e.target.value)}
+                                    className={`bg-slate-950 text-base font-black text-center text-white border border-slate-800 rounded-none h-10 w-full focus:outline-none focus:border-indigo-500 font-mono ${isSetSkipped ? 'cursor-not-allowed opacity-75' : ''}`}
+                                    placeholder={sessionBodyweightInActiveUnit ? String(sessionBodyweightInActiveUnit) : 'BODYWT'}
+                                  />
+                                </>
                               ) : (
                                 <input
                                   type="number"
@@ -4862,12 +5066,16 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                               </>
                             )}
                             {isPRSet && (
-                              <span className={`inline-flex items-center gap-0.5 text-[8px] font-extrabold px-1 py-0.5 rounded uppercase tracking-tight animate-pulse shrink-0 ${
-                                themeId === 'amber'
-                                  ? 'text-[#B56D3E] bg-[#B56D3E]/10 border border-[#B56D3E]/20'
-                                  : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
-                              }`} title="Personal Record!">
-                                <Award className={`w-2.5 h-2.5 shrink-0 ${themeId === 'amber' ? 'text-[#B56D3E]' : 'text-amber-400'}`} /> PR
+                              <span
+                                className={`inline-flex items-center gap-0.5 text-[8px] font-extrabold px-1 py-0.5 rounded uppercase tracking-tight animate-pulse shrink-0 ${
+                                  themeId === 'amber'
+                                    ? 'text-[#B56D3E] bg-[#B56D3E]/10 border border-[#B56D3E]/20'
+                                    : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+                                }`}
+                                title={item.modality === 'distance' ? 'Personal record' : 'Estimated 1RM personal record (Epley)'}
+                                aria-label={item.modality === 'distance' ? 'Personal record' : 'Estimated 1RM personal record (Epley)'}
+                              >
+                                <Award className={`w-2.5 h-2.5 shrink-0 ${themeId === 'amber' ? 'text-[#B56D3E]' : 'text-amber-400'}`} /> {item.modality === 'distance' ? 'PR' : 'EPLEY 1RM PR'}
                               </span>
                             )}
                             {item.rpe && (

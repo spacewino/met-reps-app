@@ -64,7 +64,25 @@ export type DailyRecoveryMetrics = {
 export interface BodyweightSnapshot {
   value: number;
   unit: WeightUnit;
+  timestamp?: string;
 }
+
+export type RestTimerStartContext = {
+  source: 'exercise_header' | 'footer';
+  exerciseName?: string | null;
+  exerciseIndex?: number | null;
+  setNumber?: number | null;
+  startedAt?: string | null;
+};
+
+export type RestInterval = {
+  durationSeconds: number;
+  source: 'exercise_header' | 'footer';
+  startedAt: string; // ISO string timestamp
+  exerciseName?: string | null;
+  exerciseIndex?: number | null;
+  setNumber?: number | null;
+};
 
 export type WorkoutLog = {
   id: string;
@@ -82,6 +100,7 @@ export type WorkoutLog = {
   objective?: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload';
   startTime?: string;
   bodyweightSnapshot?: BodyweightSnapshot | null;
+  restIntervals?: RestInterval[];
 };
 
 export type Program = {

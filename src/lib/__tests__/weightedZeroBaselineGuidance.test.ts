@@ -595,7 +595,7 @@ describe('MetReps Stage 1 — Weighted Zero-Baseline Algorithm Guidance', () => 
       expect(res.target).toEqual({
         weight: 0,
         reps: 12,
-        rpe: 8.0,
+        rpe: 8.5,
         form: 'standard',
       });
     });

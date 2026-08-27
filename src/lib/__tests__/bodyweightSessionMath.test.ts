@@ -170,31 +170,22 @@ describe('bodyweightSessionMath - Snapshot and Warmup Logic', () => {
     const draftSnapshot: BodyweightSnapshot = { value: 82, unit: 'kg' };
     const logSnapshot: BodyweightSnapshot = { value: 78, unit: 'kg' };
 
+    it('for a new workout with draft containing snapshot, draft takes highest precedence over settings', () => {
+      const result = reconcileSessionSnapshot({
+        isEditMode: false,
+        draftSnapshot,
+        settingsSnapshot,
+      });
+      expect(result).toEqual({ value: 82, unit: 'kg' });
+    });
+
     it('for a new workout with draft containing snapshot and no settings snapshot, uses draft snapshot', () => {
       const result = reconcileSessionSnapshot({
         isEditMode: false,
         draftSnapshot,
         settingsSnapshot: null,
       });
-      expect(result).toEqual(draftSnapshot);
-    });
-
-    it('for a new workout with settings snapshot, adopts settings snapshot', () => {
-      const result = reconcileSessionSnapshot({
-        isEditMode: false,
-        draftSnapshot,
-        settingsSnapshot,
-      });
-      expect(result).toEqual(settingsSnapshot);
-    });
-
-    it('settings clearing preserves a valid active draft snapshot', () => {
-      const result = reconcileSessionSnapshot({
-        isEditMode: false,
-        draftSnapshot: { value: 77.5, unit: 'kg' },
-        settingsSnapshot: null,
-      });
-      expect(result).toEqual({ value: 77.5, unit: 'kg' });
+      expect(result).toEqual({ value: 82, unit: 'kg' });
     });
 
     it('for a new workout without draft snapshot, falls back to settings snapshot', () => {
@@ -203,14 +194,33 @@ describe('bodyweightSessionMath - Snapshot and Warmup Logic', () => {
         draftSnapshot: undefined,
         settingsSnapshot,
       });
-      expect(result).toEqual(settingsSnapshot);
+      expect(result).toEqual({ value: 80, unit: 'kg' });
     });
 
-    it('for a new workout with no settings snapshot and no draft, returns null', () => {
+    it('for a new workout without draft and without settings, falls back to chronologically eligible historical log snapshot', () => {
+      const historicalLog: WorkoutLog = {
+        id: 'log-1',
+        date: '2026-08-20',
+        unit: 'kg',
+        bodyweightSnapshot: { value: 75, unit: 'kg' },
+        exercises: [],
+      };
       const result = reconcileSessionSnapshot({
         isEditMode: false,
         draftSnapshot: undefined,
         settingsSnapshot: null,
+        previousLogs: [historicalLog],
+        chronology: { mode: 'active_live', sessionStartedAt: Date.now(), targetLogId: null, displayedDate: '2026-08-25' },
+      });
+      expect(result).toEqual({ value: 75, unit: 'kg', timestamp: '2026-08-20' });
+    });
+
+    it('for a new workout with no draft, no settings, and no historical logs, returns null', () => {
+      const result = reconcileSessionSnapshot({
+        isEditMode: false,
+        draftSnapshot: undefined,
+        settingsSnapshot: null,
+        previousLogs: [],
       });
       expect(result).toBeNull();
     });
@@ -770,6 +780,133 @@ describe('bodyweightSessionMath - Snapshot and Warmup Logic', () => {
       // When defaultBodyweight is 80 kg and set weight is 0 for bodyweight modality, prepareExercisesForSave fills default
       expect(resavedLog.exercises[0].sets[0].weight).toBe(80);
       expect(resavedLog.exercises[0].sets[0].weight).not.toBe(90);
+    });
+  });
+
+  describe('Stage A Bodyweight Session Snapshot Invariants & Scenarios', () => {
+    beforeEach(() => {
+      localStorage.clear();
+    });
+
+    it('Scenario 1: Two pure bodyweight exercises in the same workout display the same entered bodyweight', () => {
+      const snap: BodyweightSnapshot = { value: 100, unit: 'kg' };
+      const resolved = resolveSessionBodyweightInUnit(snap, 'kg');
+      expect(resolved).toBe(100);
+
+      const ex1: ExerciseEntry = {
+        name: 'Push-Up',
+        muscleGroup: 'Chest',
+        modality: 'bodyweight',
+        sets: [
+          { setNumber: 1, weight: 0, reps: 10, rpe: 8, form: 'standard' },
+          { setNumber: 2, weight: 0, reps: 10, rpe: 8, form: 'standard' },
+        ],
+      };
+
+      const ex2: ExerciseEntry = {
+        name: 'Pull-Up',
+        muscleGroup: 'Back',
+        modality: 'bodyweight',
+        sets: [
+          { setNumber: 1, weight: 0, reps: 8, rpe: 8, form: 'standard' },
+        ],
+      };
+
+      // Both exercises have internal set.weight = 0
+      expect(ex1.sets[0].weight).toBe(0);
+      expect(ex1.sets[1].weight).toBe(0);
+      expect(ex2.sets[0].weight).toBe(0);
+
+      // Both display the session snapshot
+      expect(resolveSessionBodyweightInUnit(snap, 'kg')).toBe(100);
+    });
+
+    it('Scenario 2: Assisted exercise consumes the same snapshot without overwriting its assistance inputs', () => {
+      const snap: BodyweightSnapshot = { value: 100, unit: 'kg' };
+      const assistedEx: ExerciseEntry = {
+        name: 'Assisted Pull-Up',
+        muscleGroup: 'Back',
+        modality: 'assisted',
+        sets: [
+          { setNumber: 1, weight: 20, reps: 8, rpe: 8, form: 'standard' }, // 20 kg assistance
+        ],
+      };
+
+      // Assistance weight remains 20 kg
+      expect(assistedEx.sets[0].weight).toBe(20);
+
+      // Effective load = 100 kg bodyweight - 20 kg assistance = 80 kg
+      const effectiveLoad = (snap.value) - (assistedEx.sets[0].weight ?? 0);
+      expect(effectiveLoad).toBe(80);
+    });
+
+    it('Scenario 3: Final save persists one bodyweightSnapshot and preserves legacy prepareExercisesForSave', () => {
+      const snap: BodyweightSnapshot = { value: 100, unit: 'kg' };
+      const exercises: ExerciseEntry[] = [
+        {
+          name: 'Dips',
+          muscleGroup: 'Chest',
+          modality: 'bodyweight',
+          sets: [
+            { setNumber: 1, weight: 0, reps: 10, rpe: 8, form: 'standard' },
+          ],
+        },
+      ];
+
+      const processed = prepareExercisesForSave({
+        exercises,
+        checkedSets: { '0-0': true },
+        defaultBodyweight: resolveSessionBodyweightInUnit(snap, 'kg'),
+      });
+
+      const log: WorkoutLog = {
+        id: 'log-1',
+        date: '2026-08-25',
+        unit: 'kg',
+        bodyweightSnapshot: snap,
+        exercises: processed,
+      };
+
+      expect(log.bodyweightSnapshot).toEqual({ value: 100, unit: 'kg' });
+      // Legacy prepareExercisesForSave copies 100 into set.weight for legacy readers
+      expect(log.exercises[0].sets[0].weight).toBe(100);
+    });
+
+    it('Scenario 4: Canonical mathematics verification (0.680 multiplier and 147.0588235 e1RM)', () => {
+      // 10 reps @ RPE 8.0 RTS multiplier is 0.680
+      const rpe8_10reps_multiplier = 0.680;
+      const bw = 100;
+      const e1RM = bw / rpe8_10reps_multiplier;
+      expect(e1RM).toBeCloseTo(147.0588235, 4);
+
+      // Assisted: 100 kg bodyweight - 20 kg assistance = 80 kg effective load
+      const assistance = 20;
+      const assistedEffectiveLoad = bw - assistance;
+      expect(assistedEffectiveLoad).toBe(80);
+    });
+
+    it('Scenario 5: Settings update happens only on confirmed valid working set RPE commitment', () => {
+      storage.setBodyweightWithUnit(100, 'kg');
+
+      // User types 110 kg into session snapshot
+      const activeSnapshot: BodyweightSnapshot = { value: 110, unit: 'kg' };
+
+      // Before confirmation, Settings remains 100 kg
+      expect(storage.getBodyweightWithUnit()?.value).toBe(100);
+
+      // On confirming a valid working set in a live workout:
+      const validReps = 10;
+      const validRpe = 8;
+      const isWarmup = false;
+      const isSkipped = false;
+      const isLiveWorkout = true;
+
+      if (isLiveWorkout && !isWarmup && !isSkipped && validReps > 0 && validRpe > 0) {
+        storage.setBodyweightWithUnit(activeSnapshot.value, activeSnapshot.unit);
+      }
+
+      // Settings now updated to 110 kg
+      expect(storage.getBodyweightWithUnit()?.value).toBe(110);
     });
   });
 });

@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { WorkoutLog, SetEntry } from '../types';
+import { WorkoutLog, SetEntry, BodyweightSnapshot, ExerciseEntry, WeightUnit } from '../types';
+import { resolveSetEffectiveLoad } from './effectiveLoad';
 
 // Standard RPE-to-%1RM Lookup Chart (Reps 1 to 12, RPE 6 to 10 in steps of 0.5)
 const RPE_CHART: Record<number, Record<number, number>> = {
@@ -38,22 +39,27 @@ export type ClassifiedWorkout = {
 };
 
 /**
- * Calculates effective weight lifted based on exercise modality
+ * Calculates effective weight lifted based on exercise modality using canonical effective load resolution.
  */
-export function getEffectiveWeight(weight: number | null | undefined, modality: string, userBodyweight: number | null): number {
-  const w = weight || 0;
-  const bw = userBodyweight || 75; // Fallback bodyweight if none entered
-  
-  switch (modality) {
-    case 'assisted':
-      return Math.max(1, bw - w);
-    case 'bodyweight':
-      return bw + w;
-    case 'timed':
-      return w || 1; // secs can act as intensity proxy
-    default:
-      return w;
+export function getEffectiveWeight(
+  weight: number | null | undefined,
+  modality: string,
+  userBodyweight: number | null,
+  snapshot?: BodyweightSnapshot | null,
+  unit: WeightUnit = 'kg'
+): number {
+  const normModality = (modality || 'weighted') as ExerciseEntry['modality'];
+  const effectiveSnapshot: BodyweightSnapshot | null =
+    snapshot ?? (userBodyweight && Number.isFinite(userBodyweight) && userBodyweight > 0 ? { value: userBodyweight, unit } : null);
+
+  const res = resolveSetEffectiveLoad(weight, normModality, unit, effectiveSnapshot);
+  if (res.status === 'valid' && res.effectiveLoadInLogUnit !== null) {
+    return res.effectiveLoadInLogUnit;
   }
+  if (normModality === 'timed') {
+    return weight || 1;
+  }
+  return 0;
 }
 
 /**
@@ -101,7 +107,8 @@ export function getRollingBaselineE1RM(
         const w = set.weight || 0;
         if (reps <= 0) return;
 
-        const effWeight = getEffectiveWeight(w, matchedEx.modality || 'weighted', userBodyweight);
+        const effWeight = getEffectiveWeight(w, matchedEx.modality || 'weighted', userBodyweight, log.bodyweightSnapshot, log.unit || 'kg');
+        if (effWeight <= 0) return;
         const e1rm = calculateE1RMForSet(effWeight, reps, rpe);
         if (e1rm > maxSetE1RM) {
           maxSetE1RM = e1rm;
@@ -179,7 +186,8 @@ export function classifyWorkout(
       const rpe = set.rpe || 8;
       const weight = set.weight || 0;
       if (reps <= 0) return;
-      const effW = getEffectiveWeight(weight, modality, userBodyweight);
+      const effW = getEffectiveWeight(weight, modality, userBodyweight, currentLog.bodyweightSnapshot, currentLog.unit || 'kg');
+      if (effW <= 0) return;
       const e1rm = calculateE1RMForSet(effW, reps, rpe);
       if (e1rm > currentSessionTopE1RM) currentSessionTopE1RM = e1rm;
     });
@@ -199,7 +207,8 @@ export function classifyWorkout(
 
       if (reps <= 0) return;
 
-      const effW = getEffectiveWeight(weight, modality, userBodyweight);
+      const effW = getEffectiveWeight(weight, modality, userBodyweight, currentLog.bodyweightSnapshot, currentLog.unit || 'kg');
+      if (effW <= 0) return;
       const e1RM = calculateE1RMForSet(effW, reps, rpe);
       const relativeIntensity = effW / baseline;
       const performanceRatio = e1RM / baseline;
@@ -222,10 +231,12 @@ export function classifyWorkout(
             const subReps = sub.reps || 0;
             const subWeight = sub.weight || 0;
             if (subReps > 0) {
-              const subEffW = getEffectiveWeight(subWeight, modality, userBodyweight);
-              const subVol = subEffW * subReps;
-              totalVolumeLoad += subVol;
-              workingVolumeLoad += subVol;
+              const subEffW = getEffectiveWeight(subWeight, modality, userBodyweight, currentLog.bodyweightSnapshot, currentLog.unit || 'kg');
+              if (subEffW > 0) {
+                const subVol = subEffW * subReps;
+                totalVolumeLoad += subVol;
+                workingVolumeLoad += subVol;
+              }
             }
           });
         }

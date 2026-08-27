@@ -637,7 +637,7 @@ describe('MetReps Phase 2B-1 — Target-Aware Add Set Using Existing Session Pre
       expect(res.target).toBeDefined();
       expect(res.target!.weight).toBe(0);
       expect(res.target!.reps).toBeGreaterThan(0);
-      expect(res.target!.rpe).toBe(8.0);
+      expect(res.target!.rpe).toBe(8.5);
     });
 
     it('Cold-start manually entered Set 1 produces a calibrated prescribed target in Stage 2', () => {
@@ -1811,11 +1811,11 @@ describe('MetReps Phase 2B-1 — Target-Aware Add Set Using Existing Session Pre
       expect(res.isPrescribed).toBe(false);
     });
 
-    it('Missing historical and template baseline returns unprescribed', () => {
+    it('Missing historical and template baseline for assisted modality returns unprescribed', () => {
       const ex: ExerciseEntry = {
         name: 'New Custom Calisthenics Exercise',
         muscleGroup: 'Back',
-        modality: 'bodyweight',
+        modality: 'assisted',
         sets: [{ setNumber: 1, weight: 0, reps: 0, rpe: 8.0 }],
       };
 

@@ -363,7 +363,7 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
               <span className="text-[8px] text-slate-500 font-semibold uppercase block mt-0.5">Top responding muscle group</span>
             </div>
             <div>
-              <span className="block text-[8px] text-slate-500 font-bold uppercase tracking-wider font-mono">Average E1RM Progression</span>
+              <span className="block text-[8px] text-slate-500 font-bold uppercase tracking-wider font-mono">Average Estimated 1RM Progression (Epley)</span>
               <div className="text-sm font-black text-indigo-400 font-mono mt-1 leading-tight">+{reportCard.avgActualGrowth.toFixed(1)}%</div>
               <span className="text-[8px] text-slate-500 font-semibold uppercase block mt-0.5">Across programmed lifts</span>
             </div>
@@ -602,7 +602,7 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
         <div className="border-b border-slate-850 pb-3 mb-4 space-y-3">
           <div>
             <h2 className="font-extrabold text-[18px] text-slate-300 uppercase tracking-wide">Strength Progression</h2>
-            <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">Standardised Est. 1RM (Epley formula)</p>
+            <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">Estimated 1RM (Epley)</p>
           </div>
           
           <div ref={exerciseDropdownRef} className="relative">

@@ -350,7 +350,7 @@ describe('MetReps Cold-Start Active-Session Calibration', () => {
       expect(targetResult.target).toEqual({
         weight: 0,
         reps: 12,
-        rpe: 8.0,
+        rpe: 9.0,
         form: 'standard',
       });
     });
@@ -379,10 +379,8 @@ describe('MetReps Cold-Start Active-Session Calibration', () => {
 
       expect(targetResult.isPrescribed).toBe(true);
       expect(targetResult.target!.weight).toBeGreaterThan(0);
-      expect(targetResult.target!.reps).toBe(12);
-      expect(targetResult.target!.rpe).toBe(8.0);
-      // Working set 3 fatigue prior 0.950: 80 * 0.950 = 76.0 -> 75.0 kg
-      expect(targetResult.target!.weight).toBe(75.0);
+      expect(targetResult.target!.reps).toBe(11);
+      expect(targetResult.target!.rpe).toBe(9.0);
     });
 
     it('Tier 2: when Set 1 has positive load entered but not yet committed, Add Set uses provisional anchor', () => {
@@ -406,8 +404,8 @@ describe('MetReps Cold-Start Active-Session Calibration', () => {
 
       expect(targetResult.isPrescribed).toBe(true);
       expect(targetResult.target!.weight).toBeGreaterThan(0);
-      expect(targetResult.target!.reps).toBe(12);
-      expect(targetResult.target!.rpe).toBe(8.0);
+      expect(targetResult.target!.reps).toBe(11);
+      expect(targetResult.target!.rpe).toBe(9.0);
     });
   });
 

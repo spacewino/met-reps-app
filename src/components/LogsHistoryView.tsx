@@ -1281,12 +1281,16 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                                                   </>
                                                 )}
                                                 {isPR && (
-                                                  <span className={`inline-flex items-center gap-0.5 text-[8px] font-extrabold px-1 py-0.5 rounded uppercase tracking-tight animate-pulse shrink-0 ml-1.5 ${
-                                                    isDesert
-                                                      ? 'text-[#B56D3E] bg-[#B56D3E]/10 border border-[#B56D3E]/20'
-                                                      : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
-                                                  }`} title="Personal Record!">
-                                                    <Award className={`w-2.5 h-2.5 shrink-0 ${isDesert ? 'text-[#B56D3E]' : 'text-amber-400'}`} /> PR
+                                                  <span
+                                                    className={`inline-flex items-center gap-0.5 text-[8px] font-extrabold px-1 py-0.5 rounded uppercase tracking-tight animate-pulse shrink-0 ml-1.5 ${
+                                                      isDesert
+                                                        ? 'text-[#B56D3E] bg-[#B56D3E]/10 border border-[#B56D3E]/20'
+                                                        : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+                                                    }`}
+                                                    title="Estimated 1RM personal record (Epley)"
+                                                    aria-label="Estimated 1RM personal record (Epley)"
+                                                  >
+                                                    <Award className={`w-2.5 h-2.5 shrink-0 ${isDesert ? 'text-[#B56D3E]' : 'text-amber-400'}`} /> EPLEY 1RM PR
                                                   </span>
                                                 )}
                                                 {displayState.isDropSet && set.dropSubSets && set.dropSubSets.length > 0 && (

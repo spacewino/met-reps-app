@@ -5,6 +5,7 @@ import { getFatiguePrior, FatiguePriorProfile } from './setDistribution';
 import { deriveCanonicalPrescriptionShape, resolveEffectiveAlgorithm } from './objectiveMath';
 import { CommittedLiveEvidence } from './liveAdjustmentMath';
 import { PrescribedTargetSnapshotMap } from './liveAdjustmentSession';
+import { getExerciseClassification } from './exerciseClassification';
 
 export interface ColdStartCapacities {
   plannedCapacityE1RM: number | null;
@@ -110,9 +111,13 @@ export function deriveColdStartOrdinalShape(params: {
   const { anchorReps, anchorRPE, profileType } = shape;
 
   if (profileType === 'hypertrophy') {
+    const classification = getExerciseClassification(exercise);
+    const isIsolation = classification.category === 'isolation';
+    const rpeCeiling = isIsolation ? 9.5 : 9.0;
+    const targetRPE = Math.min(anchorRPE + 0.5 * (ordinal - 1), rpeCeiling);
     return {
       reps: anchorReps,
-      rpe: anchorRPE,
+      rpe: targetRPE,
       form: 'standard',
       profileType,
     };
