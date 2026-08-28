@@ -38,6 +38,15 @@ export interface ProjectAssistedTargetParams {
 }
 
 /**
+ * Resolves the canonical assistance grid increment for a given unit.
+ * - kg: 2.5 kg
+ * - lb: 5.0 lb
+ */
+export function getAssistedIncrement(unit: WeightUnit): number {
+  return unit === 'lb' ? 5.0 : 2.5;
+}
+
+/**
  * Pure projector for assisted exercises that translates a target physical effective load
  * into machine pin assistance on a discrete equipment grid.
  *
@@ -60,7 +69,7 @@ export function projectAssistedTarget(
     targetReps,
     targetRPE,
     unit,
-    increment = 2.5,
+    increment = getAssistedIncrement(unit),
   } = params;
 
   // Validate inputs

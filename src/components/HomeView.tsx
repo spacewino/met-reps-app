@@ -394,7 +394,7 @@ export function HomeView({
                     <div key={exIdx} className="text-sm text-slate-300 flex items-center justify-between">
                       <span className="flex items-center gap-1">
                         • {ex.name}
-                        {ex.isMainMovement && (
+                        {ex.isMainMovement && log.objective === 'Strength' && (
                           <sup className={`text-[9px] font-black tracking-normal align-super px-1 border rounded-sm ${
                             isAmber 
                               ? 'text-indigo-600 bg-indigo-500/5 border-indigo-600/20' 

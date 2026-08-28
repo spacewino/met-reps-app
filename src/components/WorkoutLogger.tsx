@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { Dumbbell, Plus, Minus, Trash2, Check, ArrowLeft, Clock, Timer, Flame, Smile, Droplet, Coffee, Award, ChevronDown, ChevronUp, BookOpen, Pencil, History, Info, MoreVertical, Link, Lock, Unlock, ClipboardCheck, Gamepad2, Compass, Activity, X, AlertTriangle } from 'lucide-react';
 import { Program, WorkoutLog, ExerciseEntry, SetEntry, WeightUnit, DailyRecoveryMetrics, HydrationLevel, mapHydrationToLiters, mapLitersToHydration, BodyweightSnapshot, RestInterval, RestTimerStartContext } from '../types';
 import { storage, PREBUILT_TEMPLATES } from '../lib/storage';
-import { getTodayLocalDateString } from '../lib/dateUtils';
+import { getTodayLocalDateString, formatLocalDateDisplay, formatLocalTimeDisplay } from '../lib/dateUtils';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { WarmupIcon } from './WarmupIcon';
@@ -226,7 +226,24 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   }, [programId]);
 
   // Exercises State
-  const [exercises, setExercises] = useState<ExerciseEntry[]>([]);
+  const [exercises, setExercises] = useState<ExerciseEntry[]>(() => {
+    if (existingLog && existingLog.exercises) return existingLog.exercises;
+    if (!isOneOff) {
+      const active = (programId ? storage.getPrograms().find(p => p.id === programId) : null) || storage.getCurrentProgram();
+      if (active?.exercisesByDay?.[Number(dayNum)]) {
+        return JSON.parse(JSON.stringify(active.exercisesByDay[Number(dayNum)]));
+      }
+    } else {
+      try {
+        const draftStr = localStorage.getItem('metreps_workout_draft');
+        if (draftStr) {
+          const draft = JSON.parse(draftStr);
+          if (draft.exercises) return draft.exercises;
+        }
+      } catch (e) {}
+    }
+    return [];
+  });
   const [unit, setUnit] = useState<WeightUnit>(() => storage.getWeightUnit());
 
   // Session Bodyweight Snapshot State (tri-state: BodyweightSnapshot | null | undefined)
@@ -723,12 +740,44 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   }, [isOneOff, programId, weekNum, dayNum]);
 
   // Objectives State
-  const [objective, setObjective] = useState<'Off' | 'Hypertrophy' | 'Strength' | 'Deload'>('Off');
+  const [objective, setObjective] = useState<'Off' | 'Hypertrophy' | 'Strength' | 'Deload'>(() => {
+    if (existingLog && existingLog.objective) return existingLog.objective;
+    if (!isOneOff) {
+      const activeProg = (programId ? storage.getPrograms().find(p => p.id === programId) : null) || storage.getCurrentProgram();
+      if (activeProg?.objective) return activeProg.objective;
+    } else {
+      try {
+        const draftStr = localStorage.getItem('metreps_workout_draft');
+        if (draftStr) {
+          const draft = JSON.parse(draftStr);
+          if (draft.objective) return draft.objective;
+        }
+      } catch (e) {}
+    }
+    return 'Off';
+  });
   const [isObjectiveLocked, setIsObjectiveLocked] = useState<boolean>(() => {
     return !isOneOff && Number(weekNum) >= 2;
   });
   const [showStrengthMainMovementPrompt, setShowStrengthMainMovementPrompt] = useState(false);
-  const [userRawExercises, setUserRawExercises] = useState<ExerciseEntry[] | null>(null);
+  const [userRawExercises, setUserRawExercises] = useState<ExerciseEntry[] | null>(() => {
+    if (existingLog && existingLog.exercises) return existingLog.exercises;
+    if (!isOneOff) {
+      const activeProg = (programId ? storage.getPrograms().find(p => p.id === programId) : null) || storage.getCurrentProgram();
+      if (activeProg?.exercisesByDay?.[Number(dayNum)]) {
+        return JSON.parse(JSON.stringify(activeProg.exercisesByDay[Number(dayNum)]));
+      }
+    } else {
+      try {
+        const draftStr = localStorage.getItem('metreps_workout_draft');
+        if (draftStr) {
+          const draft = JSON.parse(draftStr);
+          if (draft.userRawExercises || draft.exercises) return draft.userRawExercises || draft.exercises;
+        }
+      } catch (e) {}
+    }
+    return null;
+  });
   const [userTouchedSets, setUserTouchedSets] = useState<Record<string, boolean>>({});
 
   // Set-level checkbox tracking for UX and completion persistence
@@ -3127,26 +3176,42 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             <label className="block text-[11px] sm:text-[12.5px] font-black text-slate-400 uppercase tracking-wider mb-1 font-mono truncate">
               Date
             </label>
-            <input
-              type="date"
-              value={workoutDate}
-              onChange={e => setWorkoutDate(e.target.value)}
-              className="w-full bg-slate-950 text-slate-300 rounded-none border border-slate-850 px-1 sm:px-2 h-10 text-center text-xs sm:text-[13px] font-black font-mono focus:outline-none focus:border-indigo-500/85 cursor-pointer"
-              style={{ textAlign: 'center' }}
-            />
+            <div className="relative w-full">
+              <input
+                type="date"
+                value={workoutDate}
+                onChange={e => setWorkoutDate(e.target.value)}
+                className="logger-date-time-input w-full bg-slate-950 text-slate-300 rounded-none border border-slate-850 px-1 sm:px-2 h-10 text-center text-xs sm:text-[13px] font-black font-mono focus:outline-none focus:border-indigo-500/85 cursor-pointer"
+                style={{ textAlign: 'center' }}
+              />
+              <span
+                aria-hidden="true"
+                className="logger-date-time-display text-slate-300 text-xs sm:text-[13px] font-black font-mono tracking-tight"
+              >
+                {formatLocalDateDisplay(workoutDate)}
+              </span>
+            </div>
           </div>
 
           <div>
             <label className="block text-[11px] sm:text-[12.5px] font-black text-slate-400 uppercase tracking-wider mb-1 font-mono truncate">
               Start Time
             </label>
-            <input
-              type="time"
-              value={startTime}
-              onChange={e => setStartTime(e.target.value)}
-              className="w-full bg-slate-950 text-slate-300 rounded-none border border-slate-850 px-1 sm:px-2 h-10 text-center text-xs sm:text-[13px] font-black font-mono focus:outline-none focus:border-indigo-500/85 cursor-pointer"
-              style={{ textAlign: 'center' }}
-            />
+            <div className="relative w-full">
+              <input
+                type="time"
+                value={startTime}
+                onChange={e => setStartTime(e.target.value)}
+                className="logger-date-time-input w-full bg-slate-950 text-slate-300 rounded-none border border-slate-850 px-1 sm:px-2 h-10 text-center text-xs sm:text-[13px] font-black font-mono focus:outline-none focus:border-indigo-500/85 cursor-pointer"
+                style={{ textAlign: 'center' }}
+              />
+              <span
+                aria-hidden="true"
+                className="logger-date-time-display text-slate-300 text-xs sm:text-[13px] font-black font-mono tracking-tight"
+              >
+                {formatLocalTimeDisplay(startTime)}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -3227,7 +3292,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                 }`}
               >
                 {/* Exercise Card Title Header */}
-                <div className="flex flex-col gap-1 pt-10 pb-3.5 px-4 bg-slate-950/30 border-b border-slate-850/60 relative">
+                <div className="flex flex-col gap-1 pt-11 pb-3.5 px-4 bg-slate-950/30 border-b border-slate-850/60 relative">
                   <div className="absolute top-1.5 right-1.5 flex items-center gap-1.5 sm:gap-2 z-10">
                     <button
                       type="button"
@@ -3294,38 +3359,40 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                     <h4 className={`font-black text-sm sm:text-base ${ex.isSkipped ? 'text-amber-400/80 line-through' : 'text-indigo-300'} uppercase tracking-wide break-words`}>
                       {ex.name}
                     </h4>
-                    {!isOneOff && Number(weekNum) > 1 && getEligibleMainMovementCount(exercises) === 1 ? (
-                      <div className="flex items-center gap-1.5 py-0.5 select-none" title="Main Movement designation is locked after Week 1">
-                        {ex.isMainMovement ? (
-                          <>
-                            <Lock className="w-3 h-3 text-indigo-400" />
-                            <span className="text-[9px] font-mono tracking-widest uppercase font-black text-indigo-400">
-                              Locked Main Movement
+                    {objective === 'Strength' && (
+                      !isOneOff && Number(weekNum) > 1 && getEligibleMainMovementCount(exercises) === 1 ? (
+                        <div className="flex items-center gap-1.5 py-0.5 select-none" title="Main Movement designation is locked after Week 1">
+                          {ex.isMainMovement ? (
+                            <>
+                              <Lock className="w-3 h-3 text-indigo-400" />
+                              <span className="text-[9px] font-mono tracking-widest uppercase font-black text-indigo-400">
+                                Locked Main Movement
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-[9px] font-mono tracking-widest uppercase font-black text-slate-600">
+                              Accessory Movement
                             </span>
-                          </>
-                        ) : (
-                          <span className="text-[9px] font-mono tracking-widest uppercase font-black text-slate-600">
-                            Accessory Movement
+                          )}
+                        </div>
+                      ) : (
+                        <label
+                          className="inline-flex items-center gap-1.5 cursor-pointer select-none"
+                          title="Only mark an exercise as a Main Movement if it is suitable for low-repetition strength work and peak singles."
+                        >
+                          <input
+                            type="checkbox"
+                            checked={!!ex.isMainMovement}
+                            onChange={() => toggleMainMovement(exIdx)}
+                            className="w-3.5 h-3.5 rounded-none border-2 border-slate-700 bg-slate-950 text-indigo-500 focus:ring-0 focus:ring-offset-0 transition cursor-pointer accent-indigo-600"
+                          />
+                          <span className={`text-[10px] font-mono tracking-widest uppercase font-extrabold transition-colors duration-150 ${
+                            ex.isMainMovement ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-400'
+                          }`}>
+                            Main Movement
                           </span>
-                        )}
-                      </div>
-                    ) : (
-                      <label
-                        className="inline-flex items-center gap-1.5 cursor-pointer select-none"
-                        title="Only mark an exercise as a Main Movement if it is suitable for low-repetition strength work and peak singles."
-                      >
-                        <input
-                          type="checkbox"
-                          checked={!!ex.isMainMovement}
-                          onChange={() => toggleMainMovement(exIdx)}
-                          className="w-3.5 h-3.5 rounded-none border-2 border-slate-700 bg-slate-950 text-indigo-500 focus:ring-0 focus:ring-offset-0 transition cursor-pointer accent-indigo-600"
-                        />
-                        <span className={`text-[10px] font-mono tracking-widest uppercase font-extrabold transition-colors duration-150 ${
-                          ex.isMainMovement ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-400'
-                        }`}>
-                          Main Movement
-                        </span>
-                      </label>
+                        </label>
+                      )
                     )}
                   </div>
                 </div>

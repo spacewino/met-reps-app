@@ -5,6 +5,7 @@ import {
   findMatchingTemplateExercise,
   syncAddedSetStructureToProgramDay,
 } from '../objectiveMath';
+import { calculateE1RMForSet } from '../rpeMath';
 import { hasSkippedWorkingSets } from '../setSkipRules';
 import { WorkoutLog, ExerciseEntry, SetEntry, BodyweightSnapshot } from '../../types';
 
@@ -1878,6 +1879,380 @@ describe('MetReps Phase 2B-1 — Target-Aware Add Set Using Existing Session Pre
 
       expect(JSON.stringify(ex)).toBe(exSnapshot);
       expect(JSON.stringify(sessionBW)).toBe(bwSnapshot);
+    });
+
+    // =========================================================================
+    // Authority 1C: Assisted Modality Target-Aware Add Set
+    // =========================================================================
+    describe('Authority 1C: Assisted Modality Add Set Integration', () => {
+      const assistedEx3Sets: ExerciseEntry = {
+        name: 'Assisted Pull-up',
+        muscleGroup: 'Back',
+        modality: 'assisted',
+        sets: [
+          { setNumber: 1, weight: 20, reps: 8, rpe: 8.0, isCompleted: true },
+          { setNumber: 2, weight: 20, reps: 8, rpe: 8.5, isCompleted: true },
+          { setNumber: 3, weight: 20, reps: 8, rpe: 9.0, isCompleted: true },
+        ],
+      };
+
+      it('A. On-plan assisted Add Set: produces valid prescribed target for ordinal 4', () => {
+        const res = calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          exercise: assistedEx3Sets,
+          weekNum: 1,
+          algorithmId: 'hypertrophy_linear',
+          previousLogs: histLogs,
+          bodyweightSnapshot: { value: 110, unit: 'kg' },
+          activeUnit: 'kg',
+          committedEvidence: [
+            { workingSetOrdinal: 1, weight: 20, reps: 8, rpe: 8.0, form: 'standard' },
+            { workingSetOrdinal: 2, weight: 20, reps: 8, rpe: 8.5, form: 'standard' },
+            { workingSetOrdinal: 3, weight: 20, reps: 8, rpe: 9.0, form: 'standard' },
+          ],
+        });
+
+        expect(res.isPrescribed).toBe(true);
+        expect(res.workingSetOrdinal).toBe(4);
+        expect(res.target).toBeDefined();
+        if (res.isPrescribed && res.target) {
+          expect(res.target.weight).toBeGreaterThanOrEqual(0);
+          expect(res.target.weight).toBeLessThan(110);
+          expect(res.target.reps).toBeGreaterThan(0);
+          expect(res.target.rpe).toBeGreaterThanOrEqual(6.0);
+          expect(res.target.rpe).toBeLessThanOrEqual(10.0);
+          expect(res.target.form).toBe('standard');
+          // Effective load + assistance equals session bodyweight within canonical rounding
+          const effectiveLoad = 110 - res.target.weight;
+          expect(effectiveLoad).toBeGreaterThan(0);
+        }
+      });
+
+      it('B. Weaker-session evidence: increases assistance or decreases reps, producing strictly safer capacity', () => {
+        const templateExercise: ExerciseEntry = {
+          name: 'Assisted Pull-up',
+          muscleGroup: 'Back',
+          modality: 'assisted',
+          sets: [
+            { setNumber: 1, weight: 20, reps: 8, rpe: 8.0 },
+            { setNumber: 2, weight: 20, reps: 8, rpe: 8.5 },
+            { setNumber: 3, weight: 20, reps: 8, rpe: 9.0 },
+          ],
+        };
+
+        const onPlanRes = calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          algorithmId: 'hypertrophy_linear',
+          exercise: assistedEx3Sets,
+          templateExercise,
+          weekNum: 1,
+          bodyweightSnapshot: { value: 110, unit: 'kg' },
+          activeUnit: 'kg',
+          committedEvidence: [
+            { workingSetOrdinal: 1, weight: 20, reps: 8, rpe: 8.0, form: 'standard' },
+          ],
+        });
+
+        const weakerRes = calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          algorithmId: 'hypertrophy_linear',
+          exercise: assistedEx3Sets,
+          templateExercise,
+          weekNum: 1,
+          bodyweightSnapshot: { value: 110, unit: 'kg' },
+          activeUnit: 'kg',
+          committedEvidence: [
+            { workingSetOrdinal: 1, weight: 20, reps: 6, rpe: 9.0, form: 'standard' },
+          ],
+        });
+
+        expect(onPlanRes.isPrescribed).toBe(true);
+        expect(onPlanRes.workingSetOrdinal).toBe(4);
+        expect(onPlanRes.target).toEqual({
+          weight: 32.5,
+          reps: 10,
+          rpe: 9,
+          form: 'standard',
+        });
+
+        expect(weakerRes.isPrescribed).toBe(true);
+        expect(weakerRes.workingSetOrdinal).toBe(4);
+        expect(weakerRes.target).toEqual({
+          weight: 35,
+          reps: 9,
+          rpe: 9,
+          form: 'standard',
+        });
+
+        expect(weakerRes.target).not.toEqual(onPlanRes.target);
+
+        // Weaker evidence must produce a strictly safer capacity—not merely an effective load less than or equal to the original Set 1 load
+        const onPlanEffectiveLoad = 110 - onPlanRes.target!.weight;
+        const weakerEffectiveLoad = 110 - weakerRes.target!.weight;
+
+        const onPlanCapacity = calculateE1RMForSet(
+          onPlanEffectiveLoad,
+          onPlanRes.target!.reps,
+          onPlanRes.target!.rpe
+        );
+        const weakerCapacity = calculateE1RMForSet(
+          weakerEffectiveLoad,
+          weakerRes.target!.reps,
+          weakerRes.target!.rpe
+        );
+
+        expect(typeof onPlanCapacity).toBe('number');
+        expect(Number.isFinite(onPlanCapacity)).toBe(true);
+        expect(typeof weakerCapacity).toBe('number');
+        expect(Number.isFinite(weakerCapacity)).toBe(true);
+
+        expect(weakerCapacity!).toBeLessThan(onPlanCapacity!);
+      });
+
+      it('C. Stronger-session evidence: respects readiness cap, fixed-load, and rep-ceiling', () => {
+        const strongerRes = calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          exercise: {
+            name: 'Assisted Pull-up',
+            muscleGroup: 'Back',
+            modality: 'assisted',
+            sets: [{ setNumber: 1, weight: 20, reps: 10, rpe: 8.0, isCompleted: true }],
+          },
+          weekNum: 1,
+          algorithmId: 'hypertrophy_linear',
+          previousLogs: histLogs,
+          bodyweightSnapshot: { value: 110, unit: 'kg' },
+          activeUnit: 'kg',
+          committedEvidence: [
+            { workingSetOrdinal: 1, weight: 20, reps: 10, rpe: 8.0, form: 'standard' },
+          ],
+        });
+
+        expect(strongerRes.isPrescribed).toBe(true);
+        expect(strongerRes.workingSetOrdinal).toBe(2);
+        if (strongerRes.isPrescribed && strongerRes.target) {
+          const effectiveLoad = 110 - strongerRes.target.weight;
+          // In hypertrophy linear, fixed-load / rep-ceiling preserves safe assistance
+          expect(effectiveLoad).toBeGreaterThanOrEqual(90);
+          expect(strongerRes.target.reps).toBeGreaterThanOrEqual(8);
+        }
+      });
+
+      it('D. No committed evidence: uses base algorithm capacity and fatigue distribution', () => {
+        const coldRes = calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          exercise: {
+            name: 'Assisted Dip',
+            muscleGroup: 'Triceps',
+            modality: 'assisted',
+            sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8.0 }],
+          },
+          weekNum: 1,
+          algorithmId: 'hypertrophy_linear',
+          previousLogs: histLogs,
+          bodyweightSnapshot: { value: 110, unit: 'kg' },
+          activeUnit: 'kg',
+        });
+
+        expect(coldRes.isPrescribed).toBe(true);
+        expect(coldRes.workingSetOrdinal).toBe(2);
+        if (coldRes.isPrescribed && coldRes.target) {
+          // Historical effective load was 80 - 20 = 60 kg.
+          // Set 2 fatigue distribution projects effective load ~50 kg, so assistance at 110 kg BW is 110 - 50 = 60 kg.
+          expect(coldRes.target.weight).toBe(60);
+          expect(coldRes.target.reps).toBe(12);
+          expect(coldRes.target.rpe).toBe(8.5);
+        }
+      });
+
+      it('E. Missing snapshot: returns isPrescribed: false with no fabricated fallback', () => {
+        const resNull = calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          exercise: assistedEx3Sets,
+          weekNum: 1,
+          algorithmId: 'hypertrophy_linear',
+          previousLogs: histLogs,
+          bodyweightSnapshot: null,
+          activeUnit: 'kg',
+        });
+
+        const resUndefined = calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          exercise: assistedEx3Sets,
+          weekNum: 1,
+          algorithmId: 'hypertrophy_linear',
+          previousLogs: histLogs,
+          bodyweightSnapshot: undefined,
+          activeUnit: 'kg',
+        });
+
+        expect(resNull.isPrescribed).toBe(false);
+        expect(resUndefined.isPrescribed).toBe(false);
+      });
+
+      it('F. Invalid assistance: falls back to unprescribed for invalid ranges', () => {
+        // Negative assistance
+        const resNeg = calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          exercise: {
+            name: 'Assisted Pull-up',
+            muscleGroup: 'Back',
+            modality: 'assisted',
+            sets: [{ setNumber: 1, weight: -10, reps: 8, rpe: 8.0 }],
+          },
+          weekNum: 1,
+          algorithmId: 'hypertrophy_linear',
+          previousLogs: [],
+          bodyweightSnapshot: { value: 110, unit: 'kg' },
+          activeUnit: 'kg',
+        });
+        expect(resNeg.isPrescribed).toBe(false);
+
+        // Assistance equal to bodyweight (0 effective load)
+        const resEqual = calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          exercise: {
+            name: 'Assisted Pull-up',
+            muscleGroup: 'Back',
+            modality: 'assisted',
+            sets: [{ setNumber: 1, weight: 110, reps: 8, rpe: 8.0 }],
+          },
+          weekNum: 1,
+          algorithmId: 'hypertrophy_linear',
+          previousLogs: [],
+          bodyweightSnapshot: { value: 110, unit: 'kg' },
+          activeUnit: 'kg',
+        });
+        expect(resEqual.isPrescribed).toBe(false);
+
+        // Assistance exceeding bodyweight (negative effective load)
+        const resExceed = calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          exercise: {
+            name: 'Assisted Pull-up',
+            muscleGroup: 'Back',
+            modality: 'assisted',
+            sets: [{ setNumber: 1, weight: 130, reps: 8, rpe: 8.0 }],
+          },
+          weekNum: 1,
+          algorithmId: 'hypertrophy_linear',
+          previousLogs: [],
+          bodyweightSnapshot: { value: 110, unit: 'kg' },
+          activeUnit: 'kg',
+        });
+        expect(resExceed.isPrescribed).toBe(false);
+      });
+
+      it('G. Unit parity: behaves consistently in kg and lb', () => {
+        const resKg = calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          exercise: {
+            name: 'Assisted Dip',
+            muscleGroup: 'Triceps',
+            modality: 'assisted',
+            sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8.0 }],
+          },
+          weekNum: 1,
+          algorithmId: 'hypertrophy_linear',
+          previousLogs: histLogs,
+          bodyweightSnapshot: { value: 110, unit: 'kg' },
+          activeUnit: 'kg',
+        });
+
+        const resLb = calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          exercise: {
+            name: 'Assisted Dip',
+            muscleGroup: 'Triceps',
+            modality: 'assisted',
+            sets: [{ setNumber: 1, weight: 45, reps: 8, rpe: 8.0 }],
+          },
+          weekNum: 1,
+          algorithmId: 'hypertrophy_linear',
+          previousLogs: [],
+          templateExercise: {
+            name: 'Assisted Dip',
+            sets: [{ setNumber: 1, weight: 45, reps: 8, rpe: 8.0 }],
+          } as any,
+          bodyweightSnapshot: { value: 242.5, unit: 'lb' },
+          activeUnit: 'lb',
+        });
+
+        expect(resKg.isPrescribed).toBe(true);
+        expect(resLb.isPrescribed).toBe(true);
+        if (resKg.isPrescribed && resKg.target && resLb.isPrescribed && resLb.target) {
+          expect(resKg.target.weight).toBe(60);
+          expect(resKg.target.reps).toBe(12);
+          expect(resLb.target.reps).toBe(12);
+        }
+      });
+
+      it('H. Algorithm coverage: works across supported algorithms', () => {
+        const algos = [
+          'hypertrophy_linear',
+          'hypertrophy_step',
+          'strength_undulating',
+          'strength_linear',
+        ] as const;
+
+        for (const algo of algos) {
+          const isStrength = algo.startsWith('strength');
+          const res = calculateAddedSetTarget({
+            objective: isStrength ? 'Strength' : 'Hypertrophy',
+            exercise: {
+              name: 'Assisted Dip',
+              muscleGroup: 'Triceps',
+              modality: 'assisted',
+              isMainMovement: true,
+              sets: [{ setNumber: 1, weight: 20, reps: isStrength ? 5 : 8, rpe: 8.0 }],
+            },
+            weekNum: 1,
+            algorithmId: algo,
+            previousLogs: histLogs,
+            bodyweightSnapshot: { value: 110, unit: 'kg' },
+            activeUnit: 'kg',
+          });
+
+          expect(res.isPrescribed).toBe(true);
+          expect(res.workingSetOrdinal).toBe(2);
+          if (res.isPrescribed && res.target) {
+            expect(res.target.weight).toBeGreaterThanOrEqual(0);
+            expect(res.target.reps).toBeGreaterThan(0);
+          }
+        }
+      });
+
+      it('I. Deload and Objective Off coverage', () => {
+        // Objective Off returns unprescribed
+        const resOff = calculateAddedSetTarget({
+          objective: 'Off',
+          exercise: assistedEx3Sets,
+          weekNum: 1,
+          algorithmId: 'hypertrophy_linear',
+          previousLogs: histLogs,
+          bodyweightSnapshot: { value: 110, unit: 'kg' },
+          activeUnit: 'kg',
+        });
+        expect(resOff.isPrescribed).toBe(false);
+
+        // Deload week returns prescribed with reduced load
+        const resDeload = calculateAddedSetTarget({
+          objective: 'Hypertrophy',
+          exercise: {
+            name: 'Assisted Dip',
+            muscleGroup: 'Triceps',
+            modality: 'assisted',
+            sets: [{ setNumber: 1, weight: 20, reps: 8, rpe: 8.0 }],
+          },
+          weekNum: 4, // deload
+          programDuration: 4,
+          algorithmId: 'hypertrophy_linear',
+          previousLogs: histLogs,
+          bodyweightSnapshot: { value: 110, unit: 'kg' },
+          activeUnit: 'kg',
+        });
+        expect(resDeload.isPrescribed).toBe(true);
+      });
     });
   });
 });

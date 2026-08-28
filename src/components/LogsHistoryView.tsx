@@ -15,6 +15,7 @@ import { parseLocalDate } from '../lib/dateUtils';
 import { useModalHistory } from '../lib/useModalHistory';
 import { getHistoricalSetDisplayState } from '../lib/historicalDisplay';
 import { generateExercisePRMap } from '../lib/diaryExercisePRs';
+import { resolveWorkoutDurationMinutes } from '../lib/workoutDuration';
 import {
   calculateDiaryHistoryVolume,
   generateDiarySessionSummary,
@@ -371,10 +372,13 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
     if (workoutLogs.length === 0) return null;
 
     const totalWorkouts = workoutLogs.length;
-    let totalMinutes = 0;
+    let totalDurationMinutes = 0;
 
     workoutLogs.forEach(log => {
-      if (log.durationMinutes) totalMinutes += log.durationMinutes;
+      const dur = resolveWorkoutDurationMinutes(log.durationMinutes);
+      if (dur !== null) {
+        totalDurationMinutes += dur;
+      }
     });
 
     const lifetimeMuscleStats = generateDiaryMuscleSetStats(workoutLogs, 'lifetime', new Date());
@@ -403,7 +407,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
       totalWorkouts,
       totalVolumeFormatted,
       totalSets: lifetimeMuscleStats.totalSets,
-      totalHours: Math.round(totalMinutes / 60),
+      totalDurationMinutes,
       topMuscle: topMuscle || 'Pecs',
       title,
     };
@@ -601,8 +605,8 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
             </div>
 
             {/* Core Stats Chips */}
-            <div className="flex items-center gap-2 shrink-0">
-              <div className={`px-2 py-1 border text-center ${
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <div className={`px-1.5 sm:px-2 py-1 border text-center ${
                 isDesertTheme
                   ? 'bg-[#F5EBE0] border-[#E05A47]/30'
                   : 'bg-slate-950 border-slate-800'
@@ -615,7 +619,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                 }`}>{masterStats.totalWorkouts}</span>
               </div>
 
-              <div className={`px-2 py-1 border text-center ${
+              <div className={`px-1.5 sm:px-2 py-1 border text-center ${
                 isDesertTheme
                   ? 'bg-[#F5EBE0] border-[#E05A47]/30'
                   : 'bg-slate-950 border-slate-800'
@@ -626,6 +630,19 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                 <span className={`text-xs font-black font-mono ${
                   isDesertTheme ? 'text-[#9B1C1C]' : 'text-emerald-400'
                 }`}>{masterStats.totalVolumeFormatted}</span>
+              </div>
+
+              <div className={`px-1.5 sm:px-2 py-1 border text-center ${
+                isDesertTheme
+                  ? 'bg-[#F5EBE0] border-[#E05A47]/30'
+                  : 'bg-slate-950 border-slate-800'
+              }`}>
+                <span className={`block text-[8px] font-mono font-bold uppercase tracking-tight ${
+                  isDesertTheme ? 'text-[#6F6A63]' : 'text-slate-500'
+                }`}>GYM TIME</span>
+                <span className={`text-xs font-black font-mono ${
+                  isDesertTheme ? 'text-[#9B1C1C]' : 'text-indigo-400'
+                }`}>{formatDuration(masterStats.totalDurationMinutes) || '0m'}</span>
               </div>
             </div>
           </div>
@@ -1201,7 +1218,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                                     }`}>
                                       <span className="flex items-center gap-1">
                                         <span className={ex.isSkipped ? 'line-through text-slate-400' : ''}>• {ex.name}</span>
-                                        {ex.isMainMovement && (
+                                        {ex.isMainMovement && log.objective === 'Strength' && (
                                           <sup className="text-[9px] text-indigo-400 font-black tracking-normal align-super bg-indigo-500/10 px-1 border border-indigo-500/20 rounded-sm">MM</sup>
                                         )}
                                         {ex.isSkipped && (

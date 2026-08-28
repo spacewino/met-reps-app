@@ -298,4 +298,145 @@ describe('MetReps — Compact Month Tab and Diary Card Spacing Refinement', () =
     expect(html).toContain('max-w-full');
     expect(html).toContain('truncate');
   });
+
+  // 14. GYM TIME header aggregate metric
+  describe('Journal Summary GYM TIME Aggregate Metric', () => {
+    it('renders GYM TIME label and accurately sums valid durations preserving minutes formatting', () => {
+      const logsWithDurations: WorkoutLog[] = [
+        {
+          id: 'log-1',
+          date: '2026-08-01',
+          unit: 'kg',
+          durationMinutes: 45,
+          exercises: [],
+        },
+        {
+          id: 'log-2',
+          date: '2026-08-02',
+          unit: 'kg',
+          durationMinutes: 120, // 45 + 120 = 165 mins = 165 min
+          exercises: [],
+        },
+      ];
+
+      const html = renderToString(
+        <LogsHistoryView workoutLogs={logsWithDurations} onRefresh={() => {}} themeId="slate" />
+      );
+
+      expect(html).toContain('GYM TIME');
+      expect(html).toContain('165 min');
+      expect(html).toContain('WORKOUTS');
+      expect(html).toContain('VOL. MOVED');
+    });
+
+    it('treats legacy logs with absent or undefined duration as 60 minutes in GYM TIME', () => {
+      const legacyLogs: WorkoutLog[] = [
+        {
+          id: 'legacy-1',
+          date: '2026-08-01',
+          unit: 'kg',
+          // durationMinutes is absent
+          exercises: [],
+        },
+        {
+          id: 'legacy-2',
+          date: '2026-08-02',
+          unit: 'kg',
+          durationMinutes: undefined,
+          exercises: [],
+        },
+        {
+          id: 'explicit-log',
+          date: '2026-08-03',
+          unit: 'kg',
+          durationMinutes: 30,
+          exercises: [],
+        },
+      ];
+
+      // 60 + 60 + 30 = 150 min
+      const html = renderToString(
+        <LogsHistoryView workoutLogs={legacyLogs} onRefresh={() => {}} themeId="slate" />
+      );
+
+      expect(html).toContain('GYM TIME');
+      expect(html).toContain('150 min');
+    });
+
+    it('contributes 0 for explicit invalid duration values', () => {
+      const invalidLogs = [
+        {
+          id: 'zero-log',
+          date: '2026-08-01',
+          unit: 'kg',
+          durationMinutes: 0,
+          exercises: [],
+        },
+        {
+          id: 'null-log',
+          date: '2026-08-02',
+          unit: 'kg',
+          durationMinutes: null,
+          exercises: [],
+        },
+        {
+          id: 'neg-log',
+          date: '2026-08-03',
+          unit: 'kg',
+          durationMinutes: -20,
+          exercises: [],
+        },
+        {
+          id: 'valid-log',
+          date: '2026-08-04',
+          unit: 'kg',
+          durationMinutes: 45,
+          exercises: [],
+        },
+      ] as unknown as WorkoutLog[];
+
+      // 0 + 0 + 0 + 45 = 45 min
+      const html = renderToString(
+        <LogsHistoryView workoutLogs={invalidLogs} onRefresh={() => {}} themeId="slate" />
+      );
+
+      expect(html).toContain('GYM TIME');
+      expect(html).toContain('45 min');
+    });
+
+    it('preserves existing individual Diary entry inline duration and separate TOTAL SETS position', () => {
+      const logs: WorkoutLog[] = [
+        {
+          id: 'log-entry-test',
+          date: '2026-08-01',
+          unit: 'kg',
+          durationMinutes: 50,
+          exercises: [
+            {
+              name: 'Bench Press',
+              muscleGroup: 'Chest',
+              isMainMovement: true,
+              sets: [{ setNumber: 1, weight: 100, reps: 5, rpe: 8, isCompleted: true }],
+            },
+          ],
+        },
+      ];
+
+      const html = renderToString(
+        <LogsHistoryView workoutLogs={logs} onRefresh={() => {}} themeId="slate" />
+      );
+
+      // Header summary chips
+      expect(html).toContain('GYM TIME');
+      expect(html).toContain('50 min');
+
+      // Separate muscle group total sets
+      expect(html).toMatch(/TOTAL:\s*(<!-- -->)?1(<!-- -->)?\s*SETS/);
+
+      // Diary individual entry line 2 contains duration
+      expect(html).toContain('50 min');
+      expect(html).toContain('1 exercise');
+      expect(html).toContain('1 set');
+    });
+  });
 });

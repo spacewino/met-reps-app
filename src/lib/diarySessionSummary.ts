@@ -1,6 +1,7 @@
 import { WorkoutLog, ExerciseEntry, SetEntry, WeightUnit } from '../types';
 import { resolveSetEffectiveLoad, calculateSetWorkingVolume, EffectiveLoadStatus } from './effectiveLoad';
 import { isParentWorkingSetEligible } from './diaryMuscleSetPeriod';
+import { resolveWorkoutDurationMinutes } from './workoutDuration';
 
 export { isParentWorkingSetEligible };
 
@@ -45,10 +46,7 @@ function normalizeMuscleGroupName(rawName: string | null | undefined): string {
  * Deeply immutable, deterministic, and pure.
  */
 export function generateDiarySessionSummary(log: WorkoutLog): DiarySessionSummary {
-  const durationMinutes =
-    typeof log.durationMinutes === 'number' && Number.isFinite(log.durationMinutes) && log.durationMinutes > 0
-      ? log.durationMinutes
-      : null;
+  const durationMinutes = resolveWorkoutDurationMinutes(log.durationMinutes);
 
   let completedWorkingSetCount = 0;
   let completedExerciseCount = 0;

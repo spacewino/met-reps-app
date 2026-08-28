@@ -8,7 +8,7 @@ import {
 } from './liveAdjustmentMath';
 import { getRTSMultiplier } from './rpeMath';
 import { roundToNearest25 } from './weightMath';
-import { projectAssistedTarget, solveBodyweightRepTarget } from './modalityTargetMath';
+import { projectAssistedTarget, solveBodyweightRepTarget, getAssistedIncrement } from './modalityTargetMath';
 import { getPermittedRepetitionBounds } from './objectiveMath';
 import { resolveSessionBodyweightInUnit, validateBodyweightSnapshot } from './bodyweightSessionMath';
 import { deriveColdStartPlannedCapacityE1RM } from './coldStartCalibration';
@@ -704,7 +704,7 @@ export function applyLiveAdjustmentResult(
           targetReps: cand.reps,
           targetRPE: cand.rpe,
           unit: activeUnit,
-          increment: 2.5,
+          increment: getAssistedIncrement(activeUnit),
         });
 
         if (proj.status === 'bypassed') {

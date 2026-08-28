@@ -345,16 +345,92 @@ describe('diarySessionSummary module', () => {
       ]);
     });
 
-    it('30. Invalid or missing duration returns null durationMinutes', () => {
-      const log: WorkoutLog = {
-        id: 'no-duration-log',
+    it('30. Legacy log without durationMinutes property or with undefined produces 60-minute summary', () => {
+      const legacyLogNoProp: WorkoutLog = {
+        id: 'legacy-log-no-prop',
+        date: '2026-03-01',
+        unit: 'kg',
+        exercises: [],
+      };
+      const summaryNoProp = generateDiarySessionSummary(legacyLogNoProp);
+      expect(summaryNoProp.durationMinutes).toBe(60);
+
+      const legacyLogUndefined: WorkoutLog = {
+        id: 'legacy-log-undefined',
+        date: '2026-03-01',
+        unit: 'kg',
+        durationMinutes: undefined,
+        exercises: [],
+      };
+      const summaryUndefined = generateDiarySessionSummary(legacyLogUndefined);
+      expect(summaryUndefined.durationMinutes).toBe(60);
+    });
+
+    it('30b. Valid recorded duration is preserved unchanged', () => {
+      const log45: WorkoutLog = {
+        id: 'log-45',
+        date: '2026-03-01',
+        unit: 'kg',
+        durationMinutes: 45,
+        exercises: [],
+      };
+      expect(generateDiarySessionSummary(log45).durationMinutes).toBe(45);
+
+      const log90: WorkoutLog = {
+        id: 'log-90',
+        date: '2026-03-01',
+        unit: 'kg',
+        durationMinutes: 90,
+        exercises: [],
+      };
+      expect(generateDiarySessionSummary(log90).durationMinutes).toBe(90);
+    });
+
+    it('30c. Explicit null, zero, negative, NaN or non-finite duration returns null durationMinutes', () => {
+      const logZero: WorkoutLog = {
+        id: 'zero-duration-log',
         date: '2026-03-01',
         unit: 'kg',
         durationMinutes: 0,
         exercises: [],
       };
-      const summary = generateDiarySessionSummary(log);
-      expect(summary.durationMinutes).toBeNull();
+      expect(generateDiarySessionSummary(logZero).durationMinutes).toBeNull();
+
+      const logNull = {
+        id: 'null-duration-log',
+        date: '2026-03-01',
+        unit: 'kg',
+        durationMinutes: null,
+        exercises: [],
+      } as unknown as WorkoutLog;
+      expect(generateDiarySessionSummary(logNull).durationMinutes).toBeNull();
+
+      const logNegative: WorkoutLog = {
+        id: 'neg-duration-log',
+        date: '2026-03-01',
+        unit: 'kg',
+        durationMinutes: -15,
+        exercises: [],
+      };
+      expect(generateDiarySessionSummary(logNegative).durationMinutes).toBeNull();
+
+      const logNaN: WorkoutLog = {
+        id: 'nan-duration-log',
+        date: '2026-03-01',
+        unit: 'kg',
+        durationMinutes: NaN,
+        exercises: [],
+      };
+      expect(generateDiarySessionSummary(logNaN).durationMinutes).toBeNull();
+
+      const logInf: WorkoutLog = {
+        id: 'inf-duration-log',
+        date: '2026-03-01',
+        unit: 'kg',
+        durationMinutes: Infinity,
+        exercises: [],
+      };
+      expect(generateDiarySessionSummary(logInf).durationMinutes).toBeNull();
     });
 
     it('31 & 32. Input logs are deeply unchanged and calls are deterministic', () => {

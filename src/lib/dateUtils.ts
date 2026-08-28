@@ -89,3 +89,54 @@ export function calculateSessionDate(
   return targetDate;
 }
 
+/**
+ * Formats a stored YYYY-MM-DD date string into a local calendar presentation string.
+ * Avoids parsing ISO string as UTC to prevent timezone/calendar day shifts.
+ */
+export function formatLocalDateDisplay(dateStr: string, locale?: string): string {
+  if (!dateStr || typeof dateStr !== 'string') return dateStr || '';
+  const parts = dateStr.trim().split('-');
+  if (parts.length !== 3) return dateStr;
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+  if (isNaN(year) || isNaN(month) || isNaN(day) || month < 1 || month > 12 || day < 1 || day > 31) {
+    return dateStr;
+  }
+  try {
+    // Construct local midday to ensure date stability across daylight savings
+    const localDate = new Date(year, month - 1, day, 12, 0, 0);
+    return new Intl.DateTimeFormat(locale || undefined, {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).format(localDate);
+  } catch {
+    return dateStr;
+  }
+}
+
+/**
+ * Formats a stored HH:MM 24-hour time string into a locale-aware presentation string.
+ * Keeps numeric and AM/PM parts formatted on a single line.
+ */
+export function formatLocalTimeDisplay(timeStr: string, locale?: string): string {
+  if (!timeStr || typeof timeStr !== 'string') return timeStr || '';
+  const parts = timeStr.trim().split(':');
+  if (parts.length < 2) return timeStr;
+  const hour = Number(parts[0]);
+  const minute = Number(parts[1]);
+  if (isNaN(hour) || isNaN(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return timeStr;
+  }
+  try {
+    const localDate = new Date(2026, 0, 1, hour, minute, 0);
+    return new Intl.DateTimeFormat(locale || undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(localDate);
+  } catch {
+    return timeStr;
+  }
+}
+
