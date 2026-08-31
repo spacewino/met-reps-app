@@ -195,6 +195,30 @@ export function isParentWorkingSetEligible(
 }
 
 /**
+ * Filters a collection of workout logs according to the specified summary period.
+ *
+ * Rules:
+ * - Empty or non-array inputs safely return empty array.
+ * - Pure and non-mutating: does not sort or modify the input array.
+ * - Reuses isWorkoutLogInDiaryMusclePeriod boundary predicate.
+ * - Lifetime returns all logs.
+ * - This Week / Month / Year returns only logs within the period range.
+ */
+export function filterWorkoutLogsByPeriod(
+  logs: WorkoutLog[],
+  period: DiaryMusclePeriod,
+  now: Date = new Date()
+): WorkoutLog[] {
+  if (!Array.isArray(logs) || logs.length === 0) {
+    return [];
+  }
+  if (period === 'lifetime') {
+    return logs;
+  }
+  return logs.filter(log => isWorkoutLogInDiaryMusclePeriod(log, period, now));
+}
+
+/**
  * Generates aggregated muscle set stats for a specific period.
  *
  * Immutability:
@@ -231,15 +255,12 @@ export function generateDiaryMuscleSetStats(
 
   let totalSets = 0;
 
-  if (!Array.isArray(logs) || logs.length === 0) {
+  const filteredLogs = filterWorkoutLogsByPeriod(logs, period, now);
+  if (filteredLogs.length === 0) {
     return { totalSets: 0, muscleSets };
   }
 
-  for (const log of logs) {
-    if (!isWorkoutLogInDiaryMusclePeriod(log, period, now)) {
-      continue;
-    }
-
+  for (const log of filteredLogs) {
     const exercises = Array.isArray(log.exercises) ? log.exercises : [];
     for (const ex of exercises) {
       if (ex.isSkipped === true) continue;
@@ -265,7 +286,7 @@ export function generateDiaryMuscleSetStats(
 }
 
 /**
- * Generates an accessible aria-label for the period-cycle button.
+ * Generates an accessible aria-label for the Journal Summary period-cycle button.
  */
 export function getDiaryMusclePeriodAriaLabel(
   current: DiaryMusclePeriod,
@@ -273,5 +294,5 @@ export function getDiaryMusclePeriodAriaLabel(
 ): string {
   const currentLabel = DIARY_MUSCLE_PERIOD_ACCESSIBLE_LABELS[current];
   const nextLabel = DIARY_MUSCLE_PERIOD_ACCESSIBLE_LABELS[next];
-  return `Muscle-set period: ${currentLabel}. Activate to show ${nextLabel}.`;
+  return `Journal summary period: ${currentLabel}. Activate to show ${nextLabel}.`;
 }

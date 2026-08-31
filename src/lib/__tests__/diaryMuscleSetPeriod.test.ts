@@ -9,6 +9,7 @@ import {
   getNextDiaryMusclePeriod,
   getDiaryMusclePeriodRange,
   isWorkoutLogInDiaryMusclePeriod,
+  filterWorkoutLogsByPeriod,
   generateDiaryMuscleSetStats,
   isParentWorkingSetEligible,
   normalizeDiaryMuscleGroup,
@@ -370,20 +371,57 @@ describe('diaryMuscleSetPeriod pure calculation suite', () => {
     });
   });
 
+  // Filter workout logs by period
+  describe('filterWorkoutLogsByPeriod', () => {
+    const fixedNowWed = new Date(2026, 7, 19, 14, 30, 0); // 19 Aug 2026
+    const logs: WorkoutLog[] = [
+      { id: '1', date: '2026-08-16', unit: 'kg', exercises: [] }, // Sun (before this_week)
+      { id: '2', date: '2026-08-17', unit: 'kg', exercises: [] }, // Mon (in this_week, this_month, this_year)
+      { id: '3', date: '2026-08-19', unit: 'kg', exercises: [] }, // Wed (today)
+      { id: '4', date: '2026-07-31', unit: 'kg', exercises: [] }, // Prev month
+      { id: '5', date: '2025-12-31', unit: 'kg', exercises: [] }, // Prev year
+    ];
+
+    it('returns empty array safely when logs is empty or not an array', () => {
+      expect(filterWorkoutLogsByPeriod([], 'lifetime')).toEqual([]);
+      expect(filterWorkoutLogsByPeriod(null as any, 'lifetime')).toEqual([]);
+    });
+
+    it('returns all logs for lifetime period', () => {
+      const res = filterWorkoutLogsByPeriod(logs, 'lifetime', fixedNowWed);
+      expect(res.map(l => l.id)).toEqual(['1', '2', '3', '4', '5']);
+    });
+
+    it('returns only logs within this_week', () => {
+      const res = filterWorkoutLogsByPeriod(logs, 'this_week', fixedNowWed);
+      expect(res.map(l => l.id)).toEqual(['2', '3']);
+    });
+
+    it('returns only logs within this_month', () => {
+      const res = filterWorkoutLogsByPeriod(logs, 'this_month', fixedNowWed);
+      expect(res.map(l => l.id)).toEqual(['1', '2', '3']);
+    });
+
+    it('returns only logs within this_year', () => {
+      const res = filterWorkoutLogsByPeriod(logs, 'this_year', fixedNowWed);
+      expect(res.map(l => l.id)).toEqual(['1', '2', '3', '4']);
+    });
+  });
+
   // Accessible label generator
   describe('Aria label generator', () => {
     it('generates expected accessible announcement text for each cycle step', () => {
       expect(getDiaryMusclePeriodAriaLabel('lifetime', 'this_week')).toBe(
-        'Muscle-set period: Lifetime. Activate to show This Week.'
+        'Journal summary period: Lifetime. Activate to show This Week.'
       );
       expect(getDiaryMusclePeriodAriaLabel('this_week', 'this_month')).toBe(
-        'Muscle-set period: This Week. Activate to show This Month.'
+        'Journal summary period: This Week. Activate to show This Month.'
       );
       expect(getDiaryMusclePeriodAriaLabel('this_month', 'this_year')).toBe(
-        'Muscle-set period: This Month. Activate to show This Year.'
+        'Journal summary period: This Month. Activate to show This Year.'
       );
       expect(getDiaryMusclePeriodAriaLabel('this_year', 'lifetime')).toBe(
-        'Muscle-set period: This Year. Activate to show Lifetime.'
+        'Journal summary period: This Year. Activate to show Lifetime.'
       );
     });
   });

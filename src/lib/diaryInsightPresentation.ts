@@ -557,6 +557,42 @@ export function formatDuration(durationMinutes: number | null | undefined): stri
 }
 
 /**
+ * Pure compact formatter for Journal Summary aggregate gym time.
+ * Rules:
+ * - null, undefined, 0, negative, NaN, Infinity -> "0m"
+ * - < 60 rounded minutes -> "Xm" (e.g. 45 -> "45m")
+ * - Exact hours -> "Xh" (e.g. 60 -> "1h", 120 -> "2h", 180 -> "3h")
+ * - Compound hours & minutes -> "Xh Ym" (e.g. 75 -> "1h 15m", 765 -> "12h 45m")
+ */
+export function formatAggregateDuration(durationMinutes: number | null | undefined): string {
+  if (
+    typeof durationMinutes !== 'number' ||
+    !Number.isFinite(durationMinutes) ||
+    durationMinutes <= 0
+  ) {
+    return '0m';
+  }
+
+  const rounded = Math.round(durationMinutes);
+  if (rounded <= 0) {
+    return '0m';
+  }
+
+  const hours = Math.floor(rounded / 60);
+  const minutes = rounded % 60;
+
+  if (hours === 0) {
+    return `${minutes}m`;
+  }
+
+  if (minutes === 0) {
+    return `${hours}h`;
+  }
+
+  return `${hours}h ${minutes}m`;
+}
+
+/**
  * Formats completed working set count with singular/plural grammar.
  */
 export function formatWorkingSetCount(count: number): string {

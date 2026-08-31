@@ -301,7 +301,7 @@ describe('MetReps — Compact Month Tab and Diary Card Spacing Refinement', () =
 
   // 14. GYM TIME header aggregate metric
   describe('Journal Summary GYM TIME Aggregate Metric', () => {
-    it('renders GYM TIME label and accurately sums valid durations preserving minutes formatting', () => {
+    it('renders GYM TIME label and accurately sums valid durations preserving compact aggregate formatting', () => {
       const logsWithDurations: WorkoutLog[] = [
         {
           id: 'log-1',
@@ -314,7 +314,7 @@ describe('MetReps — Compact Month Tab and Diary Card Spacing Refinement', () =
           id: 'log-2',
           date: '2026-08-02',
           unit: 'kg',
-          durationMinutes: 120, // 45 + 120 = 165 mins = 165 min
+          durationMinutes: 120, // 45 + 120 = 165 mins = 2h 45m
           exercises: [],
         },
       ];
@@ -324,7 +324,7 @@ describe('MetReps — Compact Month Tab and Diary Card Spacing Refinement', () =
       );
 
       expect(html).toContain('GYM TIME');
-      expect(html).toContain('165 min');
+      expect(html).toContain('2h 45m');
       expect(html).toContain('WORKOUTS');
       expect(html).toContain('VOL. MOVED');
     });
@@ -354,13 +354,13 @@ describe('MetReps — Compact Month Tab and Diary Card Spacing Refinement', () =
         },
       ];
 
-      // 60 + 60 + 30 = 150 min
+      // 60 + 60 + 30 = 150 min = 2h 30m
       const html = renderToString(
         <LogsHistoryView workoutLogs={legacyLogs} onRefresh={() => {}} themeId="slate" />
       );
 
       expect(html).toContain('GYM TIME');
-      expect(html).toContain('150 min');
+      expect(html).toContain('2h 30m');
     });
 
     it('contributes 0 for explicit invalid duration values', () => {
@@ -395,13 +395,13 @@ describe('MetReps — Compact Month Tab and Diary Card Spacing Refinement', () =
         },
       ] as unknown as WorkoutLog[];
 
-      // 0 + 0 + 0 + 45 = 45 min
+      // 0 + 0 + 0 + 45 = 45 min = 45m
       const html = renderToString(
         <LogsHistoryView workoutLogs={invalidLogs} onRefresh={() => {}} themeId="slate" />
       );
 
       expect(html).toContain('GYM TIME');
-      expect(html).toContain('45 min');
+      expect(html).toContain('45m');
     });
 
     it('preserves existing individual Diary entry inline duration and separate TOTAL SETS position', () => {
@@ -426,14 +426,14 @@ describe('MetReps — Compact Month Tab and Diary Card Spacing Refinement', () =
         <LogsHistoryView workoutLogs={logs} onRefresh={() => {}} themeId="slate" />
       );
 
-      // Header summary chips
+      // Header summary chips (compact format)
       expect(html).toContain('GYM TIME');
-      expect(html).toContain('50 min');
+      expect(html).toContain('50m');
 
       // Separate muscle group total sets
       expect(html).toMatch(/TOTAL:\s*(<!-- -->)?1(<!-- -->)?\s*SETS/);
 
-      // Diary individual entry line 2 contains duration
+      // Diary individual entry line 2 contains duration formatted with formatDuration (50 min)
       expect(html).toContain('50 min');
       expect(html).toContain('1 exercise');
       expect(html).toContain('1 set');

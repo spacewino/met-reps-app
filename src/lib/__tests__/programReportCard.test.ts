@@ -320,4 +320,239 @@ describe('Program Report Card Canonical Analytics', () => {
     expect(card.adherenceRate).toBe(25);
     expect(['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D', 'F']).toContain(card.grade);
   });
+
+  describe('TSG-3 Program Report Card Gym Time Duration Aggregation', () => {
+    it('strictly isolates duration to matching programId logs, excluding other programs and one-off logs', () => {
+      const logs: WorkoutLog[] = [
+        // Matching program session
+        {
+          id: 'log-prog1',
+          date: '2026-01-02',
+          programId: 'prog-1',
+          week: '1',
+          day: '1',
+          unit: 'kg',
+          durationMinutes: 45,
+          exercises: [],
+        },
+        // Another program session
+        {
+          id: 'log-other-prog',
+          date: '2026-01-03',
+          programId: 'other-program-id',
+          week: '1',
+          day: '1',
+          unit: 'kg',
+          durationMinutes: 90,
+          exercises: [],
+        },
+        // One-off workout with undefined programId
+        {
+          id: 'log-one-off-undef',
+          date: '2026-01-04',
+          unit: 'kg',
+          durationMinutes: 75,
+          exercises: [],
+        },
+        // One-off workout with empty programId
+        {
+          id: 'log-one-off-empty',
+          date: '2026-01-05',
+          programId: '' as any,
+          unit: 'kg',
+          durationMinutes: 80,
+          exercises: [],
+        },
+      ];
+
+      const card = getProgramReportCard(sampleProgram, logs, 'kg');
+      // Only the 45-minute matching log should be included
+      expect(card.totalDurationMinutes).toBe(45);
+    });
+
+    it('accurately resolves valid, legacy undefined, explicit null/0/negative/NaN/Infinity durations and empty sets', () => {
+      // Empty logs produces 0
+      expect(getProgramReportCard(sampleProgram, [], 'kg').totalDurationMinutes).toBe(0);
+
+      // Single matching legacy log (omitted durationMinutes) -> fallback 60 min
+      const legacyLogs: WorkoutLog[] = [
+        {
+          id: 'legacy-1',
+          date: '2026-01-02',
+          programId: 'prog-1',
+          week: '1',
+          day: '1',
+          unit: 'kg',
+          // durationMinutes omitted
+          exercises: [],
+        },
+      ];
+      expect(getProgramReportCard(sampleProgram, legacyLogs, 'kg').totalDurationMinutes).toBe(60);
+
+      // Mixed valid (50), legacy undefined (60), explicit null (0), 0 (0), negative (0), NaN (0), Infinity (0)
+      const mixedLogs: WorkoutLog[] = [
+        {
+          id: 'm1',
+          date: '2026-01-02',
+          programId: 'prog-1',
+          week: '1',
+          day: '1',
+          unit: 'kg',
+          durationMinutes: 50, // 50
+          exercises: [],
+        },
+        {
+          id: 'm2',
+          date: '2026-01-03',
+          programId: 'prog-1',
+          week: '1',
+          day: '2',
+          unit: 'kg',
+          // undefined -> 60
+          exercises: [],
+        },
+        {
+          id: 'm3',
+          date: '2026-01-04',
+          programId: 'prog-1',
+          week: '2',
+          day: '1',
+          unit: 'kg',
+          durationMinutes: null as any, // 0
+          exercises: [],
+        },
+        {
+          id: 'm4',
+          date: '2026-01-05',
+          programId: 'prog-1',
+          week: '2',
+          day: '2',
+          unit: 'kg',
+          durationMinutes: 0, // 0
+          exercises: [],
+        },
+        {
+          id: 'm5',
+          date: '2026-01-06',
+          programId: 'prog-1',
+          week: '3',
+          day: '1',
+          unit: 'kg',
+          durationMinutes: -25, // 0
+          exercises: [],
+        },
+        {
+          id: 'm6',
+          date: '2026-01-07',
+          programId: 'prog-1',
+          week: '3',
+          day: '2',
+          unit: 'kg',
+          durationMinutes: NaN, // 0
+          exercises: [],
+        },
+        {
+          id: 'm7',
+          date: '2026-01-08',
+          programId: 'prog-1',
+          week: '4',
+          day: '1',
+          unit: 'kg',
+          durationMinutes: Infinity, // 0
+          exercises: [],
+        },
+      ];
+      // 50 + 60 + 0 + 0 + 0 + 0 + 0 = 110 minutes
+      expect(getProgramReportCard(sampleProgram, mixedLogs, 'kg').totalDurationMinutes).toBe(110);
+    });
+
+    it('verifies scoring, grade, adherence, completed count, PRs, and feedbacks remain strictly unchanged regardless of duration', () => {
+      const baseLogsA: WorkoutLog[] = [
+        {
+          id: 'log-1',
+          date: '2026-01-02',
+          programId: 'prog-1',
+          week: '1',
+          day: '1',
+          unit: 'kg',
+          durationMinutes: 30, // 30 min
+          exercises: [
+            {
+              name: 'Bench Press',
+              muscleGroup: 'Chest',
+              modality: 'weighted',
+              sets: [{ setNumber: 1, weight: 100, reps: 5, isCompleted: true }],
+            },
+          ],
+          recovery: {
+            sleepHours: 8,
+            soreness: 3,
+            motivation: 8,
+            hydrationLevel: 'Optimal',
+          },
+        },
+        {
+          id: 'log-2',
+          date: '2026-01-03',
+          programId: 'prog-1',
+          week: '1',
+          day: '2',
+          unit: 'kg',
+          durationMinutes: 45, // 45 min
+          exercises: [
+            {
+              name: 'Dips',
+              muscleGroup: 'Triceps',
+              modality: 'assisted',
+              sets: [{ setNumber: 1, weight: 20, reps: 8, isCompleted: true }],
+            },
+          ],
+          recovery: {
+            sleepHours: 8,
+            soreness: 2,
+            motivation: 8,
+            hydrationLevel: 'Optimal',
+          },
+        },
+      ];
+
+      // Clone identical logs except duration is 240 and undefined (60)
+      const baseLogsB: WorkoutLog[] = [
+        {
+          ...baseLogsA[0],
+          id: 'log-1-b',
+          durationMinutes: 240,
+        },
+        {
+          ...baseLogsA[1],
+          id: 'log-2-b',
+          durationMinutes: undefined,
+        },
+      ];
+
+      const cardA = getProgramReportCard(sampleProgram, baseLogsA, 'kg');
+      const cardB = getProgramReportCard(sampleProgram, baseLogsB, 'kg');
+
+      // Durations reflect inputs
+      expect(cardA.totalDurationMinutes).toBe(75);
+      expect(cardB.totalDurationMinutes).toBe(300);
+
+      // Scoring, grading, adherence, count, PRs and feedbacks must match identically
+      expect(cardA.score).toBe(cardB.score);
+      expect(cardA.grade).toBe(cardB.grade);
+      expect(cardA.gradeSub).toBe(cardB.gradeSub);
+      expect(cardA.gradeColor).toBe(cardB.gradeColor);
+      expect(cardA.adherenceRate).toBe(cardB.adherenceRate);
+      expect(cardA.completedCount).toBe(cardB.completedCount);
+      expect(cardA.totalPlannedDays).toBe(cardB.totalPlannedDays);
+      expect(cardA.totalPRsHit).toBe(cardB.totalPRsHit);
+      expect(cardA.strongestMuscle).toBe(cardB.strongestMuscle);
+      expect(cardA.avgActualGrowth).toBe(cardB.avgActualGrowth);
+      expect(cardA.avgSleep).toBe(cardB.avgSleep);
+      expect(cardA.avgSoreness).toBe(cardB.avgSoreness);
+      expect(cardA.avgQuality).toBe(cardB.avgQuality);
+      expect(cardA.avgHydration).toBe(cardB.avgHydration);
+      expect(cardA.feedbacks).toEqual(cardB.feedbacks);
+    });
+  });
 });

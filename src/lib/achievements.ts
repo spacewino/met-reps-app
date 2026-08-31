@@ -6,6 +6,7 @@
 import { ExerciseEntry, SetEntry, WeightUnit, WorkoutLog } from '../types';
 import { resolveSetEffectiveLoad } from './effectiveLoad';
 import { convertWeightUnit } from './assistedLoadMath';
+import { resolveWorkoutDurationMinutes } from './workoutDuration';
 
 export type AchievementCategory = 'milestone' | 'consistency' | 'specialization' | 'progression' | 'mastery';
 
@@ -428,6 +429,42 @@ export function evaluateAchievements(
     }
   }
 
+  // Cumulative Lifetime Gym Time (TSG-1 canonical resolution across all logs)
+  const totalGymMinutes = logs.reduce(
+    (sum, log) => sum + (resolveWorkoutDurationMinutes(log.durationMinutes) ?? 0),
+    0
+  );
+
+  // Helper to construct gym-time milestone achievements
+  const createGymTimeAchievement = (
+    id: string,
+    title: string,
+    targetHours: number,
+    description: string
+  ): Achievement => {
+    const targetMinutes = targetHours * 60;
+    const unlocked = totalGymMinutes >= targetMinutes;
+    const progressPercent = unlocked
+      ? 100
+      : Math.min(99, Math.floor((totalGymMinutes / targetMinutes) * 100));
+    const displayedHours = Math.floor((totalGymMinutes / 60) * 10) / 10;
+    const currentStatusText = unlocked
+      ? 'Unlocked!'
+      : `${displayedHours.toFixed(1)} / ${targetHours} hrs`;
+
+    return {
+      id,
+      title,
+      category: 'milestone',
+      description,
+      badgeIcon: 'clock',
+      criteriaText: `Train for ${targetHours} total gym hours`,
+      unlocked,
+      progressPercent,
+      currentStatusText,
+    };
+  };
+
   // Helper to format volume
   const formatVol = (kg: number) => {
     if (kg >= 1000000) return `${(kg / 1000000).toFixed(2)}M kg`;
@@ -528,6 +565,32 @@ export function evaluateAchievements(
       progressPercent: Math.min(100, Math.round((totalVolumeKg / 1000000) * 100)),
       currentStatusText: totalVolumeKg >= 1000000 ? 'Unlocked!' : `${formatVol(totalVolumeKg)} / 1M kg`,
     },
+
+    // --- CUMULATIVE LIFETIME GYM TIME ---
+    createGymTimeAchievement(
+      'iron-resident',
+      'IRON RESIDENT',
+      50,
+      'Clocked 50 cumulative hours in the gym.'
+    ),
+    createGymTimeAchievement(
+      'iron-centurion',
+      'IRON CENTURION',
+      100,
+      'Reached 100 cumulative hours dedicated to training.'
+    ),
+    createGymTimeAchievement(
+      'temple-dweller',
+      'TEMPLE DWELLER',
+      250,
+      'Committed 250 cumulative hours to the iron temple.'
+    ),
+    createGymTimeAchievement(
+      'eternal-iron',
+      'ETERNAL IRON',
+      500,
+      'Surpassed 500 cumulative hours of recorded training.'
+    ),
 
     // --- CONSISTENCY & RECOVERY ---
     {

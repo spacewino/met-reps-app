@@ -19,7 +19,8 @@ import {
   CheckCircle2,
   Lock,
   X,
-  Info
+  Info,
+  Clock
 } from 'lucide-react';
 import { Achievement } from '../lib/achievements';
 import { useModalHistory } from '../lib/useModalHistory';
@@ -70,6 +71,7 @@ export function AchievementsModal({
       case 'award': return <Award className={cls} />;
       case 'target': return <Target className={cls} />;
       case 'sparkles': return <Sparkles className={cls} />;
+      case 'clock': return <Clock className={cls} />;
       default: return <Dumbbell className={cls} />;
     }
   };

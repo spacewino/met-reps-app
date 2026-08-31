@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Dumbbell, Plus, Minus, Trash2, Check, ArrowLeft, Clock, Timer, Flame, Smile, Droplet, Coffee, Award, ChevronDown, ChevronUp, BookOpen, Pencil, History, Info, MoreVertical, Link, Lock, Unlock, ClipboardCheck, Gamepad2, Compass, Activity, X, AlertTriangle } from 'lucide-react';
 import { Program, WorkoutLog, ExerciseEntry, SetEntry, WeightUnit, DailyRecoveryMetrics, HydrationLevel, mapHydrationToLiters, mapLitersToHydration, BodyweightSnapshot, RestInterval, RestTimerStartContext } from '../types';
 import { storage, PREBUILT_TEMPLATES } from '../lib/storage';
+import { saveActiveWorkoutDraft, clearActiveWorkoutDraft } from '../lib/navigationGuard';
 import { getTodayLocalDateString, formatLocalDateDisplay, formatLocalTimeDisplay } from '../lib/dateUtils';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -180,9 +181,11 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       const draftStr = localStorage.getItem('metreps_workout_draft');
       if (draftStr) {
         const draft = JSON.parse(draftStr);
-        const matches = isOneOff
-          ? draft.isOneOff === true
-          : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum));
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
         if (matches && draft.dateStr) {
           return draft.dateStr;
         }
@@ -203,13 +206,13 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const algoId = activeProg?.algorithmId;
     switch (algoId) {
       case 'hypertrophy_linear':
-        return { short: 'WV', name: 'Wave Volume', desc: 'Alternates weekly between Light (15 reps) and Heavy (6-10 reps) sessions.' };
+        return { short: 'WV', name: 'Wave Volume', desc: 'Alternates weekly between higher-rep (12–15) and lower-rep (6–12) sessions at RPE 8.0.' };
       case 'hypertrophy_step':
-        return { short: 'SL', name: 'Step Loading', desc: '4-week blocks holding reps stable while ramping intensity (RPE) weekly.' };
+        return { short: 'SL', name: 'Step Loading', desc: 'Builds RPE through each 4-week block, finishing with a higher-rep week before the next heavier block.' };
       case 'strength_undulating':
-        return { short: 'DUP', name: 'Wave Strength', desc: 'Weekly strength waves progress main movements through lower-repetition phases and may finish with an RPE 10 peak single. Exclusively applied to the designated Main Movement.' };
+        return { short: 'DUP', name: 'Wave Strength', desc: 'Progresses designated Main Movements through lower-rep phases and finishes with an RPE 10 peak single.' };
       case 'strength_linear':
-        return { short: 'LP', name: 'Linear Periodisation', desc: 'Continuous taper reducing reps (8 down to 1) while ramping intensity. Exclusively applied to the designated Main Movement.' };
+        return { short: 'LP', name: 'Linear Periodisation', desc: 'Gradually reduces Main Movement targets from 8 reps to 1 while increasing RPE from 7.0 to 10.0.' };
       default:
         return { short: 'SD', name: 'Self-Directed', desc: 'Manual logging mode with full self-regulation.' };
     }
@@ -227,20 +230,25 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
   // Exercises State
   const [exercises, setExercises] = useState<ExerciseEntry[]>(() => {
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
+        if (matches && draft.exercises) return draft.exercises;
+      }
+    } catch (_) {}
+
     if (existingLog && existingLog.exercises) return existingLog.exercises;
     if (!isOneOff) {
       const active = (programId ? storage.getPrograms().find(p => p.id === programId) : null) || storage.getCurrentProgram();
       if (active?.exercisesByDay?.[Number(dayNum)]) {
         return JSON.parse(JSON.stringify(active.exercisesByDay[Number(dayNum)]));
       }
-    } else {
-      try {
-        const draftStr = localStorage.getItem('metreps_workout_draft');
-        if (draftStr) {
-          const draft = JSON.parse(draftStr);
-          if (draft.exercises) return draft.exercises;
-        }
-      } catch (e) {}
     }
     return [];
   });
@@ -261,15 +269,17 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       const draftStr = localStorage.getItem('metreps_workout_draft');
       if (draftStr) {
         const draft = JSON.parse(draftStr);
-        const matches = isOneOff
-          ? draft.isOneOff === true
-          : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum));
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
         if (matches && 'bodyweightSnapshot' in draft) {
           const validatedDraft = draft.bodyweightSnapshot === null ? null : validateBodyweightSnapshot(draft.bodyweightSnapshot);
           return reconcileSessionSnapshot({
             draftSnapshot: validatedDraft,
             settingsSnapshot: settingsBw,
-            isEditMode: false,
+            isEditMode: !!(editLogId && existingLog),
             previousLogs: prevLogs,
           });
         }
@@ -503,6 +513,25 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
   const [duration, setDuration] = useState<number | ''>(() => {
     try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
+        if (matches && draft.duration !== undefined && draft.duration !== null) {
+          return draft.duration;
+        }
+      }
+    } catch (_) {}
+
+    if (existingLog && typeof existingLog.durationMinutes === 'number') {
+      return existingLog.durationMinutes;
+    }
+
+    try {
       const logs = storage.getWorkoutLogs();
       if (!logs || logs.length === 0) return 60;
       const sortedLogs = getSortedLogs(logs);
@@ -529,9 +558,11 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       const draftStr = localStorage.getItem('metreps_workout_draft');
       if (draftStr) {
         const draft = JSON.parse(draftStr);
-        const matches = isOneOff
-          ? draft.isOneOff === true
-          : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum));
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
         if (matches && draft.startTime) {
           return draft.startTime;
         }
@@ -547,28 +578,6 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const minutes = String(now.getMinutes()).padStart(2, '0');
     return `${hours}:${minutes}`;
   });
-
-  const handleAutoCalculateDuration = () => {
-    if (!startTime) return;
-    try {
-      const [startHours, startMinutes] = startTime.split(':').map(Number);
-      const now = new Date();
-      const currentHours = now.getHours();
-      const currentMinutes = now.getMinutes();
-
-      let startTotalMin = startHours * 60 + startMinutes;
-      let currentTotalMin = currentHours * 60 + currentMinutes;
-
-      if (currentTotalMin < startTotalMin) {
-        currentTotalMin += 24 * 60;
-      }
-
-      const diffMin = currentTotalMin - startTotalMin;
-      setDuration(Math.max(1, diffMin));
-    } catch (e) {
-      console.error('Error auto calculating duration:', e);
-    }
-  };
 
   const sessionStartedAtRef = React.useRef<number>(Date.now());
 
@@ -603,16 +612,159 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     };
   }, [editLogId, dateStr, startTime]);
 
-  const [notes, setNotes] = useState<string>('');
+  const [notes, setNotes] = useState<string>(() => {
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
+        if (matches && draft.notes !== undefined) {
+          return draft.notes;
+        }
+      }
+    } catch (_) {}
+    if (existingLog && existingLog.notes) {
+      return existingLog.notes;
+    }
+    return '';
+  });
 
   // Wellness & Recovery Metrics
-  const [sleep, setSleep] = useState<number | ''>(7.5);
-  const [hydration, setHydration] = useState<HydrationLevel>('Adequate');
+  const [sleep, setSleep] = useState<number | ''>(() => {
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
+        if (matches && draft.sleep !== undefined && draft.sleep !== null) {
+          return draft.sleep;
+        }
+      }
+    } catch (_) {}
+    if (existingLog && existingLog.recovery?.sleepHours !== undefined && existingLog.recovery?.sleepHours !== null) {
+      return existingLog.recovery.sleepHours;
+    }
+    return 7.5;
+  });
+
+  const [hydration, setHydration] = useState<HydrationLevel>(() => {
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
+        if (matches && draft.hydration !== undefined && draft.hydration !== null) {
+          if (typeof draft.hydration === 'number') {
+            return mapLitersToHydration(draft.hydration);
+          }
+          return draft.hydration;
+        }
+      }
+    } catch (_) {}
+    if (existingLog && existingLog.recovery) {
+      if (existingLog.recovery.hydrationLevel) return existingLog.recovery.hydrationLevel;
+      if (existingLog.recovery.hydrationLiters) return mapLitersToHydration(existingLog.recovery.hydrationLiters);
+    }
+    return 'Adequate';
+  });
+
   const [isHydrationDropdownOpen, setIsHydrationDropdownOpen] = useState<boolean>(false);
-  const [calories, setCalories] = useState<number | ''>(2500);
-  const [protein, setProtein] = useState<number>(140);
-  const [soreness, setSoreness] = useState<number>(3);
-  const [motivation, setMotivation] = useState<number>(5);
+
+  const [calories, setCalories] = useState<number | ''>(() => {
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
+        if (matches && draft.calories !== undefined && draft.calories !== null) {
+          return draft.calories;
+        }
+      }
+    } catch (_) {}
+    if (existingLog && existingLog.recovery?.nutritionCalories !== undefined && existingLog.recovery?.nutritionCalories !== null) {
+      return existingLog.recovery.nutritionCalories;
+    }
+    return 2500;
+  });
+
+  const [protein, setProtein] = useState<number>(() => {
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
+        if (matches && draft.protein !== undefined && draft.protein !== null) {
+          return Number(draft.protein);
+        }
+      }
+    } catch (_) {}
+    if (existingLog && existingLog.recovery?.proteinGrams !== undefined && existingLog.recovery?.proteinGrams !== null) {
+      return existingLog.recovery.proteinGrams;
+    }
+    return 140;
+  });
+
+  const [soreness, setSoreness] = useState<number>(() => {
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
+        if (matches && draft.soreness !== undefined && draft.soreness !== null) {
+          return Number(draft.soreness);
+        }
+      }
+    } catch (_) {}
+    if (existingLog && existingLog.recovery?.soreness !== undefined && existingLog.recovery?.soreness !== null) {
+      return existingLog.recovery.soreness;
+    }
+    return 3;
+  });
+
+  const [motivation, setMotivation] = useState<number>(() => {
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
+        if (matches && draft.motivation !== undefined && draft.motivation !== null) {
+          return Number(draft.motivation);
+        }
+      }
+    } catch (_) {}
+    if (existingLog && existingLog.recovery?.motivation !== undefined && existingLog.recovery?.motivation !== null) {
+      return existingLog.recovery.motivation;
+    }
+    return 5;
+  });
 
   // Rest Timer states
   const [restSeconds, setRestSeconds] = useState<number>(0);
@@ -741,18 +893,23 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
   // Objectives State
   const [objective, setObjective] = useState<'Off' | 'Hypertrophy' | 'Strength' | 'Deload'>(() => {
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
+        if (matches && draft.objective) return draft.objective;
+      }
+    } catch (_) {}
+
     if (existingLog && existingLog.objective) return existingLog.objective;
     if (!isOneOff) {
       const activeProg = (programId ? storage.getPrograms().find(p => p.id === programId) : null) || storage.getCurrentProgram();
       if (activeProg?.objective) return activeProg.objective;
-    } else {
-      try {
-        const draftStr = localStorage.getItem('metreps_workout_draft');
-        if (draftStr) {
-          const draft = JSON.parse(draftStr);
-          if (draft.objective) return draft.objective;
-        }
-      } catch (e) {}
     }
     return 'Off';
   });
@@ -761,27 +918,60 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   });
   const [showStrengthMainMovementPrompt, setShowStrengthMainMovementPrompt] = useState(false);
   const [userRawExercises, setUserRawExercises] = useState<ExerciseEntry[] | null>(() => {
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
+        if (matches && (draft.userRawExercises || draft.exercises)) {
+          return draft.userRawExercises || draft.exercises;
+        }
+      }
+    } catch (_) {}
+
     if (existingLog && existingLog.exercises) return existingLog.exercises;
     if (!isOneOff) {
       const activeProg = (programId ? storage.getPrograms().find(p => p.id === programId) : null) || storage.getCurrentProgram();
       if (activeProg?.exercisesByDay?.[Number(dayNum)]) {
         return JSON.parse(JSON.stringify(activeProg.exercisesByDay[Number(dayNum)]));
       }
-    } else {
-      try {
-        const draftStr = localStorage.getItem('metreps_workout_draft');
-        if (draftStr) {
-          const draft = JSON.parse(draftStr);
-          if (draft.userRawExercises || draft.exercises) return draft.userRawExercises || draft.exercises;
-        }
-      } catch (e) {}
     }
     return null;
   });
   const [userTouchedSets, setUserTouchedSets] = useState<Record<string, boolean>>({});
 
   // Set-level checkbox tracking for UX and completion persistence
-  const [checkedSets, setCheckedSets] = useState<Record<string, boolean>>({});
+  const [checkedSets, setCheckedSets] = useState<Record<string, boolean>>(() => {
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
+        if (matches && draft.checkedSets) {
+          return draft.checkedSets;
+        }
+      }
+    } catch (_) {}
+
+    if (existingLog && existingLog.exercises) {
+      const initialChecked: Record<string, boolean> = {};
+      existingLog.exercises.forEach((ex, exIdx) => {
+        ex.sets.forEach((s, sIdx) => {
+          initialChecked[`${exIdx}-${sIdx}`] = s.isCompleted !== false;
+        });
+      });
+      return initialChecked;
+    }
+    return {};
+  });
   // Set-level explicit checkbox interaction tracking during current session
   const [completionTouchedSets, setCompletionTouchedSets] = useState<Record<string, boolean>>({});
 
@@ -896,15 +1086,34 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
   // Draft persistence states
   const [isDraftLoaded, setIsDraftLoaded] = useState(false);
+  const isDraftLoadedRef = useRef<boolean>(false);
+  const latestDraftPayloadRef = useRef<Record<string, any> | null>((() => {
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
+        if (matches) return draft;
+      }
+    } catch (_) {}
+    return null;
+  })());
+  const draftFlushSuppressedRef = useRef<boolean>(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [hasExistingDraft, setHasExistingDraft] = useState(() => {
     try {
       const draftStr = localStorage.getItem('metreps_workout_draft');
       if (draftStr) {
         const draft = JSON.parse(draftStr);
-        const matches = isOneOff
-          ? draft.isOneOff === true
-          : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum));
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
         return !!matches;
       }
     } catch (_) {}
@@ -917,9 +1126,11 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       const draftStr = localStorage.getItem('metreps_workout_draft');
       if (draftStr) {
         const draft = JSON.parse(draftStr);
-        const matches = isOneOff
-          ? draft.isOneOff === true
-          : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum));
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
         setHasExistingDraft(!!matches);
       } else {
         setHasExistingDraft(false);
@@ -927,22 +1138,94 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     } catch (_) {
       setHasExistingDraft(false);
     }
-  }, [programId, dayNum, isOneOff, weekNum]);
+  }, [editLogId, programId, dayNum, isOneOff, weekNum]);
 
   // Loaded template, active draft or setup blank
   useEffect(() => {
+    // 1. Attempt to load existing matching draft FIRST
+    try {
+      const draftStr = localStorage.getItem('metreps_workout_draft');
+      if (draftStr) {
+        const draft = JSON.parse(draftStr);
+        const matches = editLogId
+          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+          : (!draft.editLogId && (isOneOff
+              ? draft.isOneOff === true
+              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
+
+        if (matches) {
+          const loadedExercises = draft.exercises || [];
+          setExercises(loadedExercises);
+          setDuration(draft.duration || 60);
+          setNotes(draft.notes || '');
+          setSleep(draft.sleep ?? 7.5);
+          const loadedHyd = draft.hydration;
+          if (typeof loadedHyd === 'number') {
+            setHydration(mapLitersToHydration(loadedHyd));
+          } else {
+            setHydration(loadedHyd ?? 'Adequate');
+          }
+          setCalories(draft.calories ?? 2500);
+          setProtein(draft.protein ?? 140);
+          setSoreness(draft.soreness ?? 3);
+          setMotivation(draft.motivation ?? 5);
+          setCheckedSets(draft.checkedSets || {});
+          setCompletionTouchedSets(draft.completionTouchedSets || {});
+          setCollapsed(draft.collapsed || {});
+          setObjective(draft.objective || 'Off');
+          setUserRawExercises(draft.userRawExercises || draft.exercises || []);
+          setUserTouchedSets(draft.userTouchedSets || {});
+          setPrescribedTargetSnapshots(draft.prescribedTargetSnapshots || {});
+          setCommittedLiveEvidenceBySet(draft.committedLiveEvidenceBySet || {});
+          setLiveAdjustedSets(draft.liveAdjustedSets || {});
+          setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(draft, loadedExercises) : null);
+          setRestIntervals(draft.restIntervals || []);
+          if (draft.startTime) {
+            setStartTime(draft.startTime);
+          }
+          if (draft.dateStr || draft.workoutDate) {
+            setWorkoutDate(draft.dateStr || draft.workoutDate);
+          }
+          const draftBw = 'bodyweightSnapshot' in draft
+            ? (draft.bodyweightSnapshot === null ? null : validateBodyweightSnapshot(draft.bodyweightSnapshot))
+            : null;
+          const settingsBw = storage.getBodyweightWithUnit();
+          const prevLogs = storage.getWorkoutLogs();
+          const reconciled = reconcileSessionSnapshot({
+            draftSnapshot: draftBw,
+            settingsSnapshot: settingsBw,
+            isEditMode: !!(editLogId && existingLog),
+            previousLogs: prevLogs,
+            chronology: targetChronology,
+          });
+          setBodyweightSnapshot(reconciled);
+          setHasExistingDraft(true);
+          latestDraftPayloadRef.current = draft;
+          setIsDraftLoaded(true);
+          isDraftLoadedRef.current = true;
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to parse or apply workout draft:', e);
+    }
+
+    // 2. Fallback to existingLog if this is a historical edit and no matching draft was found
     if (editLogId && existingLog) {
       setExercises(existingLog.exercises || []);
       setDuration(existingLog.durationMinutes || 60);
       setNotes(existingLog.notes || '');
       setSleep(existingLog.recovery?.sleepHours ?? 7.5);
-      setHydration(existingLog.recovery?.hydrationLevel ?? mapLitersToHydration(existingLog.recovery?.hydrationLiters));
+      setHydration(existingLog.recovery?.hydrationLevel ?? (existingLog.recovery?.hydrationLiters ? mapLitersToHydration(existingLog.recovery.hydrationLiters) : 'Adequate'));
       setCalories(existingLog.recovery?.nutritionCalories ?? 2500);
       setProtein(existingLog.recovery?.proteinGrams ?? 140);
       setSoreness(existingLog.recovery?.soreness ?? 3);
       setMotivation(existingLog.recovery?.motivation ?? 5);
       if (existingLog.startTime) {
         setStartTime(existingLog.startTime);
+      }
+      if (existingLog.date) {
+        setWorkoutDate(existingLog.date);
       }
       setBodyweightSnapshot(
         existingLog.bodyweightSnapshot !== undefined
@@ -969,6 +1252,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       setCurrentSetGuideKey(null);
       setRestIntervals(existingLog.restIntervals || []);
       setIsDraftLoaded(true);
+      isDraftLoadedRef.current = true;
       return;
     }
 
@@ -1040,6 +1324,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           const settingsBw = storage.getBodyweightWithUnit();
           setBodyweightSnapshot(settingsBw ? validateBodyweightSnapshot(settingsBw) : null);
           setIsDraftLoaded(true);
+          isDraftLoadedRef.current = true;
           return;
         }
       } catch (err) {
@@ -1074,67 +1359,6 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       }
     } catch (err) {
       console.error('Error fetching duration in useEffect:', err);
-    }
-
-    // Attempt to load existing matching draft
-    try {
-      const draftStr = localStorage.getItem('metreps_workout_draft');
-      if (draftStr) {
-        const draft = JSON.parse(draftStr);
-        const matches = isOneOff
-          ? draft.isOneOff === true
-          : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum));
-
-        if (matches) {
-          const loadedExercises = draft.exercises || [];
-          setExercises(loadedExercises);
-          setDuration(draft.duration || 60);
-          setNotes(draft.notes || '');
-          setSleep(draft.sleep ?? 7.5);
-          const loadedHyd = draft.hydration;
-          if (typeof loadedHyd === 'number') {
-            setHydration(mapLitersToHydration(loadedHyd));
-          } else {
-            setHydration(loadedHyd ?? 'Adequate');
-          }
-          setCalories(draft.calories ?? 2500);
-          setProtein(draft.protein ?? 140);
-          setSoreness(draft.soreness ?? 3);
-          setMotivation(draft.motivation ?? 5);
-          setCheckedSets(draft.checkedSets || {});
-          setCompletionTouchedSets(draft.completionTouchedSets || {});
-          setCollapsed(draft.collapsed || {});
-          setObjective(draft.objective || 'Off');
-          setUserRawExercises(draft.userRawExercises || draft.exercises || []);
-          setUserTouchedSets(draft.userTouchedSets || {});
-          setPrescribedTargetSnapshots(draft.prescribedTargetSnapshots || {});
-          setCommittedLiveEvidenceBySet(draft.committedLiveEvidenceBySet || {});
-          setLiveAdjustedSets(draft.liveAdjustedSets || {});
-          setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(draft, loadedExercises) : null);
-          setRestIntervals(draft.restIntervals || []);
-          if (draft.startTime) {
-            setStartTime(draft.startTime);
-          }
-          const draftBw = 'bodyweightSnapshot' in draft
-            ? (draft.bodyweightSnapshot === null ? null : validateBodyweightSnapshot(draft.bodyweightSnapshot))
-            : null;
-          const settingsBw = storage.getBodyweightWithUnit();
-          const prevLogs = storage.getWorkoutLogs();
-          const reconciled = reconcileSessionSnapshot({
-            draftSnapshot: draftBw,
-            settingsSnapshot: settingsBw,
-            isEditMode: false,
-            previousLogs: prevLogs,
-            chronology: targetChronology,
-          });
-          setBodyweightSnapshot(reconciled);
-          setHasExistingDraft(true);
-          setIsDraftLoaded(true);
-          return;
-        }
-      }
-    } catch (e) {
-      console.error('Failed to parse or apply workout draft:', e);
     }
 
     // Determine the default starting objective directly from the saved Program definition
@@ -1218,6 +1442,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(null, finalPre) : null);
         setObjective(defaultObjective);
         setIsDraftLoaded(true);
+        isDraftLoadedRef.current = true;
         return;
       }
     }
@@ -1275,12 +1500,30 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       setObjective(defaultObjective);
     }
     setIsDraftLoaded(true);
-  }, [programId, dayNum, isOneOff, weekNum, initialParams]);
+    isDraftLoadedRef.current = true;
+  }, [editLogId, programId, dayNum, isOneOff, weekNum, initialParams]);
 
   const serializeWorkoutDraftPayload = (overrides?: {
+    editLogId?: string | null;
+    programId?: string | null;
+    programName?: string;
+    weekNum?: number | string;
+    dayNum?: number | string;
+    dateStr?: string;
+    workoutDate?: string;
+    startTime?: string;
+    isOneOff?: boolean;
+    scheduledDate?: string;
     exercises?: ExerciseEntry[];
     userRawExercises?: ExerciseEntry[] | null;
+    duration?: number | '';
     notes?: string;
+    sleep?: number | '';
+    hydration?: HydrationLevel;
+    calories?: number | '';
+    protein?: number | '';
+    soreness?: number;
+    motivation?: number;
     checkedSets?: Record<string, boolean>;
     completionTouchedSets?: Record<string, boolean>;
     collapsed?: Record<number, boolean>;
@@ -1293,30 +1536,32 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     bodyweightSnapshot?: BodyweightSnapshot | null;
     restIntervals?: RestInterval[];
   }): Record<string, any> => {
+    const effectiveDate = overrides?.dateStr !== undefined ? overrides.dateStr : (overrides?.workoutDate !== undefined ? overrides.workoutDate : (workoutDate || dateStr));
     const draftData: Record<string, any> = {
-      programId,
-      programName,
-      weekNum,
-      dayNum,
-      dateStr,
-      isOneOff,
-      scheduledDate,
+      editLogId: overrides?.editLogId !== undefined ? overrides.editLogId : (editLogId || null),
+      programId: overrides?.programId !== undefined ? overrides.programId : programId,
+      programName: overrides?.programName !== undefined ? overrides.programName : programName,
+      weekNum: overrides?.weekNum !== undefined ? overrides.weekNum : weekNum,
+      dayNum: overrides?.dayNum !== undefined ? overrides.dayNum : dayNum,
+      dateStr: effectiveDate,
+      isOneOff: overrides?.isOneOff !== undefined ? overrides.isOneOff : isOneOff,
+      scheduledDate: overrides?.scheduledDate !== undefined ? overrides.scheduledDate : scheduledDate,
       exercises: overrides?.exercises !== undefined ? overrides.exercises : exercises,
-      duration,
+      duration: overrides?.duration !== undefined ? overrides.duration : duration,
       notes: overrides?.notes !== undefined ? overrides.notes : notes,
-      sleep,
-      hydration,
-      calories,
-      protein,
-      soreness,
-      motivation,
+      sleep: overrides?.sleep !== undefined ? overrides.sleep : sleep,
+      hydration: overrides?.hydration !== undefined ? overrides.hydration : hydration,
+      calories: overrides?.calories !== undefined ? overrides.calories : calories,
+      protein: overrides?.protein !== undefined ? overrides.protein : protein,
+      soreness: overrides?.soreness !== undefined ? overrides.soreness : soreness,
+      motivation: overrides?.motivation !== undefined ? overrides.motivation : motivation,
       checkedSets: overrides?.checkedSets !== undefined ? overrides.checkedSets : checkedSets,
       completionTouchedSets: overrides?.completionTouchedSets !== undefined ? overrides.completionTouchedSets : completionTouchedSets,
       collapsed: overrides?.collapsed !== undefined ? overrides.collapsed : collapsed,
       objective: overrides?.objective !== undefined ? overrides.objective : objective,
       userRawExercises: overrides?.userRawExercises !== undefined ? overrides.userRawExercises : userRawExercises,
       userTouchedSets: overrides?.userTouchedSets !== undefined ? overrides.userTouchedSets : userTouchedSets,
-      startTime,
+      startTime: overrides?.startTime !== undefined ? overrides.startTime : startTime,
       prescribedTargetSnapshots: overrides?.prescribedTargetSnapshots !== undefined ? overrides.prescribedTargetSnapshots : prescribedTargetSnapshots,
       committedLiveEvidenceBySet: overrides?.committedLiveEvidenceBySet !== undefined ? overrides.committedLiveEvidenceBySet : committedLiveEvidenceBySet,
       liveAdjustedSets: overrides?.liveAdjustedSets !== undefined ? overrides.liveAdjustedSets : liveAdjustedSets,
@@ -1332,31 +1577,37 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     return draftData;
   };
 
-  const saveWorkoutDraftImmediately = (overrides?: Parameters<typeof serializeWorkoutDraftPayload>[0]) => {
-    if (!isDraftLoaded) return;
+  const persistCurrentDraftImmediately = (overrides?: Parameters<typeof serializeWorkoutDraftPayload>[0]) => {
+    if (!isDraftLoadedRef.current || draftFlushSuppressedRef.current) return;
     try {
       const payload = serializeWorkoutDraftPayload(overrides);
-      localStorage.setItem('metreps_workout_draft', JSON.stringify(payload));
+      latestDraftPayloadRef.current = payload;
+      saveActiveWorkoutDraft(payload);
       setHasExistingDraft(true);
     } catch (e) {
       console.error('Failed to immediately save workout draft:', e);
     }
   };
 
+  const saveWorkoutDraftImmediately = persistCurrentDraftImmediately;
+
   // Auto-save draft on every modification
   useEffect(() => {
-    if (!isDraftLoaded) return;
+    if (!isDraftLoaded || draftFlushSuppressedRef.current) return;
 
     const draftData = serializeWorkoutDraftPayload();
-    localStorage.setItem('metreps_workout_draft', JSON.stringify(draftData));
+    latestDraftPayloadRef.current = draftData;
+    saveActiveWorkoutDraft(draftData);
     setHasExistingDraft(true);
   }, [
     isDraftLoaded,
+    editLogId,
     programId,
     programName,
     weekNum,
     dayNum,
     dateStr,
+    workoutDate,
     isOneOff,
     scheduledDate,
     exercises,
@@ -1384,10 +1635,129 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     restIntervals,
   ]);
 
+  // Lifecycle flush on pagehide, visibilitychange (hidden), or unmount
+  useEffect(() => {
+    const handleFlush = () => {
+      if (draftFlushSuppressedRef.current) return;
+      if (latestDraftPayloadRef.current) {
+        saveActiveWorkoutDraft(latestDraftPayloadRef.current);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        handleFlush();
+      }
+    };
+
+    window.addEventListener('pagehide', handleFlush);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      handleFlush();
+      window.removeEventListener('pagehide', handleFlush);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  const handleAutoCalculateDuration = () => {
+    if (!startTime) return;
+    try {
+      const [startHours, startMinutes] = startTime.split(':').map(Number);
+      const now = new Date();
+      const currentHours = now.getHours();
+      const currentMinutes = now.getMinutes();
+
+      let startTotalMin = startHours * 60 + startMinutes;
+      let currentTotalMin = currentHours * 60 + currentMinutes;
+
+      if (currentTotalMin < startTotalMin) {
+        currentTotalMin += 24 * 60;
+      }
+
+      const diffMin = currentTotalMin - startTotalMin;
+      const nextDuration = Math.max(1, diffMin);
+      setDuration(nextDuration);
+      saveWorkoutDraftImmediately({ duration: nextDuration });
+    } catch (e) {
+      console.error('Error auto calculating duration:', e);
+    }
+  };
+
+  const handleWorkoutDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const nextDate = e.target.value;
+    setWorkoutDate(nextDate);
+    saveWorkoutDraftImmediately({ workoutDate: nextDate, dateStr: nextDate });
+  };
+
+  const handleStartTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const nextTime = e.target.value;
+    setStartTime(nextTime);
+    saveWorkoutDraftImmediately({ startTime: nextTime });
+  };
+
+  const handleDurationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    const nextDuration = val === '' ? '' : Math.max(1, Number(val));
+    setDuration(nextDuration);
+    saveWorkoutDraftImmediately({ duration: nextDuration });
+  };
+
+  const handleSessionNotesChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const nextNotes = e.target.value;
+    setNotes(nextNotes);
+    saveWorkoutDraftImmediately({ notes: nextNotes });
+  };
+
+  const handleSleepChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    const nextSleep = val === '' ? '' : Math.max(0, Number(val));
+    setSleep(nextSleep);
+    saveWorkoutDraftImmediately({ sleep: nextSleep });
+  };
+
+  const handleHydrationChange = (level: HydrationLevel) => {
+    setHydration(level);
+    setIsHydrationDropdownOpen(false);
+    saveWorkoutDraftImmediately({ hydration: level });
+  };
+
+  const handleCaloriesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    const nextCalories = val === '' ? '' : Math.max(0, Number(val));
+    setCalories(nextCalories);
+    saveWorkoutDraftImmediately({ calories: nextCalories });
+  };
+
+  const handleProteinChange = (valOrEvent: React.ChangeEvent<HTMLInputElement> | number | '') => {
+    let nextProtein: number | '';
+    if (typeof valOrEvent === 'number' || valOrEvent === '') {
+      nextProtein = valOrEvent;
+    } else {
+      const val = valOrEvent.target.value;
+      nextProtein = val === '' ? '' : Math.max(0, Number(val));
+    }
+    setProtein(nextProtein as number);
+    saveWorkoutDraftImmediately({ protein: nextProtein });
+  };
+
+  const handleSorenessChange = (val: number) => {
+    setSoreness(val);
+    saveWorkoutDraftImmediately({ soreness: val });
+  };
+
+  const handleMotivationChange = (val: number) => {
+    setMotivation(val);
+    saveWorkoutDraftImmediately({ motivation: val });
+  };
+
   const handleDiscardDraft = () => {
-    localStorage.removeItem('metreps_workout_draft');
+    draftFlushSuppressedRef.current = true;
+    latestDraftPayloadRef.current = null;
+    clearActiveWorkoutDraft();
     setHasExistingDraft(false);
     setIsDraftLoaded(false);
+    isDraftLoadedRef.current = false;
     setRestIntervals([]);
     clearActiveRestTimer();
 
@@ -1801,148 +2171,163 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleToggleSkipExercise = (idx: number) => {
-    setExercises(prev => {
-      const nextExs = prev.map((ex, i) => {
-        if (i === idx) {
-          return {
-            ...ex,
-            isSkipped: !ex.isSkipped
-          };
-        }
-        return ex;
-      });
-      const isNowSkipped = !!nextExs[idx]?.isSkipped;
-      setCurrentSetGuideKey(current => reconcileGuideAfterExerciseSkip(current, idx, isNowSkipped, nextExs));
-      return nextExs;
+    const nextExs = exercises.map((ex, i) => {
+      if (i === idx) {
+        return {
+          ...ex,
+          isSkipped: !ex.isSkipped
+        };
+      }
+      return ex;
+    });
+    const isNowSkipped = !!nextExs[idx]?.isSkipped;
+    const nextGuideKey = reconcileGuideAfterExerciseSkip(currentSetGuideKey, idx, isNowSkipped, nextExs);
+    setExercises(nextExs);
+    setCurrentSetGuideKey(nextGuideKey);
+    saveWorkoutDraftImmediately({
+      exercises: nextExs,
+      currentSetGuideKey: nextGuideKey,
     });
   };
 
   const handleToggleDropSet = (exIdx: number, setIdx: number) => {
-    setExercises(prev =>
-      prev.map((ex, i) => {
-        if (i === exIdx) {
-          const sets = ex.sets.map((s, sIdx) => {
-            if (sIdx === setIdx) {
-              const nextIsDropSet = !s.isDropSet;
-              let nextDropSubSets = s.dropSubSets;
-              if (nextIsDropSet && (!nextDropSubSets || nextDropSubSets.length === 0)) {
-                // Fetch historical drop subsets, or fall back to %-Relative Standard
-                try {
-                  const logs = storage.getWorkoutLogs();
-                  const sortedLogs = logs && logs.length > 0 ? [...logs].sort((a, b) => b.date.localeCompare(a.date)) : [];
-                  let foundHist = false;
-                  for (const log of sortedLogs) {
-                    const matchedEx = log.exercises.find(
-                      e => e.name.trim().toLowerCase() === ex.name.trim().toLowerCase()
-                    );
-                    if (matchedEx && matchedEx.sets && matchedEx.sets[setIdx]) {
-                      const histSet = matchedEx.sets[setIdx];
-                      if (histSet.isDropSet && histSet.dropSubSets && histSet.dropSubSets.length > 0) {
-                        nextDropSubSets = histSet.dropSubSets.map(ds => ({
-                          weight: ds.weight,
-                          reps: ds.reps
-                        }));
-                        foundHist = true;
-                        break;
-                      }
+    const nextExercises = exercises.map((ex, i) => {
+      if (i === exIdx) {
+        const sets = ex.sets.map((s, sIdx) => {
+          if (sIdx === setIdx) {
+            const nextIsDropSet = !s.isDropSet;
+            let nextDropSubSets = s.dropSubSets;
+            if (nextIsDropSet && (!nextDropSubSets || nextDropSubSets.length === 0)) {
+              // Fetch historical drop subsets, or fall back to %-Relative Standard
+              try {
+                const logs = storage.getWorkoutLogs();
+                const sortedLogs = logs && logs.length > 0 ? [...logs].sort((a, b) => b.date.localeCompare(a.date)) : [];
+                let foundHist = false;
+                for (const log of sortedLogs) {
+                  const matchedEx = log.exercises.find(
+                    e => e.name.trim().toLowerCase() === ex.name.trim().toLowerCase()
+                  );
+                  if (matchedEx && matchedEx.sets && matchedEx.sets[setIdx]) {
+                    const histSet = matchedEx.sets[setIdx];
+                    if (histSet.isDropSet && histSet.dropSubSets && histSet.dropSubSets.length > 0) {
+                      nextDropSubSets = histSet.dropSubSets.map(ds => ({
+                        weight: ds.weight,
+                        reps: ds.reps
+                      }));
+                      foundHist = true;
+                      break;
                     }
                   }
-                  if (!foundHist) {
-                    const parentWeight = s.weight || 0;
-                    const parentReps = s.reps || 8;
-                    const defWeight = parentWeight ? roundToNearest25(parentWeight * 0.8) : null;
-                    const defReps = parentReps ? Math.max(1, Math.round(parentReps * 0.8)) : null;
-                    nextDropSubSets = [{ weight: defWeight, reps: defReps }];
-                  }
-                } catch (err) {
-                  console.error('Error fetching historical drop sets inside toggle:', err);
+                }
+                if (!foundHist) {
                   const parentWeight = s.weight || 0;
                   const parentReps = s.reps || 8;
                   const defWeight = parentWeight ? roundToNearest25(parentWeight * 0.8) : null;
                   const defReps = parentReps ? Math.max(1, Math.round(parentReps * 0.8)) : null;
                   nextDropSubSets = [{ weight: defWeight, reps: defReps }];
                 }
+              } catch (err) {
+                console.error('Error fetching historical drop sets inside toggle:', err);
+                const parentWeight = s.weight || 0;
+                const parentReps = s.reps || 8;
+                const defWeight = parentWeight ? roundToNearest25(parentWeight * 0.8) : null;
+                const defReps = parentReps ? Math.max(1, Math.round(parentReps * 0.8)) : null;
+                nextDropSubSets = [{ weight: defWeight, reps: defReps }];
               }
-              return { ...s, isDropSet: nextIsDropSet, isWarmup: false, dropSubSets: nextDropSubSets };
             }
-            return s;
-          });
-          return { ...ex, sets };
-        }
-        return ex;
-      })
-    );
+            return { ...s, isDropSet: nextIsDropSet, isWarmup: false, dropSubSets: nextDropSubSets };
+          }
+          return s;
+        });
+        return { ...ex, sets };
+      }
+      return ex;
+    });
+
+    setExercises(nextExercises);
+    saveWorkoutDraftImmediately({
+      exercises: nextExercises,
+    });
   };
 
   const handleAddDropSubSet = (exIdx: number, setIdx: number) => {
-    setExercises(prev =>
-      prev.map((ex, i) => {
-        if (i === exIdx) {
-          const sets = ex.sets.map((s, sIdx) => {
-            if (sIdx === setIdx) {
-              const currentSubs = s.dropSubSets || [];
-              let newWeight = null;
-              let newReps = null;
-              if (currentSubs.length > 0) {
-                const lastSub = currentSubs[currentSubs.length - 1];
-                if (lastSub.weight) {
-                  newWeight = roundToNearest25(lastSub.weight * 0.8);
-                }
-                newReps = lastSub.reps || s.reps || 8;
-              } else {
-                const parentWeight = s.weight || 0;
-                newWeight = parentWeight ? roundToNearest25(parentWeight * 0.8) : null;
-                newReps = s.reps || 8;
+    const nextExercises = exercises.map((ex, i) => {
+      if (i === exIdx) {
+        const sets = ex.sets.map((s, sIdx) => {
+          if (sIdx === setIdx) {
+            const currentSubs = s.dropSubSets || [];
+            let newWeight = null;
+            let newReps = null;
+            if (currentSubs.length > 0) {
+              const lastSub = currentSubs[currentSubs.length - 1];
+              if (lastSub.weight) {
+                newWeight = roundToNearest25(lastSub.weight * 0.8);
               }
-              const nextSubs = [...currentSubs, { weight: newWeight, reps: newReps }];
-              return { ...s, dropSubSets: nextSubs };
+              newReps = lastSub.reps || s.reps || 8;
+            } else {
+              const parentWeight = s.weight || 0;
+              newWeight = parentWeight ? roundToNearest25(parentWeight * 0.8) : null;
+              newReps = s.reps || 8;
             }
-            return s;
-          });
-          return { ...ex, sets };
-        }
-        return ex;
-      })
-    );
+            const nextSubs = [...currentSubs, { weight: newWeight, reps: newReps }];
+            return { ...s, dropSubSets: nextSubs };
+          }
+          return s;
+        });
+        return { ...ex, sets };
+      }
+      return ex;
+    });
+
+    setExercises(nextExercises);
+    saveWorkoutDraftImmediately({
+      exercises: nextExercises,
+    });
   };
 
   const handleUpdateDropSubSet = (exIdx: number, setIdx: number, subIdx: number, field: 'weight' | 'reps', value: number | null) => {
-    setExercises(prev =>
-      prev.map((ex, i) => {
-        if (i === exIdx) {
-          const sets = ex.sets.map((s, sIdx) => {
-            if (sIdx === setIdx && s.dropSubSets) {
-              const nextSubs = s.dropSubSets.map((sub, idx) =>
-                idx === subIdx ? { ...sub, [field]: value } : sub
-              );
-              return { ...s, dropSubSets: nextSubs };
-            }
-            return s;
-          });
-          return { ...ex, sets };
-        }
-        return ex;
-      })
-    );
+    const nextExercises = exercises.map((ex, i) => {
+      if (i === exIdx) {
+        const sets = ex.sets.map((s, sIdx) => {
+          if (sIdx === setIdx && s.dropSubSets) {
+            const nextSubs = s.dropSubSets.map((sub, idx) =>
+              idx === subIdx ? { ...sub, [field]: value } : sub
+            );
+            return { ...s, dropSubSets: nextSubs };
+          }
+          return s;
+        });
+        return { ...ex, sets };
+      }
+      return ex;
+    });
+
+    setExercises(nextExercises);
+    saveWorkoutDraftImmediately({
+      exercises: nextExercises,
+    });
   };
 
   const handleRemoveDropSubSet = (exIdx: number, setIdx: number, subIdx: number) => {
-    setExercises(prev =>
-      prev.map((ex, i) => {
-        if (i === exIdx) {
-          const sets = ex.sets.map((s, sIdx) => {
-            if (sIdx === setIdx && s.dropSubSets) {
-              const nextSubs = s.dropSubSets.filter((_, idx) => idx !== subIdx);
-              const nextIsDropSet = nextSubs.length > 0 ? s.isDropSet : false;
-              return { ...s, isDropSet: nextIsDropSet, dropSubSets: nextSubs };
-            }
-            return s;
-          });
-          return { ...ex, sets };
-        }
-        return ex;
-      })
-    );
+    const nextExercises = exercises.map((ex, i) => {
+      if (i === exIdx) {
+        const sets = ex.sets.map((s, sIdx) => {
+          if (sIdx === setIdx && s.dropSubSets) {
+            const nextSubs = s.dropSubSets.filter((_, idx) => idx !== subIdx);
+            const nextIsDropSet = nextSubs.length > 0 ? s.isDropSet : false;
+            return { ...s, isDropSet: nextIsDropSet, dropSubSets: nextSubs };
+          }
+          return s;
+        });
+        return { ...ex, sets };
+      }
+      return ex;
+    });
+
+    setExercises(nextExercises);
+    saveWorkoutDraftImmediately({
+      exercises: nextExercises,
+    });
   };
 
   const handleToggleWarmup = (exIdx: number, setIdx: number) => {
@@ -1951,17 +2336,20 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const targetSet = currentEx.sets[setIdx];
     if (targetSet?.isSkipped) return;
 
-    setExercises(prev =>
-      prev.map((ex, i) => {
-        if (i === exIdx) {
-          const sets = ex.sets.map((s, sIdx) =>
-            sIdx === setIdx ? { ...s, isWarmup: !s.isWarmup, isDropSet: false } : s
-          );
-          return { ...ex, sets };
-        }
-        return ex;
-      })
-    );
+    const nextExercises = exercises.map((ex, i) => {
+      if (i === exIdx) {
+        const sets = ex.sets.map((s, sIdx) =>
+          sIdx === setIdx ? { ...s, isWarmup: !s.isWarmup, isDropSet: false } : s
+        );
+        return { ...ex, sets };
+      }
+      return ex;
+    });
+
+    setExercises(nextExercises);
+    saveWorkoutDraftImmediately({
+      exercises: nextExercises,
+    });
   };
 
   const handleToggleSkipSet = (exIdx: number, setIdx: number) => {
@@ -1985,35 +2373,40 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       }
     }
 
-    setUserRawExercises(prev => {
-      if (!prev) return null;
-      return prev.map((ex, i) => {
-        if (i === exIdx) {
-          const sets = ex.sets.map((s, sIdx) =>
-            sIdx === setIdx ? { ...s, isSkipped: isSkipping } : s
-          );
-          return { ...ex, sets };
-        }
-        return ex;
-      });
+    const nextUserRaw = userRawExercises
+      ? userRawExercises.map((ex, i) => {
+          if (i === exIdx) {
+            const sets = ex.sets.map((s, sIdx) =>
+              sIdx === setIdx ? { ...s, isSkipped: isSkipping } : s
+            );
+            return { ...ex, sets };
+          }
+          return ex;
+        })
+      : null;
+
+    const nextExs = exercises.map((ex, i) => {
+      if (i === exIdx) {
+        const sets = ex.sets.map((s, sIdx) =>
+          sIdx === setIdx ? { ...s, isSkipped: isSkipping } : s
+        );
+        return { ...ex, sets };
+      }
+      return ex;
     });
 
-    setExercises(prev => {
-      const nextExs = prev.map((ex, i) => {
-        if (i === exIdx) {
-          const sets = ex.sets.map((s, sIdx) =>
-            sIdx === setIdx ? { ...s, isSkipped: isSkipping } : s
-          );
-          return { ...ex, sets };
-        }
-        return ex;
-      });
-      setCurrentSetGuideKey(current => reconcileGuideAfterSetSkip(current, exIdx, setIdx, isSkipping, nextExs));
-      return nextExs;
-    });
+    const nextGuideKey = reconcileGuideAfterSetSkip(currentSetGuideKey, exIdx, setIdx, isSkipping, nextExs);
 
-    // Clear add set blocked warning if unskipping
+    setUserRawExercises(nextUserRaw);
+    setExercises(nextExs);
+    setCurrentSetGuideKey(nextGuideKey);
     setAddSetBlockedWarning(prev => ({ ...prev, [exIdx]: null }));
+
+    saveWorkoutDraftImmediately({
+      exercises: nextExs,
+      userRawExercises: nextUserRaw,
+      currentSetGuideKey: nextGuideKey,
+    });
   };
 
   const applyAutoWarmupSets = (
@@ -2512,9 +2905,11 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     key: K,
     val: SetEntry[K]
   ) => {
+    let nextTouched = userTouchedSets;
     if (key === 'weight' || key === 'reps' || key === 'rpe' || key === 'form') {
       const setKey = `${exIdx}-${setIdx}`;
-      setUserTouchedSets(prev => ({ ...prev, [setKey]: true }));
+      nextTouched = { ...userTouchedSets, [setKey]: true };
+      setUserTouchedSets(nextTouched);
     }
 
     let finalVal = val;
@@ -2522,17 +2917,21 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       finalVal = 0 as SetEntry[K];
     }
 
-    setExercises(prev =>
-      prev.map((ex, i) => {
-        if (i === exIdx) {
-          const updatedSets = ex.sets.map((s, sIdx) =>
-            sIdx === setIdx ? { ...s, [key]: finalVal } : s
-          );
-          return { ...ex, sets: updatedSets };
-        }
-        return ex;
-      })
-    );
+    const nextExercises = exercises.map((ex, i) => {
+      if (i === exIdx) {
+        const updatedSets = ex.sets.map((s, sIdx) =>
+          sIdx === setIdx ? { ...s, [key]: finalVal } : s
+        );
+        return { ...ex, sets: updatedSets };
+      }
+      return ex;
+    });
+
+    setExercises(nextExercises);
+    saveWorkoutDraftImmediately({
+      exercises: nextExercises,
+      userTouchedSets: nextTouched,
+    });
   };
 
   const handleUpdateSessionBodyweight = (rawString: string) => {
@@ -2783,12 +3182,20 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       }
     }
 
+    const nextGuideKey = highlightCurrentSet ? findNextEligibleGuideRow(nextExercises, exIdx, setIdx) : null;
     if (highlightCurrentSet) {
-      const nextGuide = findNextEligibleGuideRow(nextExercises, exIdx, setIdx);
-      setCurrentSetGuideKey(nextGuide);
+      setCurrentSetGuideKey(nextGuideKey);
     } else {
       setCurrentSetGuideKey(null);
     }
+
+    saveWorkoutDraftImmediately({
+      exercises: nextExercises,
+      committedLiveEvidenceBySet: nextCommittedLiveEvidence,
+      liveAdjustedSets: finalUpdatedLiveAdjustedSets,
+      currentSetGuideKey: nextGuideKey,
+      userTouchedSets: { ...userTouchedSets, [setKey]: true },
+    });
   };
 
   const handleRestorePlannedTargets = (targetExIdx: number) => {
@@ -2811,13 +3218,23 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       const nextExercises = exercises.map((item, i) => i === targetExIdx ? updatedExercise : item);
       setExercises(nextExercises);
       setLiveAdjustedSets(updatedLiveAdjustedSets);
+      saveWorkoutDraftImmediately({
+        exercises: nextExercises,
+        liveAdjustedSets: updatedLiveAdjustedSets,
+      });
     }
   };
 
   const toggleSetCheck = (exIdx: number, setIdx: number) => {
     const key = `${exIdx}-${setIdx}`;
-    setCheckedSets(prev => ({ ...prev, [key]: !prev[key] }));
-    setCompletionTouchedSets(prev => ({ ...prev, [key]: true }));
+    const nextChecked = { ...checkedSets, [key]: !checkedSets[key] };
+    const nextCompletionTouched = { ...completionTouchedSets, [key]: true };
+    setCheckedSets(nextChecked);
+    setCompletionTouchedSets(nextCompletionTouched);
+    saveWorkoutDraftImmediately({
+      checkedSets: nextChecked,
+      completionTouchedSets: nextCompletionTouched,
+    });
   };
 
   const getExerciseHistory = (name: string) => {
@@ -2947,7 +3364,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       }
     }
 
-    localStorage.removeItem('metreps_workout_draft');
+    draftFlushSuppressedRef.current = true;
+    latestDraftPayloadRef.current = null;
+    clearActiveWorkoutDraft();
+    setHasExistingDraft(false);
     if (isFinalWorkout) {
       // Unenrol the user from the current program automatically at the conclusion of the program
       storage.setCurrentProgramId(null);
@@ -3180,7 +3600,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
               <input
                 type="date"
                 value={workoutDate}
-                onChange={e => setWorkoutDate(e.target.value)}
+                onChange={handleWorkoutDateChange}
                 className="logger-date-time-input w-full bg-slate-950 text-slate-300 rounded-none border border-slate-850 px-1 sm:px-2 h-10 text-center text-xs sm:text-[13px] font-black font-mono focus:outline-none focus:border-indigo-500/85 cursor-pointer"
                 style={{ textAlign: 'center' }}
               />
@@ -3201,7 +3621,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
               <input
                 type="time"
                 value={startTime}
-                onChange={e => setStartTime(e.target.value)}
+                onChange={handleStartTimeChange}
                 className="logger-date-time-input w-full bg-slate-950 text-slate-300 rounded-none border border-slate-850 px-1 sm:px-2 h-10 text-center text-xs sm:text-[13px] font-black font-mono focus:outline-none focus:border-indigo-500/85 cursor-pointer"
                 style={{ textAlign: 'center' }}
               />
@@ -3885,10 +4305,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                 type="number"
                 min="1"
                 value={duration ?? ''}
-                onChange={e => {
-                  const val = e.target.value;
-                  setDuration(val === '' ? '' : Math.max(1, Number(val)));
-                }}
+                onChange={handleDurationChange}
                 className="bg-transparent font-black text-sm text-white flex-1 w-0 min-w-0 focus:outline-none font-mono text-center pl-3"
               />
               <span className="text-[9px] text-slate-500 font-black shrink-0 pr-2">MIN</span>
@@ -3925,10 +4342,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                 min="0"
                 step="0.5"
                 value={sleep ?? ''}
-                onChange={e => {
-                  const val = e.target.value;
-                  setSleep(val === '' ? '' : Math.max(0, Number(val)));
-                }}
+                onChange={handleSleepChange}
                 className="bg-transparent font-black text-sm text-white flex-1 w-0 min-w-0 focus:outline-none font-mono text-center"
               />
               <span className="text-[9px] text-slate-500 font-black shrink-0">HRS</span>
@@ -3958,10 +4372,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                         <button
                           key={level}
                           type="button"
-                          onClick={() => {
-                            setHydration(level);
-                            setIsHydrationDropdownOpen(false);
-                          }}
+                          onClick={() => handleHydrationChange(level)}
                           className={`w-full text-center py-2.5 text-xs font-bold border-y border-transparent cursor-pointer transition uppercase font-sans ${
                             isSelected
                               ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
@@ -3988,10 +4399,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                 type="number"
                 min="0"
                 value={calories ?? ''}
-                onChange={e => {
-                  const val = e.target.value;
-                  setCalories(val === '' ? '' : Math.max(0, Number(val)));
-                }}
+                onChange={handleCaloriesChange}
                 className="bg-transparent font-black text-sm text-white flex-1 w-0 min-w-0 focus:outline-none font-mono text-center"
               />
               <span className="text-[9px] text-slate-500 font-black shrink-0">KCAL</span>
@@ -4024,7 +4432,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                   <button
                     key={val}
                     type="button"
-                    onClick={() => setSoreness(val)}
+                    onClick={() => handleSorenessChange(val)}
                     className={`h-9 rounded-none font-mono text-xs font-bold transition-all cursor-pointer flex items-center justify-center border ${
                       isSelected
                         ? themeId === 'amber'
@@ -4063,7 +4471,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                   <button
                     key={val}
                     type="button"
-                    onClick={() => setMotivation(val)}
+                    onClick={() => handleMotivationChange(val)}
                     className={`h-9 rounded-none font-mono text-xs font-bold transition-all cursor-pointer flex items-center justify-center border ${
                       isSelected
                         ? themeId === 'amber'
@@ -4088,7 +4496,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         </label>
         <textarea
           value={notes}
-          onChange={e => setNotes(e.target.value)}
+          onChange={handleSessionNotesChange}
           placeholder="e.g., Squats felt heavy but core bracing was stable. Rest periods were 3 mins."
           rows={3}
           className="w-full bg-slate-950 border border-slate-850 rounded-none px-3 py-2.5 text-sm font-medium text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500"

@@ -6,6 +6,7 @@
 import { BodyweightSnapshot, ExerciseEntry, Program, SetEntry, WeightUnit, WorkoutLog, mapHydrationToLiters, mapLitersToHydration } from '../types';
 import { resolveSetEffectiveLoad } from './effectiveLoad';
 import { convertWeightUnit } from './assistedLoadMath';
+import { resolveWorkoutDurationMinutes } from './workoutDuration';
 
 export interface ExerciseStat {
   name: string;
@@ -25,6 +26,7 @@ export interface ProgramReportCard {
   completedCount: number;
   totalPlannedDays: number;
   totalPRsHit: number;
+  totalDurationMinutes: number;
   strongestMuscle: string;
   exerciseStats: ExerciseStat[];
   feedbacks: string[];
@@ -85,6 +87,12 @@ export function getProgramReportCard(
   displayUnit: WeightUnit = 'kg'
 ): ProgramReportCard {
   const progLogs = logs.filter(l => l.programId === program.id);
+
+  const totalDurationMinutes = progLogs.reduce(
+    (sum, log) =>
+      sum + (resolveWorkoutDurationMinutes(log.durationMinutes) ?? 0),
+    0
+  );
 
   // Chronological sort by week then day
   const sortedLogs = [...progLogs].sort((a, b) => {
@@ -427,6 +435,7 @@ export function getProgramReportCard(
     completedCount,
     totalPlannedDays,
     totalPRsHit,
+    totalDurationMinutes,
     strongestMuscle,
     exerciseStats,
     feedbacks,

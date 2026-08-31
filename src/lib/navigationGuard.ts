@@ -30,10 +30,10 @@ export function getWorkoutIdentityFromParams(params: any): ActiveWorkoutIdentity
     return { kind: 'one_off', workoutId: null };
   }
 
-  if (params.editLogId) {
+  if (params.editLogId !== null && params.editLogId !== undefined && String(params.editLogId).trim() !== '') {
     return {
       kind: 'historical_edit',
-      workoutId: String(params.editLogId),
+      workoutId: String(params.editLogId).trim(),
     };
   }
 
@@ -74,10 +74,10 @@ export function getWorkoutIdentityFromDraft(draft: any): ActiveWorkoutIdentity |
     return null;
   }
 
-  if (draft.editLogId) {
+  if (draft.editLogId !== null && draft.editLogId !== undefined && String(draft.editLogId).trim() !== '') {
     return {
       kind: 'historical_edit',
-      workoutId: String(draft.editLogId),
+      workoutId: String(draft.editLogId).trim(),
     };
   }
 
@@ -130,6 +130,67 @@ export function getActiveWorkoutDraft(): { rawDraft: any; identity: ActiveWorkou
     // Malformed JSON should fail safely
     return null;
   }
+}
+
+/**
+ * Alias helper for getting active draft metadata and structured identity.
+ */
+export function getActiveWorkoutDraftMetadata(): { rawDraft: any; identity: ActiveWorkoutIdentity | null } | null {
+  return getActiveWorkoutDraft();
+}
+
+/**
+ * Safely saves the active workout draft to localStorage.
+ */
+export function saveActiveWorkoutDraft(payload: any): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('metreps_workout_draft', JSON.stringify(payload));
+    }
+  } catch (e) {
+    console.error('Failed to save active workout draft:', e);
+  }
+}
+
+/**
+ * Safely clears the active workout draft from localStorage.
+ */
+export function clearActiveWorkoutDraft(): void {
+  try {
+    localStorage.removeItem('metreps_workout_draft');
+  } catch (e) {
+    console.error('Failed to clear active workout draft:', e);
+  }
+}
+
+/**
+ * Checks whether an active workout draft belongs to a specific program.
+ * Strictly checks that the draft is a programmed session for this program ID,
+ * and not a historical edit or generic one-off.
+ */
+export function doesDraftMatchProgram(draft: any, programId: string | number | null | undefined): boolean {
+  if (!draft || typeof draft !== 'object' || programId === null || programId === undefined) {
+    return false;
+  }
+  const cleanProgId = String(programId).trim();
+  if (!cleanProgId) return false;
+
+  // Historical edit or generic one-off drafts do not belong to a program
+  if (
+    (draft.editLogId !== null && draft.editLogId !== undefined && String(draft.editLogId).trim() !== '') ||
+    draft.isOneOff === true
+  ) {
+    return false;
+  }
+
+  if (draft.programId === null || draft.programId === undefined) {
+    return false;
+  }
+
+  const draftProgId = String(draft.programId).trim();
+  if (!draftProgId) return false;
+
+  return draftProgId === cleanProgId;
 }
 
 /**

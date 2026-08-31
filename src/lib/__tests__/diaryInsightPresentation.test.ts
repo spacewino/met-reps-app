@@ -10,6 +10,7 @@ import {
   formatDiarySessionVolume,
   formatExerciseCount,
   formatDuration,
+  formatAggregateDuration,
   formatWorkingSetCount,
   formatDiarySessionTotals,
   formatMuscleGroupSetCounts,
@@ -520,6 +521,7 @@ describe('diaryInsightPresentation pure helpers', () => {
   describe('formatDuration', () => {
     it('formats duration in minutes when positive and finite', () => {
       expect(formatDuration(60)).toBe('60 min');
+      expect(formatDuration(180)).toBe('180 min');
       expect(formatDuration(45.4)).toBe('45 min');
       expect(formatDuration(1)).toBe('1 min');
     });
@@ -531,6 +533,36 @@ describe('diaryInsightPresentation pure helpers', () => {
       expect(formatDuration(-5)).toBeNull();
       expect(formatDuration(NaN)).toBeNull();
       expect(formatDuration(Infinity)).toBeNull();
+    });
+  });
+
+  describe('formatAggregateDuration', () => {
+    it('formats 0, missing, negative, and invalid non-finite numbers to "0m"', () => {
+      expect(formatAggregateDuration(null)).toBe('0m');
+      expect(formatAggregateDuration(undefined)).toBe('0m');
+      expect(formatAggregateDuration(0)).toBe('0m');
+      expect(formatAggregateDuration(-15)).toBe('0m');
+      expect(formatAggregateDuration(NaN)).toBe('0m');
+      expect(formatAggregateDuration(Infinity)).toBe('0m');
+    });
+
+    it('formats sub-hour durations as Xm', () => {
+      expect(formatAggregateDuration(45)).toBe('45m');
+      expect(formatAggregateDuration(1)).toBe('1m');
+      expect(formatAggregateDuration(59)).toBe('59m');
+      expect(formatAggregateDuration(45.4)).toBe('45m');
+    });
+
+    it('formats exact hours as Xh', () => {
+      expect(formatAggregateDuration(60)).toBe('1h');
+      expect(formatAggregateDuration(120)).toBe('2h');
+      expect(formatAggregateDuration(180)).toBe('3h');
+    });
+
+    it('formats compound hours and minutes as Xh Ym', () => {
+      expect(formatAggregateDuration(75)).toBe('1h 15m');
+      expect(formatAggregateDuration(90)).toBe('1h 30m');
+      expect(formatAggregateDuration(765)).toBe('12h 45m');
     });
   });
 

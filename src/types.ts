@@ -127,3 +127,38 @@ export type PlannedSession = {
 export interface AppSettings {
   highlightCurrentSet: boolean;
 }
+
+export type ActiveWorkoutSession = {
+  editLogId?: string | null;
+  programId?: string | null;
+  programName?: string | null;
+  weekNum?: string | number | null;
+  dayNum?: string | number | null;
+  dateStr?: string | null;
+  isOneOff?: boolean | null;
+  scheduledDate?: string | null;
+  exercises?: ExerciseEntry[];
+  userRawExercises?: ExerciseEntry[] | null;
+  duration?: number | string | null;
+  notes?: string | null;
+  sleep?: number | '' | null;
+  hydration?: HydrationLevel | number | string | null;
+  calories?: number | null;
+  protein?: number | null;
+  soreness?: number | null;
+  motivation?: number | null;
+  checkedSets?: Record<string, boolean> | null;
+  completionTouchedSets?: Record<string, boolean> | null;
+  collapsed?: Record<number, boolean> | null;
+  objective?: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload' | null;
+  userTouchedSets?: Record<string, boolean> | null;
+  startTime?: string | null;
+  prescribedTargetSnapshots?: Record<string, { weight: number | null; reps: number | null; rpe: number | null }> | null;
+  committedLiveEvidenceBySet?: Record<string, any> | null;
+  liveAdjustedSets?: Record<string, boolean> | null;
+  currentSetGuideKey?: string | null;
+  bodyweightSnapshot?: BodyweightSnapshot | null;
+  restIntervals?: RestInterval[] | null;
+  workoutId?: string | null;
+  redoFromLogId?: string | null;
+};

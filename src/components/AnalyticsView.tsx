@@ -17,6 +17,7 @@ import {
   getRecoveryCorrelations,
 } from '../lib/historicalAnalytics';
 import { getProgramReportCard, getReportChartData } from '../lib/programReportCard';
+import { formatAggregateDuration } from '../lib/diaryInsightPresentation';
 
 interface AnalyticsViewProps {
   workoutLogs: WorkoutLog[];
@@ -53,6 +54,7 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
       const match = allProgs.find(p => p.id === initialProgramId);
       if (match) {
         setSelectedReportProgram(match);
+        setReportChartExercise('Overall');
       }
     }
   }, [initialProgramId]);
@@ -348,6 +350,13 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
                 <div>
                   <div className="text-xl font-black text-cyan-400 font-mono leading-none">+{reportCard.totalPRsHit}</div>
                   <span className="text-[8px] text-slate-500 font-semibold uppercase block mt-1">During Program</span>
+                </div>
+              </div>
+              <div className="col-span-2 sm:col-span-1 bg-slate-900 border border-slate-800 p-3.5 flex flex-col justify-between">
+                <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider font-mono">Gym Time</span>
+                <div>
+                  <div className="text-xl font-black text-amber-400 font-mono leading-none">{formatAggregateDuration(reportCard.totalDurationMinutes)}</div>
+                  <span className="text-[8px] text-slate-500 font-semibold uppercase block mt-1">Across Program Sessions</span>
                 </div>
               </div>
             </div>
@@ -900,6 +909,8 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
                         <span>{prog.programDuration === '∞' ? 'Ongoing' : `${prog.programDuration} Weeks`}</span>
                         <span>•</span>
                         <span>Adherence: {card.adherenceRate}%</span>
+                        <span>•</span>
+                        <span>Gym Time: {formatAggregateDuration(card.totalDurationMinutes)}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -936,6 +947,8 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
                         <span>{prog.programDuration} Weeks</span>
                         <span>•</span>
                         <span>Adherence: {card.adherenceRate}%</span>
+                        <span>•</span>
+                        <span>Gym Time: {formatAggregateDuration(card.totalDurationMinutes)}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">

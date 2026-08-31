@@ -8,14 +8,17 @@ import { Dumbbell, Plus, Trash2, ArrowLeft, Clipboard, HelpCircle, Save, Info, P
 import { motion } from 'motion/react';
 import { Program, ExerciseEntry, WeightUnit } from '../types';
 import { storage, PREBUILT_TEMPLATES } from '../lib/storage';
+import { getActiveWorkoutDraft, doesDraftMatchProgram, clearActiveWorkoutDraft } from '../lib/navigationGuard';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { ConfirmationModal } from './ConfirmationModal';
+import { ProgramDraftConflictModal } from './ProgramDraftConflictModal';
 
 interface ProgramBuilderProps {
   onClose: () => void;
   onSave: () => void;
   flashSave?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
+  themeId?: string;
 }
 
 const WEEKDAYS = [
@@ -149,13 +152,27 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false);
   const [pendingSaveProgram, setPendingSaveProgram] = useState<Program | null>(null);
 
+  // Active workout draft conflict state
+  const [showDraftConflictModal, setShowDraftConflictModal] = useState(false);
+  const [pendingDraftConflictProgram, setPendingDraftConflictProgram] = useState<Program | null>(null);
+
   // Unenroll state
   const [showUnenrollConfirm, setShowUnenrollConfirm] = useState(false);
   const [pendingSwitchProgram, setPendingSwitchProgram] = useState<any | null>(null);
   const [showCommencedModal, setShowCommencedModal] = useState(false);
   const [commencedProgramName, setCommencedProgramName] = useState('');
 
-  const executeSaveProgram = (updatedProgram: Program) => {
+  const attemptSaveProgram = (updatedProgram: Program) => {
+    const activeDraftInfo = getActiveWorkoutDraft();
+    if (activeDraftInfo && doesDraftMatchProgram(activeDraftInfo.rawDraft, updatedProgram.id)) {
+      setPendingDraftConflictProgram(updatedProgram);
+      setShowDraftConflictModal(true);
+      return;
+    }
+    performDirectSaveProgram(updatedProgram, false);
+  };
+
+  const performDirectSaveProgram = (updatedProgram: Program, clearMatchingDraft: boolean = false) => {
     // If there is another saved program with the same name (but different ID), delete it first to avoid duplicate names and clear its references
     try {
       const matchingNameProgram = storage.getPrograms().find(
@@ -168,7 +185,14 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       console.error('Failed to clean up matching name program:', e);
     }
 
-    storage.saveProgram(updatedProgram);
+    try {
+      storage.saveProgram(updatedProgram);
+    } catch (err) {
+      console.error('Failed to save program:', err);
+      setAlertMsg('Failed to save program. Please try again.');
+      return;
+    }
+
     storage.setCurrentProgramId(updatedProgram.id);
     setCurrentProgramId(updatedProgram.id);
     setEditingProgramId(updatedProgram.id);
@@ -192,17 +216,12 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       assignedWeekdays: updatedProgram.assignedWeekdays ? JSON.parse(JSON.stringify(updatedProgram.assignedWeekdays)) : getDefaultWeekdays(updatedProgram.daysPerWeek)
     });
 
-    // Clean up any matching workout draft in localStorage to avoid loading stale exercises
-    try {
-      const draftStr = localStorage.getItem('metreps_workout_draft');
-      if (draftStr) {
-        const draft = JSON.parse(draftStr);
-        if (draft.programId === updatedProgram.id) {
-          localStorage.removeItem('metreps_workout_draft');
-        }
+    // Clear matching draft only when explicitly confirmed via draft conflict modal
+    if (clearMatchingDraft) {
+      const activeDraftInfo = getActiveWorkoutDraft();
+      if (activeDraftInfo && doesDraftMatchProgram(activeDraftInfo.rawDraft, updatedProgram.id)) {
+        clearActiveWorkoutDraft();
       }
-    } catch (e) {
-      console.error('Failed to clear stale draft on program save:', e);
     }
 
     if (onDirtyChange) {
@@ -454,7 +473,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       setPendingSaveProgram(updatedProgram);
       setShowOverwriteConfirm(true);
     } else {
-      executeSaveProgram(updatedProgram);
+      attemptSaveProgram(updatedProgram);
     }
   };
 
@@ -906,7 +925,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                   >
                     <div>
                       <span className="text-[11px] font-black uppercase tracking-wider text-white">Wave Volume</span>
-                      <span className="block text-[12px] font-medium mt-1 leading-relaxed text-slate-400">Alternates lighter 15-rep and heavy 10-rep (6-rep main) weeks.</span>
+                      <span className="block text-[12px] font-medium mt-1 leading-relaxed text-slate-400">Alternates higher-rep (12–15) and lower-rep (6–12) weeks at RPE 8.0.</span>
                     </div>
                   </button>
                   <button
@@ -920,7 +939,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                   >
                     <div>
                       <span className="text-[11px] font-black uppercase tracking-wider text-white">Step Loading</span>
-                      <span className="block text-[12px] font-medium mt-1 leading-relaxed text-slate-400">Keeps reps stable while building RPE in 4-week fatigue blocks.</span>
+                      <span className="block text-[12px] font-medium mt-1 leading-relaxed text-slate-400">Builds RPE through each 4-week block, finishing with a higher-rep week.</span>
                     </div>
                   </button>
                 </div>
@@ -941,8 +960,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                     }`}
                   >
                     <div>
-                      <span className="text-[11px] font-black uppercase tracking-wider text-white">WAVE STRENGTH</span>
-                      <span className="block text-[12px] font-medium mt-1 leading-relaxed text-slate-400">Weekly strength waves progress main movements through lower-repetition phases and may finish with an RPE 10 peak single.</span>
+                      <span className="text-[11px] font-black uppercase tracking-wider text-white">Wave Strength</span>
+                      <span className="block text-[12px] font-medium mt-1 leading-relaxed text-slate-400">Progresses Main Movements through lower-rep phases and finishes with an RPE 10 peak single.</span>
                     </div>
                   </button>
                   <button
@@ -956,7 +975,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                   >
                     <div>
                       <span className="text-[11px] font-black uppercase tracking-wider text-white">Linear Periodisation</span>
-                      <span className="block text-[12px] font-medium mt-1 leading-relaxed text-slate-400">Smooth taper reducing reps (8 down to 1) while ramping RPE to 10.</span>
+                      <span className="block text-[12px] font-medium mt-1 leading-relaxed text-slate-400">Tapers reps from 8 to 1 while increasing target RPE from 7.0 to 10.0.</span>
                     </div>
                   </button>
                 </div>
@@ -972,16 +991,16 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                 </div>
                 <p className="text-[12px] text-slate-400 leading-normal font-sans pl-6">
                     {algorithmId === 'hypertrophy_linear' && (
-                      "Wave Volume: Alternates weekly between Light sessions (15 reps @ RPE 8.0) and Heavy sessions (10 reps for accessories, 6 reps for main @ RPE 8.0). This provides rhythmic volume spikes to force muscle fibers to grow while clearing central fatigue every other week."
+                      "Wave Volume: Alternates weekly between higher-repetition waves (12–15 reps) and heavier, lower-repetition waves (6–12 reps), anchored at RPE 8.0. Rep targets adjust automatically for compound versus isolation and free-weight versus machine exercises."
                     )}
                     {algorithmId === 'hypertrophy_step' && (
-                      "Step Loading: Uses 4-week microcycles where rep counts are held stable, but intensity (RPE) rises stepwise weekly (Week 1: RPE 7.0, Week 2: 7.5, Week 3: 8.0, Week 4: 8.0+). In the 4th week, accessory volume is slightly overreached to spur motor unit recruitment, triggering a deep hyper-recovery response."
+                      "Step Loading: Organises training into 4-week blocks. Target RPE rises through Weeks 1–3, then holds in Week 4 while reps increase. Each new block shifts to a heavier, lower-rep range, with rep targets adjusted for exercise type and equipment."
                     )}
                     {algorithmId === 'strength_undulating' && (
-                      "Wave Strength: Weekly strength waves progress main movements through lower-repetition phases and may finish with an RPE 10 peak single. Exclusively calculates targets for the designated 'Main Movement'."
+                      "Wave Strength: Progresses designated Main Movements through changing strength rep ranges across 4, 8, or 12 weeks, finishing with an RPE 10 peak single. Other exercises remain self-directed."
                     )}
                     {algorithmId === 'strength_linear' && (
-                      "Linear Periodisation: A continuous classic strength sweep across your program's duration. The algorithm automatically tapers rep targets down smoothly from 8 reps in Week 1, down to 1 rep in your peak week, while ramping intensity (RPE 7.0 to 10.0) and weights (70% to 100% of e1RM) linearly. Exclusively calculates targets for the designated 'Main Movement'."
+                      "Linear Periodisation: Progresses designated Main Movements across the program by gradually reducing target reps from 8 in Week 1 to 1 in the final week while increasing target RPE from 7.0 to 10.0. Other exercises remain self-directed."
                     )}
                   </p>
                   {objective === 'Strength' && (
@@ -1194,11 +1213,12 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
         cancelLabel="No, Cancel"
         confirmVariant="primary"
         onConfirm={() => {
-          if (pendingSaveProgram) {
-            executeSaveProgram(pendingSaveProgram);
-          }
+          const progToSave = pendingSaveProgram;
           setShowOverwriteConfirm(false);
           setPendingSaveProgram(null);
+          if (progToSave) {
+            attemptSaveProgram(progToSave);
+          }
         }}
         onCancel={() => {
           setShowOverwriteConfirm(false);
@@ -1242,6 +1262,23 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
         onCancel={() => {
           setShowCommencedModal(false);
           onSave();
+        }}
+      />
+
+      <ProgramDraftConflictModal
+        isOpen={showDraftConflictModal}
+        themeId={themeId}
+        onKeepWorkout={() => {
+          setShowDraftConflictModal(false);
+          setPendingDraftConflictProgram(null);
+        }}
+        onDiscardAndSave={() => {
+          const prog = pendingDraftConflictProgram;
+          setShowDraftConflictModal(false);
+          setPendingDraftConflictProgram(null);
+          if (prog) {
+            performDirectSaveProgram(prog, true);
+          }
         }}
       />
     </div>

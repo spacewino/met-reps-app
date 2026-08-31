@@ -25,6 +25,7 @@ import {
   DiaryMusclePeriod,
   getNextDiaryMusclePeriod,
   generateDiaryMuscleSetStats,
+  filterWorkoutLogsByPeriod,
   DIARY_MUSCLE_PERIOD_DISPLAY_NAMES,
   getDiaryMusclePeriodAriaLabel,
 } from '../lib/diaryMuscleSetPeriod';
@@ -47,6 +48,7 @@ import {
   formatDiarySessionVolume,
   formatExerciseCount,
   formatDuration,
+  formatAggregateDuration,
   formatWorkingSetCount,
   formatMuscleGroupSetCounts,
   formatCompactMuscleSummary,
@@ -361,20 +363,27 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
 
   const activeWeightUnit = storage.getWeightUnit() || 'kg';
 
-  // Muscle group period stats
+  // Summary period selector state
   const [musclePeriod, setMusclePeriod] = useState<DiaryMusclePeriod>('lifetime');
-  const musclePeriodStats = React.useMemo(() => {
-    return generateDiaryMuscleSetStats(workoutLogs, musclePeriod, new Date());
+
+  // Single shared period-filtered population for all Journal Summary metrics & muscle statistics
+  const periodFilteredLogs = React.useMemo(() => {
+    return filterWorkoutLogsByPeriod(workoutLogs, musclePeriod, new Date());
   }, [workoutLogs, musclePeriod]);
 
-  // Lifetime master metrics calculations (WORKOUTS, VOL. MOVED, titles)
+  // Muscle group period stats driven from the shared period population
+  const musclePeriodStats = React.useMemo(() => {
+    return generateDiaryMuscleSetStats(periodFilteredLogs, 'lifetime', new Date());
+  }, [periodFilteredLogs]);
+
+  // Journal Summary period metrics calculations (WORKOUTS, VOL. MOVED, GYM TIME)
   const masterStats = React.useMemo(() => {
     if (workoutLogs.length === 0) return null;
 
-    const totalWorkouts = workoutLogs.length;
+    const totalWorkouts = periodFilteredLogs.length;
     let totalDurationMinutes = 0;
 
-    workoutLogs.forEach(log => {
+    periodFilteredLogs.forEach(log => {
       const dur = resolveWorkoutDurationMinutes(log.durationMinutes);
       if (dur !== null) {
         totalDurationMinutes += dur;
@@ -383,7 +392,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
 
     const lifetimeMuscleStats = generateDiaryMuscleSetStats(workoutLogs, 'lifetime', new Date());
 
-    const histVol = calculateDiaryHistoryVolume(workoutLogs);
+    const histVol = calculateDiaryHistoryVolume(periodFilteredLogs);
     const totalVolumeFormatted = formatDiaryHistoryVolume(histVol, activeWeightUnit);
 
     // Calculate top muscle group from lifetime stats
@@ -396,12 +405,13 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
       }
     });
 
-    // Gamification titles
+    // Gamification titles (lifetime)
+    const lifetimeWorkoutsCount = workoutLogs.length;
     let title = 'IRON INITIATE';
-    if (totalWorkouts >= 100) title = 'WARLORD OF IRON';
-    else if (totalWorkouts >= 50) title = 'VETERAN LIFTER';
-    else if (totalWorkouts >= 25) title = 'APEX ATHLETE';
-    else if (totalWorkouts >= 10) title = 'DEDICATED STRIKER';
+    if (lifetimeWorkoutsCount >= 100) title = 'WARLORD OF IRON';
+    else if (lifetimeWorkoutsCount >= 50) title = 'VETERAN LIFTER';
+    else if (lifetimeWorkoutsCount >= 25) title = 'APEX ATHLETE';
+    else if (lifetimeWorkoutsCount >= 10) title = 'DEDICATED STRIKER';
 
     return {
       totalWorkouts,
@@ -411,7 +421,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
       topMuscle: topMuscle || 'Pecs',
       title,
     };
-  }, [workoutLogs, activeWeightUnit]);
+  }, [workoutLogs, periodFilteredLogs, activeWeightUnit]);
 
   // Group workout logs by month (YYYY, MonthName)
   const groupedLogs = React.useMemo(() => {
@@ -536,26 +546,24 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
     <div className="space-y-4 pb-20">
       {/* Header Bar */}
       <div className={`sticky top-[-16px] -mt-4 pt-3 pb-2.5 z-30 flex items-center justify-between border-b px-4 shadow-md ${
-        isDesertTheme ? 'bg-[#FAF5F0] border-[#E05A47]/30' : 'bg-slate-950 border-slate-850'
+        isDesertTheme
+          ? 'bg-[#FAF5F0] border-[#E05A47]/30'
+          : 'bg-slate-950 border-slate-850'
       }`}>
-        <div className="flex items-center gap-2">
-          <div className={`p-1.5 rounded-none border flex items-center justify-center ${
-            isDesertTheme ? 'bg-[#F5EBE0] border-[#E05A47]/40 text-[#9B1C1C]' : 'bg-slate-900 border-slate-800 text-indigo-400'
+        <div className="flex items-center gap-2.5">
+          <div className={`p-1.5 rounded-none border flex items-center justify-center shrink-0 ${
+            isDesertTheme
+              ? 'bg-[#F5EBE0] border-[#E05A47]/40 text-[#9B1C1C]'
+              : 'bg-slate-900 border-slate-850 text-indigo-400'
           }`}>
             <Calendar className="w-4 h-4" />
           </div>
-          <div>
-            <h2 className={`font-extrabold text-sm uppercase tracking-wide leading-none ${
-              isDesertTheme ? 'text-[#252320]' : 'text-white'
-            }`}>
-              Workout Log Book
-            </h2>
-            <p className={`text-[10px] font-mono uppercase tracking-widest mt-1 ${
-              isDesertTheme ? 'text-[#9B1C1C]' : 'text-indigo-400'
-            }`}>
-              Logged Training Journal
-            </p>
-          </div>
+
+          <h2 className={`font-extrabold text-lg uppercase tracking-wide leading-none whitespace-nowrap ${
+            isDesertTheme ? 'text-[#252320]' : 'text-white'
+          }`}>
+            Workout Log Book
+          </h2>
         </div>
       </div>
 
@@ -570,43 +578,44 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
           }`}
         >
           {/* Top Line: Title Badge + Core Big Metrics */}
-          <div className="flex items-center justify-between gap-2 border-b pb-2.5 border-dashed border-slate-800/80">
-            <div className="min-w-0 flex-1">
-              <span className={`block text-xs font-mono font-black uppercase tracking-widest ${
-                isDesertTheme ? 'text-[#252320]' : 'text-slate-100'
+          <div className="space-y-2 border-b pb-2.5 border-dashed border-slate-800/80">
+            {/* 1. Header label */}
+            <span className={`block text-xs font-mono font-black uppercase tracking-widest ${
+              isDesertTheme ? 'text-[#252320]' : 'text-slate-100'
+            }`}>
+              Journal Summary
+            </span>
+
+            {/* 2. Achievement / Featured Title Row */}
+            <div className="flex items-center gap-1.5 w-full">
+              <div className={`p-0.5 border text-[10px] shrink-0 ${
+                isDesertTheme
+                  ? 'bg-[#FDF2F2] border-[#E05A47]/40 text-[#9B1C1C]'
+                  : 'bg-indigo-950/80 border-indigo-500/40 text-indigo-300'
               }`}>
-                Journal Summary
-              </span>
-              <div className="flex items-center gap-1.5 mt-1">
-                <div className={`p-0.5 border text-[10px] shrink-0 ${
-                  isDesertTheme
-                    ? 'bg-[#FDF2F2] border-[#E05A47]/40 text-[#9B1C1C]'
-                    : 'bg-indigo-950/80 border-indigo-500/40 text-indigo-300'
-                }`}>
-                  <Trophy className="w-3.5 h-3.5" />
-                </div>
-                <span className={`text-xs font-black font-mono tracking-wider truncate ${
-                  isDesertTheme ? 'text-[#9B1C1C]' : 'text-indigo-300'
-                }`}>
-                  {featuredTitle}
-                </span>
-                <button
-                  onClick={() => setIsAchievementsModalOpen(true)}
-                  className={`p-1 rounded transition-colors flex items-center justify-center shrink-0 ${
-                    isDesertTheme
-                      ? 'text-[#9B1C1C] hover:bg-[#E05A47]/15'
-                      : 'text-indigo-400 hover:text-indigo-300 hover:bg-slate-800/60'
-                  }`}
-                  title="View Journal Achievements & Titles"
-                >
-                  <Info className="w-3.5 h-3.5" />
-                </button>
+                <Trophy className="w-3.5 h-3.5" />
               </div>
+              <span className={`min-w-0 flex-1 text-xs font-black font-mono tracking-wider whitespace-normal break-words ${
+                isDesertTheme ? 'text-[#9B1C1C]' : 'text-indigo-300'
+              }`}>
+                {featuredTitle}
+              </span>
+              <button
+                onClick={() => setIsAchievementsModalOpen(true)}
+                className={`p-1 rounded transition-colors flex items-center justify-center shrink-0 ${
+                  isDesertTheme
+                    ? 'text-[#9B1C1C] hover:bg-[#E05A47]/15'
+                    : 'text-indigo-400 hover:text-indigo-300 hover:bg-slate-800/60'
+                }`}
+                title="View Journal Achievements & Titles"
+              >
+                <Info className="w-3.5 h-3.5" />
+              </button>
             </div>
 
-            {/* Core Stats Chips */}
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-              <div className={`px-1.5 sm:px-2 py-1 border text-center ${
+            {/* 3. Dedicated 3-Column Full-Width Metric Grid */}
+            <div className="grid grid-cols-3 gap-1.5 sm:gap-2 w-full">
+              <div className={`min-w-0 px-1.5 sm:px-2 py-1 border text-center ${
                 isDesertTheme
                   ? 'bg-[#F5EBE0] border-[#E05A47]/30'
                   : 'bg-slate-950 border-slate-800'
@@ -614,12 +623,12 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                 <span className={`block text-[8px] font-mono font-bold uppercase tracking-tight ${
                   isDesertTheme ? 'text-[#6F6A63]' : 'text-slate-500'
                 }`}>WORKOUTS</span>
-                <span className={`text-xs font-black font-mono ${
+                <span className={`text-xs font-black font-mono whitespace-nowrap ${
                   isDesertTheme ? 'text-[#252320]' : 'text-white'
                 }`}>{masterStats.totalWorkouts}</span>
               </div>
 
-              <div className={`px-1.5 sm:px-2 py-1 border text-center ${
+              <div className={`min-w-0 px-1.5 sm:px-2 py-1 border text-center ${
                 isDesertTheme
                   ? 'bg-[#F5EBE0] border-[#E05A47]/30'
                   : 'bg-slate-950 border-slate-800'
@@ -627,12 +636,12 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                 <span className={`block text-[8px] font-mono font-bold uppercase tracking-tight ${
                   isDesertTheme ? 'text-[#6F6A63]' : 'text-slate-500'
                 }`}>VOL. MOVED</span>
-                <span className={`text-xs font-black font-mono ${
+                <span className={`text-xs font-black font-mono whitespace-nowrap ${
                   isDesertTheme ? 'text-[#9B1C1C]' : 'text-emerald-400'
                 }`}>{masterStats.totalVolumeFormatted}</span>
               </div>
 
-              <div className={`px-1.5 sm:px-2 py-1 border text-center ${
+              <div className={`min-w-0 px-1.5 sm:px-2 py-1 border text-center ${
                 isDesertTheme
                   ? 'bg-[#F5EBE0] border-[#E05A47]/30'
                   : 'bg-slate-950 border-slate-800'
@@ -640,9 +649,9 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                 <span className={`block text-[8px] font-mono font-bold uppercase tracking-tight ${
                   isDesertTheme ? 'text-[#6F6A63]' : 'text-slate-500'
                 }`}>GYM TIME</span>
-                <span className={`text-xs font-black font-mono ${
+                <span className={`text-xs font-black font-mono whitespace-nowrap ${
                   isDesertTheme ? 'text-[#9B1C1C]' : 'text-indigo-400'
-                }`}>{formatDuration(masterStats.totalDurationMinutes) || '0m'}</span>
+                }`}>{formatAggregateDuration(masterStats.totalDurationMinutes)}</span>
               </div>
             </div>
           </div>
