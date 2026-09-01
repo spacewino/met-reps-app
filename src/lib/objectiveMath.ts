@@ -323,6 +323,8 @@ export interface ContextualPrescriptionBaselineOptions {
   modality?: ExerciseEntry['modality'];
   activeUnit?: WeightUnit;
   bodyweightSnapshot?: BodyweightSnapshot | null;
+  predecessorProgramId?: string | null;
+  algorithmPhaseOffset?: number;
 }
 
 /**
@@ -658,11 +660,12 @@ export function calculateMedian(values: number[]): number {
 }
 
 /**
- * Resolves the contextual prescription baseline e1RM across the 4-tier hierarchy:
- * Tier 1: Same program, same day (weeks < targetWeek)
- * Tier 2: Same program, day-agnostic fallback (weeks < targetWeek)
- * Tier 3: Cross-program bootstrap (up to 3 most recent sessions prior to target session)
- * Tier 4: Template / manual fallback (returns 0)
+ * Resolves the contextual prescription baseline e1RM across the 5-tier hierarchy:
+ * Tier 1: Current program, same day (weeks < targetWeek)
+ * Tier 2: Current program, day-agnostic fallback (weeks < targetWeek)
+ * Tier 3: Predecessor program (linked rerun continuation)
+ * Tier 4: Cross-program bootstrap (up to 3 most recent sessions prior to target session)
+ * Tier 5: Fallback (returns 0 so caller uses template baseline or manual entry)
  */
 export function resolveContextualPrescriptionBaselineE1RM(
   exerciseName: string,
@@ -678,6 +681,7 @@ export function resolveContextualPrescriptionBaselineE1RM(
   const targetWeekNum = Number.isFinite(parsedTargetWeekNum) && parsedTargetWeekNum > 0 ? parsedTargetWeekNum : 1;
 
   const targetProgramId = options?.programId ? String(options.programId).trim() : null;
+  const predecessorProgramId = options?.predecessorProgramId ? String(options.predecessorProgramId).trim() : null;
   const targetDay = options?.targetDay !== undefined && options?.targetDay !== null ? String(options.targetDay).trim() : null;
   const targetOccurrenceOrdinal = options?.occurrenceOrdinal ?? 0;
   const activeUnit = options?.activeUnit || 'kg';
@@ -779,7 +783,44 @@ export function resolveContextualPrescriptionBaselineE1RM(
     }
   }
 
-  // TIER 3: Cross-program bootstrap
+  // TIER 3: Predecessor Program matching (Linked Rerun continuation)
+  if (predecessorProgramId) {
+    const predecessorLogs = logs.filter(l => {
+      if (!isCandidateLogChronologicallyEligible(l, targetChronology, logs)) return false;
+      return l.programId && String(l.programId).trim() === predecessorProgramId;
+    });
+
+    const sortedPredLogs = [...predecessorLogs].sort(compareLogsChronologicalDesc);
+    const weekExposuresMap = new Map<number, { week: number; capacity: number; date: string }>();
+
+    for (const log of sortedPredLogs) {
+      const logW = parseLogWeek(log.week);
+      if (logW !== null && weekExposuresMap.has(logW)) continue;
+
+      const matchedEx = findMatchingExerciseInLog(log);
+      if (!matchedEx) continue;
+
+      const cap = extractExposureSessionCapacity(matchedEx, log, activeUnit);
+      if (cap !== null && cap > 0) {
+        const key = logW !== null ? logW : weekExposuresMap.size + 1;
+        if (!weekExposuresMap.has(key)) {
+          weekExposuresMap.set(key, { week: key, capacity: cap, date: log.date || '' });
+        }
+      }
+    }
+
+    if (weekExposuresMap.size > 0) {
+      const sortedExposures = Array.from(weekExposuresMap.values()).sort((a, b) => a.week - b.week);
+      if (sortedExposures.length === 1) {
+        return sortedExposures[0].capacity;
+      }
+      const previousCapacity = sortedExposures[sortedExposures.length - 1].capacity;
+      const programMedian = calculateMedian(sortedExposures.map(e => e.capacity));
+      return 0.75 * previousCapacity + 0.25 * programMedian;
+    }
+  }
+
+  // TIER 4: Cross-program bootstrap
   const eligibleCrossProgramLogs = logs.filter(log => {
     if (!isCandidateLogChronologicallyEligible(log, targetChronology, logs)) return false;
 
@@ -824,7 +865,7 @@ export function resolveContextualPrescriptionBaselineE1RM(
     return top3[1];
   }
 
-  // TIER 4: Fallback (returns 0 so caller uses template baseline or manual entry)
+  // TIER 5: Fallback (returns 0 so caller uses template baseline or manual entry)
   return 0;
 }
 
@@ -1210,6 +1251,8 @@ export interface ResolveSessionDistributionParams {
   sessionStartedAt?: number | null;
   explicitTargetTimestamp?: number | null;
   occurrenceOrdinal?: number;
+  predecessorProgramId?: string | null;
+  algorithmPhaseOffset?: number;
 }
 
 export interface PrescriptionShape {
@@ -1229,8 +1272,9 @@ export function deriveCanonicalPrescriptionShape(params: {
   exercise: ExerciseEntry;
   weekNum: number;
   programDuration?: number;
+  algorithmPhaseOffset?: number;
 }): PrescriptionShape | null {
-  const { objective, effectiveAlgorithmId, exercise, weekNum, programDuration = 8 } = params;
+  const { objective, effectiveAlgorithmId, exercise, weekNum, programDuration = 8, algorithmPhaseOffset = 0 } = params;
   const classification = getExerciseClassification(exercise);
   const isIsolation = classification.category === 'isolation';
   const isMachine = classification.equipment === 'machine';
@@ -1243,8 +1287,9 @@ export function deriveCanonicalPrescriptionShape(params: {
     if (effectiveAlgorithmId === 'hypertrophy_step') {
       const maxWeek = programDuration || 8;
       const activeWeek = Math.min(weekNum, maxWeek);
-      const activeBlock = Math.min(2, Math.floor((activeWeek - 1) / 4));
-      const stepNum = ((activeWeek - 1) % 4) + 1;
+      const effectivePhase = ((activeWeek + algorithmPhaseOffset - 1) % 12) + 1;
+      const activeBlock = Math.min(2, Math.floor((effectivePhase - 1) / 4));
+      const stepNum = ((effectivePhase - 1) % 4) + 1;
 
       let baseReps = 10;
       let baseRPE = 7.5;
@@ -1348,6 +1393,8 @@ export function resolveSessionDistribution(params: ResolveSessionDistributionPar
     sessionStartedAt,
     explicitTargetTimestamp,
     occurrenceOrdinal,
+    predecessorProgramId,
+    algorithmPhaseOffset,
   } = params;
 
   if (objective === 'Off' || objective === 'Deload') {
@@ -1391,6 +1438,8 @@ export function resolveSessionDistribution(params: ResolveSessionDistributionPar
       occurrenceOrdinal,
       modality: exercise.modality,
       activeUnit,
+      predecessorProgramId,
+      algorithmPhaseOffset,
     }
   );
   const baselineE1RM = historicalE1RM > 0 ? historicalE1RM : extractTemplateBaselineE1RM(templateExercise, bodyweightSnapshot, activeUnit);
@@ -1414,6 +1463,7 @@ export function resolveSessionDistribution(params: ResolveSessionDistributionPar
     exercise,
     weekNum,
     programDuration,
+    algorithmPhaseOffset,
   });
 
   if (!shape) {
@@ -1509,6 +1559,8 @@ export interface GenerateSessionTargetMapParams {
   sessionStartedAt?: number | null;
   explicitTargetTimestamp?: number | null;
   occurrenceOrdinal?: number;
+  predecessorProgramId?: string | null;
+  algorithmPhaseOffset?: number;
 }
 
 /**
@@ -1535,6 +1587,8 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
     sessionStartedAt,
     explicitTargetTimestamp,
     occurrenceOrdinal,
+    predecessorProgramId,
+    algorithmPhaseOffset,
   } = params;
 
   // 1. Objective Off or skipped exercise returns unprescribed
@@ -1581,6 +1635,8 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
       occurrenceOrdinal,
       modality: mod,
       activeUnit,
+      predecessorProgramId,
+      algorithmPhaseOffset,
     }
   );
   const baselineE1RM = historicalE1RM > 0 ? historicalE1RM : extractTemplateBaselineE1RM(templateExercise || undefined, bodyweightSnapshot, activeUnit);
@@ -1611,6 +1667,7 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
       exercise,
       weekNum,
       programDuration,
+      algorithmPhaseOffset,
     });
 
     if (!shape) {
@@ -1800,6 +1857,8 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
     sessionStartedAt,
     explicitTargetTimestamp,
     occurrenceOrdinal,
+    predecessorProgramId,
+    algorithmPhaseOffset,
   });
 
   if (resolution.isBypassed || !resolution.distributionResult || !resolution.anchor) {
@@ -1923,6 +1982,8 @@ export interface CalculateObjectiveSetsParams {
   sessionStartedAt?: number | null;
   explicitTargetTimestamp?: number | null;
   occurrenceOrdinal?: number;
+  predecessorProgramId?: string | null;
+  algorithmPhaseOffset?: number;
 }
 
 /**
@@ -1956,6 +2017,8 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
     sessionStartedAt,
     explicitTargetTimestamp,
     occurrenceOrdinal,
+    predecessorProgramId,
+    algorithmPhaseOffset,
   } = params;
 
   if (objective === 'Off' || exercise.isSkipped) {
@@ -1987,6 +2050,8 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
     sessionStartedAt,
     explicitTargetTimestamp,
     occurrenceOrdinal,
+    predecessorProgramId,
+    algorithmPhaseOffset,
   });
 
   if (!targetsByOrdinal) {
@@ -2013,6 +2078,8 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
     sessionStartedAt,
     explicitTargetTimestamp,
     occurrenceOrdinal,
+    predecessorProgramId,
+    algorithmPhaseOffset,
   }) : null;
   const roundedAnchorWeight = resolution?.roundedAnchorWeight || (targetsByOrdinal.get(1)?.weight || 0);
   const anchorReps = resolution?.anchorReps || (targetsByOrdinal.get(1)?.reps || 10);
@@ -2121,6 +2188,8 @@ export interface CalculateAddedSetTargetParams {
   explicitTargetTimestamp?: number | null;
   occurrenceOrdinal?: number;
   committedEvidence?: AddedSetCommittedEvidenceEntry[];
+  predecessorProgramId?: string | null;
+  algorithmPhaseOffset?: number;
 }
 
 export interface AddedSetTargetResult {
@@ -2169,6 +2238,8 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
     explicitTargetTimestamp,
     occurrenceOrdinal,
     committedEvidence = [],
+    predecessorProgramId,
+    algorithmPhaseOffset,
   } = params;
 
   // 1. Calculate the new working-set ordinal (warmups do not consume working-set ordinals)
@@ -2230,6 +2301,8 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
       occurrenceOrdinal,
       modality: exercise.modality,
       activeUnit,
+      predecessorProgramId,
+      algorithmPhaseOffset,
     }
   );
   const templateBaselineE1RM = extractTemplateBaselineE1RM(templateExercise || undefined, bodyweightSnapshot, activeUnit);
@@ -2284,6 +2357,8 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
             sessionStartedAt,
             explicitTargetTimestamp,
             occurrenceOrdinal,
+            predecessorProgramId,
+            algorithmPhaseOffset,
           });
 
           if (targetMap) {
@@ -2307,6 +2382,7 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
             weekNum,
             programDuration,
             ordinal: 1,
+            algorithmPhaseOffset,
           });
           if (s1Shape) {
             snap1Reps = s1Shape.reps;
@@ -2319,6 +2395,7 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
             weekNum,
             programDuration,
             ordinal: targetWorkingOrdinal,
+            algorithmPhaseOffset,
           });
           if (sOrdShape) {
             targetOrdinalReps = sOrdShape.reps;
@@ -2387,6 +2464,7 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
             weekNum,
             programDuration,
             ordinal: 1,
+            algorithmPhaseOffset,
           });
           if (s1Shape && s1Shape.reps === 1 && s1Shape.rpe >= 9.5) {
             profileType = 'strength_post_test';
@@ -2418,6 +2496,8 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
             sessionStartedAt,
             explicitTargetTimestamp,
             occurrenceOrdinal,
+            predecessorProgramId,
+            algorithmPhaseOffset,
           });
 
           if (targetMap) {
@@ -2443,6 +2523,7 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
             weekNum,
             programDuration,
             ordinal: 1,
+            algorithmPhaseOffset,
           });
           if (s1Shape) {
             effectiveBaseline = deriveColdStartPlannedCapacityE1RM(ev1.weight, s1Shape.reps, s1Shape.rpe) ?? 0;
@@ -2454,6 +2535,7 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
                 weekNum,
                 programDuration,
                 ordinal: ord,
+                algorithmPhaseOffset,
               });
               if (s) {
                 prescribedTargets.push({
@@ -2534,6 +2616,7 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
               weekNum,
               programDuration,
               ordinal: 1,
+              algorithmPhaseOffset,
             });
             if (s1Shape && s1Shape.reps === 1 && s1Shape.rpe >= 9.5) {
               profileType = 'strength_post_test';
@@ -2565,6 +2648,8 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
               sessionStartedAt,
               explicitTargetTimestamp,
               occurrenceOrdinal,
+              predecessorProgramId,
+              algorithmPhaseOffset,
             });
 
             if (targetMap) {
@@ -2593,6 +2678,7 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
               weekNum,
               programDuration,
               ordinal: 1,
+              algorithmPhaseOffset,
             });
             if (s1Shape) {
               effectiveBaseline = deriveColdStartPlannedCapacityE1RM(effLoad1, s1Shape.reps, s1Shape.rpe) ?? 0;
@@ -2604,6 +2690,7 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
                   weekNum,
                   programDuration,
                   ordinal: ord,
+                  algorithmPhaseOffset,
                 });
                 if (s) {
                   prescribedTargets.push({
@@ -2712,6 +2799,8 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
       sessionStartedAt,
       explicitTargetTimestamp,
       occurrenceOrdinal,
+      predecessorProgramId,
+      algorithmPhaseOffset,
     });
 
     if (targetMap) {
@@ -2753,6 +2842,7 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
       weekNum,
       programDuration,
       ordinal: 1,
+      algorithmPhaseOffset,
     });
     if (ws1Shape) {
       const plannedCap = deriveColdStartPlannedCapacityE1RM(ws1.weight, ws1Shape.reps, ws1Shape.rpe);
@@ -2827,6 +2917,7 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
           weekNum,
           programDuration,
           ordinal: 1,
+          algorithmPhaseOffset,
         });
         if (ws1Shape) {
           const plannedCap = deriveColdStartPlannedCapacityE1RM(effLoad1, ws1Shape.reps, ws1Shape.rpe);
@@ -2905,6 +2996,7 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
         weekNum,
         programDuration,
         ordinal: targetWorkingOrdinal,
+        algorithmPhaseOffset,
       });
       if (ordinalShape) {
         return {
@@ -2929,6 +3021,7 @@ export function calculateAddedSetTarget(params: CalculateAddedSetTargetParams): 
       weekNum,
       programDuration,
       ordinal: targetWorkingOrdinal,
+      algorithmPhaseOffset,
     });
     if (ordinalShape) {
       return {

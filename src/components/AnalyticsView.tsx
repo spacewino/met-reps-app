@@ -4,10 +4,13 @@
  */
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { LineChart, TrendingUp, Sparkles, Coffee, Droplet, Flame, Brain, Award, AlertCircle, Dumbbell, Target, Info, X, ArrowLeft } from 'lucide-react';
+import { LineChart, TrendingUp, Sparkles, Coffee, Droplet, Flame, Brain, Award, AlertCircle, Dumbbell, Target, Info, X, ArrowLeft, Repeat, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { WorkoutLog, SetEntry, Program, HydrationLevel, mapLitersToHydration, mapHydrationToLiters } from '../types';
-import { storage } from '../lib/storage';
+import { storage, PREBUILT_TEMPLATES } from '../lib/storage';
 import { useModalHistory } from '../lib/useModalHistory';
+import { createProgramContinuation, formatContinuationCycleName } from '../lib/programContinuation';
+import { getActiveWorkoutDraft, doesDraftMatchProgram, clearActiveWorkoutDraft, ActiveWorkoutIdentity } from '../lib/navigationGuard';
+import { WorkoutConflictModal } from './WorkoutConflictModal';
 import {
   getUniqueTrackedExercises,
   getStrengthProgression,
@@ -22,9 +25,11 @@ import { formatAggregateDuration } from '../lib/diaryInsightPresentation';
 interface AnalyticsViewProps {
   workoutLogs: WorkoutLog[];
   initialProgramId?: string | null;
+  onNavigate?: (view: string, params?: any, force?: boolean) => void;
+  onRefresh?: () => void;
 }
 
-export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewProps) {
+export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRefresh }: AnalyticsViewProps) {
   const themeId = useMemo(() => storage.getTheme(), []);
   const isDesert = themeId === 'amber';
   const isFeralas = themeId === 'onyx';
@@ -41,10 +46,25 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
   const [reportChartExercise, setReportChartExercise] = useState<string>('Overall');
   const [isReportExerciseDropdownOpen, setIsReportExerciseDropdownOpen] = useState(false);
 
+  // Rerun Program state
+  const [showRerunConfirmation, setShowRerunConfirmation] = useState(false);
+  const [activeWorkoutConflict, setActiveWorkoutConflict] = useState<ActiveWorkoutIdentity | null>(null);
+  const [isRerunProcessing, setIsRerunProcessing] = useState(false);
+
   const { dismiss: dismissReportCard } = useModalHistory(
     selectedReportProgram !== null,
-    () => setSelectedReportProgram(null),
+    () => {
+      setSelectedReportProgram(null);
+      setShowRerunConfirmation(false);
+      setActiveWorkoutConflict(null);
+    },
     'program-report-card'
+  );
+
+  const { dismiss: dismissRerunModal } = useModalHistory(
+    showRerunConfirmation,
+    () => setShowRerunConfirmation(false),
+    'program-rerun-confirmation'
   );
 
   // Pre-select program from initialProgramId prop
@@ -285,6 +305,106 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
       actPath: aPath
     };
   }, [reportChartData]);
+
+  const isSelectedProgramCompleted = selectedReportProgram ? storage.isProgramCompleted(selectedReportProgram, workoutLogs) : false;
+  const isFiniteDuration = selectedReportProgram ? selectedReportProgram.programDuration !== '∞' : false;
+  const isRerunEligible = isSelectedProgramCompleted && isFiniteDuration;
+
+  const nextCycleIndex = useMemo(() => {
+    if (!selectedReportProgram) return 2;
+    return (Number.isInteger(selectedReportProgram.cycleIndex) && Number(selectedReportProgram.cycleIndex) >= 1)
+      ? Number(selectedReportProgram.cycleIndex) + 1
+      : 2;
+  }, [selectedReportProgram]);
+
+  const nextCycleName = useMemo(() => {
+    if (!selectedReportProgram) return '';
+    return formatContinuationCycleName(selectedReportProgram.name, nextCycleIndex);
+  }, [selectedReportProgram, nextCycleIndex]);
+
+  const existingSuccessor = useMemo(() => {
+    if (!selectedReportProgram) return null;
+    const list = storage.getPrograms();
+    return list.find(p => p.parentProgramId === selectedReportProgram.id) || null;
+  }, [selectedReportProgram]);
+
+  const hasSourceDraft = useMemo(() => {
+    if (!selectedReportProgram) return false;
+    const activeDraftMeta = getActiveWorkoutDraft();
+    return Boolean(activeDraftMeta && doesDraftMatchProgram(activeDraftMeta.rawDraft, selectedReportProgram.id));
+  }, [selectedReportProgram, showRerunConfirmation]);
+
+  const handleInitiateRerun = () => {
+    if (!selectedReportProgram) return;
+
+    // 1. Revalidate source program exists in storage or prebuilt
+    const allPrograms = storage.getPrograms();
+    const exists = allPrograms.some(p => p.id === selectedReportProgram.id) || PREBUILT_TEMPLATES.some(p => p.id === selectedReportProgram.id);
+    if (!exists) {
+      alert('This program is no longer available in storage.');
+      return;
+    }
+
+    // 2. Check for active workout draft conflict
+    const activeDraftMeta = getActiveWorkoutDraft();
+    if (activeDraftMeta) {
+      const isForThisProgram = doesDraftMatchProgram(activeDraftMeta.rawDraft, selectedReportProgram.id);
+      if (!isForThisProgram && activeDraftMeta.identity) {
+        setActiveWorkoutConflict(activeDraftMeta.identity);
+        return;
+      }
+    }
+
+    setShowRerunConfirmation(true);
+  };
+
+  const handleExecuteRerun = async () => {
+    if (!selectedReportProgram) return;
+    setIsRerunProcessing(true);
+    try {
+      // 1. Revalidate source program
+      const allPrograms = storage.getPrograms();
+      const source = allPrograms.find(p => p.id === selectedReportProgram.id) || PREBUILT_TEMPLATES.find(p => p.id === selectedReportProgram.id);
+      if (!source) {
+        setShowRerunConfirmation(false);
+        setIsRerunProcessing(false);
+        return;
+      }
+
+      // 2. Create continuation cycle
+      const continuation = createProgramContinuation(source);
+
+      // 3. Save continuation program to storage
+      storage.saveProgram(continuation);
+
+      // 4. Set as current active program
+      storage.setCurrentProgramId(continuation.id);
+
+      // 5. Clean up draft if it belonged to source program
+      const activeDraftMeta = getActiveWorkoutDraft();
+      if (activeDraftMeta && doesDraftMatchProgram(activeDraftMeta.rawDraft, source.id)) {
+        clearActiveWorkoutDraft();
+      }
+
+      // 6. Dismiss modals and report card
+      setShowRerunConfirmation(false);
+      setSelectedReportProgram(null);
+
+      // 7. Refresh storage-dependent components
+      if (onRefresh) {
+        onRefresh();
+      }
+
+      // 8. Navigate to Home
+      if (onNavigate) {
+        onNavigate('home', null, true);
+      }
+    } catch (e) {
+      console.error('Failed to rerun program continuation:', e);
+    } finally {
+      setIsRerunProcessing(false);
+    }
+  };
 
   if (selectedReportProgram && reportCard) {
     return (
@@ -581,8 +701,24 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
           )}
         </div>
 
-        {/* Footer Button to Return */}
-        <div className="px-4">
+        {/* Footer Buttons: Rerun Program (if completed) and Return */}
+        <div className="px-4 space-y-2.5">
+          {isRerunEligible && (
+            <button
+              type="button"
+              onClick={handleInitiateRerun}
+              className={`w-full font-black text-xs py-4 px-4 border transition uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2 shadow-lg ${
+                isDesert
+                  ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-500 shadow-amber-950/20'
+                  : isFeralas
+                  ? 'bg-[#E05A47] hover:bg-[#c94b39] text-white border-[#E05A47] shadow-red-950/20'
+                  : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-indigo-950/40'
+              }`}
+            >
+              <Repeat className="w-4 h-4" />
+              Rerun Program
+            </button>
+          )}
           <button
             type="button"
             onClick={dismissReportCard}
@@ -591,6 +727,165 @@ export function AnalyticsView({ workoutLogs, initialProgramId }: AnalyticsViewPr
             Back to Trends
           </button>
         </div>
+
+        {/* Rerun Program Confirmation Modal */}
+        {showRerunConfirmation && selectedReportProgram && (
+          <div
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-in fade-in duration-150 font-sans text-left"
+            onClick={dismissRerunModal}
+          >
+            <div
+              className={`w-full max-w-md overflow-hidden flex flex-col shadow-2xl rounded-none border transition-all duration-150 animate-in fade-in zoom-in-95 ${
+                isDesert
+                  ? 'bg-[#FAF5F0] border-amber-600/60 text-slate-900 shadow-amber-950/10'
+                  : 'bg-slate-900 border-slate-800 text-slate-100 shadow-indigo-950/40'
+              }`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div
+                className={`p-4 border-b flex items-center justify-between gap-3 ${
+                  isDesert ? 'bg-[#F2EAE1] border-amber-200/50' : 'bg-slate-950 border-slate-850'
+                }`}
+              >
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider leading-snug flex items-center gap-2">
+                    <Repeat className={`w-4 h-4 font-bold ${isDesert ? 'text-amber-700' : 'text-indigo-400'}`} />
+                    Rerun Program
+                  </h3>
+                  <p
+                    className={`text-[10px] font-mono uppercase tracking-widest leading-none mt-1 ${
+                      isDesert ? 'text-amber-700/80' : 'text-indigo-400'
+                    }`}
+                  >
+                    Program Continuation Cycle
+                  </p>
+                </div>
+                <button
+                  onClick={dismissRerunModal}
+                  disabled={isRerunProcessing}
+                  className={`p-1.5 rounded-none border transition cursor-pointer shrink-0 text-slate-300 disabled:opacity-50 ${
+                    isDesert
+                      ? 'bg-[#FDFCFB] hover:bg-amber-100/50 border-amber-200'
+                      : 'bg-slate-900 hover:bg-slate-800 border-slate-800'
+                  }`}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-5 space-y-4 text-xs leading-relaxed">
+                <div
+                  className={`p-3.5 border ${
+                    isDesert
+                      ? 'bg-amber-500/5 border-amber-200/60'
+                      : 'bg-indigo-950/20 border-indigo-900/30'
+                  }`}
+                >
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold mb-1">
+                    New Program Cycle
+                  </div>
+                  <div className="text-sm font-black text-white uppercase mb-1">
+                    {nextCycleName}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-indigo-400 font-mono font-bold uppercase">
+                    <span>Cycle {nextCycleIndex}</span>
+                    <span>•</span>
+                    <span>{selectedReportProgram.programDuration} Weeks</span>
+                    <span>•</span>
+                    <span>{selectedReportProgram.daysPerWeek} Days/Wk</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 text-slate-300 font-medium">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Starts fresh at <strong className="text-white">Week 1</strong> with identical exercises, set targets, and schedule.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Advances progression baseline and algorithm phase offsets automatically.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Preserves the completed source program and all past workout logs unchanged.</span>
+                  </div>
+                </div>
+
+                {/* Stale draft alert if draft belongs to source program */}
+                {hasSourceDraft && (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5 text-amber-300">
+                    <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+                    <span className="text-[11px] leading-relaxed">
+                      An unfinished workout draft for this completed program will be discarded when starting the new cycle.
+                    </span>
+                  </div>
+                )}
+
+                {/* Existing successor notice */}
+                {existingSuccessor && (
+                  <div className="p-3 bg-slate-950 border border-slate-800 flex items-start gap-2.5 text-slate-400">
+                    <Info className="w-4 h-4 shrink-0 text-indigo-400 mt-0.5" />
+                    <span className="text-[11px] leading-relaxed">
+                      Note: A continuation cycle ({existingSuccessor.name}) already exists in your library.
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer Actions */}
+              <div
+                className={`p-3.5 border-t flex gap-2 justify-end ${
+                  isDesert ? 'bg-[#F2EAE1] border-amber-200/50' : 'bg-slate-950 border-slate-850'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={dismissRerunModal}
+                  disabled={isRerunProcessing}
+                  className={`font-black text-xs py-2.5 px-4 rounded-none border transition cursor-pointer disabled:opacity-50 ${
+                    isDesert
+                      ? 'bg-[#FDFCFB] hover:bg-amber-100/50 border-amber-200 text-slate-700'
+                      : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300'
+                  }`}
+                >
+                  CANCEL
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteRerun}
+                  disabled={isRerunProcessing}
+                  className={`font-black text-xs py-2.5 px-5 rounded-none border transition cursor-pointer text-white shadow flex items-center gap-1.5 disabled:opacity-50 ${
+                    isDesert
+                      ? 'bg-amber-600 hover:bg-amber-500 border-amber-500 shadow-amber-950/20'
+                      : isFeralas
+                      ? 'bg-[#E05A47] hover:bg-[#c94b39] border-[#E05A47] shadow-red-950/20'
+                      : 'bg-indigo-600 hover:bg-indigo-500 border-indigo-500 shadow-indigo-950/40'
+                  }`}
+                >
+                  <Repeat className="w-3.5 h-3.5" />
+                  {isRerunProcessing ? 'STARTING...' : `START CYCLE ${nextCycleIndex}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Workout Conflict Protection Modal */}
+        {activeWorkoutConflict && (
+          <WorkoutConflictModal
+            isOpen={activeWorkoutConflict !== null}
+            activeIdentity={activeWorkoutConflict}
+            themeId={themeId}
+            onClose={() => setActiveWorkoutConflict(null)}
+            onResumeActive={() => {
+              setActiveWorkoutConflict(null);
+              setSelectedReportProgram(null);
+              onNavigate?.('logger', null);
+            }}
+          />
+        )}
       </div>
     );
   }

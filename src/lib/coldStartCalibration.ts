@@ -84,8 +84,9 @@ export function deriveColdStartOrdinalShape(params: {
   weekNum: number;
   programDuration?: number;
   ordinal: number;
+  algorithmPhaseOffset?: number;
 }): { reps: number; rpe: number; form: 'standard' | 'strict' | 'loose'; profileType: FatiguePriorProfile } | null {
-  const { objective, algorithmId, exercise, weekNum, programDuration = 8, ordinal } = params;
+  const { objective, algorithmId, exercise, weekNum, programDuration = 8, ordinal, algorithmPhaseOffset } = params;
 
   if (ordinal < 1 || ordinal > 6) {
     return null;
@@ -102,6 +103,7 @@ export function deriveColdStartOrdinalShape(params: {
     exercise,
     weekNum,
     programDuration,
+    algorithmPhaseOffset,
   });
 
   if (!shape) {
@@ -174,6 +176,7 @@ export function deriveColdStartCalibratedPlannedTargets(params: {
   programDuration?: number;
   plannedCapacityE1RM: number;
   workingSetCount: number;
+  algorithmPhaseOffset?: number;
 }): Array<{ workingSetOrdinal: number; weight: number; reps: number; rpe: number }> | null {
   const {
     objective,
@@ -183,6 +186,7 @@ export function deriveColdStartCalibratedPlannedTargets(params: {
     programDuration = 8,
     plannedCapacityE1RM,
     workingSetCount,
+    algorithmPhaseOffset = 0,
   } = params;
 
   if (plannedCapacityE1RM <= 0 || !Number.isFinite(plannedCapacityE1RM)) {
@@ -196,6 +200,7 @@ export function deriveColdStartCalibratedPlannedTargets(params: {
     weekNum,
     programDuration,
     ordinal: 1,
+    algorithmPhaseOffset,
   });
 
   if (!shape1) {
@@ -214,6 +219,7 @@ export function deriveColdStartCalibratedPlannedTargets(params: {
       weekNum,
       programDuration,
       ordinal: ord,
+      algorithmPhaseOffset,
     });
     if (!ordShape) continue;
 

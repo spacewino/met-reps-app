@@ -464,7 +464,12 @@ export default function App() {
             )}
 
             {currentView === 'analytics' && (
-              <AnalyticsView workoutLogs={workoutLogs} initialProgramId={viewParams?.programId} />
+              <AnalyticsView
+                workoutLogs={workoutLogs}
+                initialProgramId={viewParams?.programId}
+                onNavigate={handleNavigate}
+                onRefresh={loadData}
+              />
             )}
 
             {currentView === 'history' && (

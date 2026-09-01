@@ -614,16 +614,23 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       });
     }
 
+    const existingProg = editingProgramId
+      ? (storage.getPrograms().find(p => p.id === editingProgramId) || savedPrograms.find(p => p.id === editingProgramId))
+      : null;
+
     const updatedProgram: Program = {
       id: targetId,
       name: name,
       daysPerWeek: daysPerWeek,
       programDuration: durationWeeks,
-      createdAt: new Date().toISOString(),
+      createdAt: (!isNewProgram && existingProg?.createdAt) ? existingProg.createdAt : new Date().toISOString(),
       exercisesByDay: finalExercisesByDay,
       assignedWeekdays: cleanedAssignedWeekdays,
       objective: objective,
       algorithmId: algorithmId,
+      ...(existingProg?.parentProgramId !== undefined && !isNewProgram ? { parentProgramId: existingProg.parentProgramId } : {}),
+      ...(existingProg?.cycleIndex !== undefined && !isNewProgram ? { cycleIndex: existingProg.cycleIndex } : {}),
+      ...(existingProg?.algorithmPhaseOffset !== undefined && !isNewProgram ? { algorithmPhaseOffset: existingProg.algorithmPhaseOffset } : {}),
     };
 
     // If enrolled in an active program, and this program is NOT that active program

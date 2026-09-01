@@ -113,6 +113,9 @@ export type Program = {
   assignedWeekdays?: Record<number, number | null>; // Day Index -> Weekday index (0=Mon, 1=Tue... 6=Sun)
   objective?: 'Off' | 'Hypertrophy' | 'Strength';
   algorithmId?: 'hypertrophy_linear' | 'hypertrophy_step' | 'strength_undulating' | 'strength_linear' | 'none';
+  parentProgramId?: string;
+  cycleIndex?: number;
+  algorithmPhaseOffset?: number;
 };
 
 export type PlannedSession = {
