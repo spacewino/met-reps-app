@@ -10,7 +10,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { AnalyticsView } from '../../components/AnalyticsView';
 import { Program, WorkoutLog } from '../../types';
 import { storage } from '../storage';
-import { createProgramContinuation } from '../programContinuation';
 
 // In-memory localStorage mock for node test runner
 const memoryStore: Record<string, string> = {};
@@ -37,13 +36,16 @@ if (typeof window !== 'undefined') {
 
 describe('RPC-2B: Program Report Card Rerun Action Suite', () => {
   beforeEach(() => {
-    window.localStorage.clear();
     localStorage.clear();
-    vi.clearAllMocks();
+    localStorage.setItem('programList', JSON.stringify([]));
+    localStorage.setItem('workoutLogs', JSON.stringify([]));
+    localStorage.setItem('currentProgramId', '');
+    vi.restoreAllMocks();
   });
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
   });
 
   const sampleCompletedProgram: Program = {
@@ -134,6 +136,7 @@ describe('RPC-2B: Program Report Card Rerun Action Suite', () => {
     storage.saveProgram(sampleCompletedProgram);
     storage.setCurrentProgramId(sampleCompletedProgram.id);
     const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
 
     render(
       <AnalyticsView
@@ -172,6 +175,7 @@ describe('RPC-2B: Program Report Card Rerun Action Suite', () => {
         ],
       },
     ];
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
 
     render(
       <AnalyticsView
@@ -187,6 +191,7 @@ describe('RPC-2B: Program Report Card Rerun Action Suite', () => {
   it('opens confirmation modal with formatted next cycle name and metadata upon clicking Rerun Program', async () => {
     storage.saveProgram(sampleCompletedProgram);
     const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
 
     render(
       <AnalyticsView
@@ -210,6 +215,7 @@ describe('RPC-2B: Program Report Card Rerun Action Suite', () => {
   it('cancels rerun modal and leaves state unchanged when CANCEL is clicked', async () => {
     storage.saveProgram(sampleCompletedProgram);
     const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
 
     render(
       <AnalyticsView
@@ -235,6 +241,7 @@ describe('RPC-2B: Program Report Card Rerun Action Suite', () => {
     storage.saveProgram(sampleCompletedProgram);
     storage.setCurrentProgramId(sampleCompletedProgram.id);
     const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
 
     const onNavigateMock = vi.fn();
     const onRefreshMock = vi.fn();
@@ -276,10 +283,11 @@ describe('RPC-2B: Program Report Card Rerun Action Suite', () => {
     expect(onNavigateMock).toHaveBeenCalledWith('home', null, true);
   });
 
-  it('clears active draft if the draft belonged to the completed source program', async () => {
+  it('matching source draft displays KEEP WORKOUT and DISCARD DRAFT & START CYCLE, and clears draft on confirm', async () => {
     storage.saveProgram(sampleCompletedProgram);
     storage.setCurrentProgramId(sampleCompletedProgram.id);
     const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
 
     // Seed draft for source program
     localStorage.setItem(
@@ -306,20 +314,65 @@ describe('RPC-2B: Program Report Card Rerun Action Suite', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: /rerun program/i }));
-    // Shows stale draft warning in confirmation modal
-    expect(screen.getByText(/An unfinished workout draft for this completed program will be discarded/i)).toBeDefined();
+    // Shows explicit draft warning in confirmation modal
+    expect(screen.getByText(/An in-progress draft exists for this program\. Discard draft and start new cycle\?/i)).toBeDefined();
 
-    fireEvent.click(screen.getByRole('button', { name: /start cycle 2/i }));
+    // Verify button copy
+    expect(screen.getByRole('button', { name: /keep workout/i })).toBeDefined();
+    expect(screen.getByRole('button', { name: /discard draft & start cycle/i })).toBeDefined();
+
+    fireEvent.click(screen.getByRole('button', { name: /discard draft & start cycle/i }));
 
     await waitFor(() => {
       expect(localStorage.getItem('metreps_workout_draft')).toBeNull();
     });
+    expect(onNavigateMock).toHaveBeenCalledWith('home', null, true);
+  });
+
+  it('every safe-close path (KEEP WORKOUT, X button, backdrop click) preserves the matching draft', async () => {
+    storage.saveProgram(sampleCompletedProgram);
+    storage.setCurrentProgramId(sampleCompletedProgram.id);
+    const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
+
+    const draftContent = JSON.stringify({
+      programId: sampleCompletedProgram.id,
+      programName: sampleCompletedProgram.name,
+      week: '4',
+      day: '2',
+      exercises: [{ name: 'Plate-Loaded Chest Press', sets: [] }],
+    });
+
+    localStorage.setItem('metreps_workout_draft', draftContent);
+
+    render(
+      <AnalyticsView
+        workoutLogs={logs}
+        initialProgramId={sampleCompletedProgram.id}
+      />
+    );
+
+    // 1. KEEP WORKOUT button
+    fireEvent.click(screen.getByRole('button', { name: /rerun program/i }));
+    fireEvent.click(screen.getByRole('button', { name: /keep workout/i }));
+    expect(localStorage.getItem('metreps_workout_draft')).toBe(draftContent);
+    expect(storage.getPrograms().length).toBe(1);
+
+    // 2. X close button
+    fireEvent.click(screen.getByRole('button', { name: /rerun program/i }));
+    const closeBtns = screen.getAllByRole('button');
+    const xBtn = closeBtns.find(b => b.querySelector('svg.lucide-x'));
+    expect(xBtn).toBeDefined();
+    if (xBtn) fireEvent.click(xBtn);
+    expect(localStorage.getItem('metreps_workout_draft')).toBe(draftContent);
+    expect(storage.getPrograms().length).toBe(1);
   });
 
   it('blocks rerun with conflict modal and protects active draft if draft belongs to another program or one-off workout', async () => {
     storage.saveProgram(sampleCompletedProgram);
     storage.setCurrentProgramId(sampleCompletedProgram.id);
     const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
 
     // Seed active one-off workout draft
     localStorage.setItem(
@@ -351,6 +404,36 @@ describe('RPC-2B: Program Report Card Rerun Action Suite', () => {
     expect(storage.getPrograms().length).toBe(1);
   });
 
+  it('historical-edit draft remains untouched and blocks rerun via conflict modal', async () => {
+    storage.saveProgram(sampleCompletedProgram);
+    storage.setCurrentProgramId(sampleCompletedProgram.id);
+    const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
+
+    // Historical diary edit draft
+    localStorage.setItem(
+      'metreps_workout_draft',
+      JSON.stringify({
+        isHistoricalEdit: true,
+        historicalLogId: 'log-past-1',
+        programId: 'some-other-prog',
+        exercises: [{ name: 'Deadlift', sets: [] }],
+      })
+    );
+
+    render(
+      <AnalyticsView
+        workoutLogs={logs}
+        initialProgramId={sampleCompletedProgram.id}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /rerun program/i }));
+    expect(screen.getByText(/Workout In Progress/i)).toBeDefined();
+    expect(screen.queryByText('Program Continuation Cycle')).toBeNull();
+    expect(localStorage.getItem('metreps_workout_draft')).not.toBeNull();
+  });
+
   it('correctly creates Cycle 3 with cumulative phase offset when rerunning a completed Cycle 2', async () => {
     const cycle2Program: Program = {
       ...sampleCompletedProgram,
@@ -364,6 +447,7 @@ describe('RPC-2B: Program Report Card Rerun Action Suite', () => {
     storage.saveProgram(cycle2Program);
     storage.setCurrentProgramId(cycle2Program.id);
     const logs = createCompletedLogsForProgram(cycle2Program);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
 
     const onNavigateMock = vi.fn();
     const onRefreshMock = vi.fn();
@@ -400,7 +484,7 @@ describe('RPC-2B: Program Report Card Rerun Action Suite', () => {
     expect(onNavigateMock).toHaveBeenCalledWith('home', null, true);
   });
 
-  it('displays note if a successor cycle already exists in storage', async () => {
+  it('reactivates existing uncompleted successor without creating another duplicate', async () => {
     const successorProgram: Program = {
       ...sampleCompletedProgram,
       id: 'prog-cycle-2-existing',
@@ -413,6 +497,69 @@ describe('RPC-2B: Program Report Card Rerun Action Suite', () => {
     storage.saveProgram(successorProgram);
     storage.setCurrentProgramId(sampleCompletedProgram.id);
     const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
+
+    const onNavigateMock = vi.fn();
+
+    render(
+      <AnalyticsView
+        workoutLogs={logs}
+        initialProgramId={sampleCompletedProgram.id}
+        onNavigate={onNavigateMock}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /rerun program/i }));
+
+    // Preview notes that continuation already exists and will be resumed
+    expect(screen.getByText(/A continuation cycle already exists\. MetReps will resume/i)).toBeDefined();
+    expect(screen.getByRole('button', { name: /resume cycle 2/i })).toBeDefined();
+
+    fireEvent.click(screen.getByRole('button', { name: /resume cycle 2/i }));
+
+    await waitFor(() => {
+      expect(storage.getCurrentProgramId()).toBe(successorProgram.id);
+    });
+
+    // Program list count must NOT increase (still exactly 2)
+    expect(storage.getPrograms().length).toBe(2);
+    expect(onNavigateMock).toHaveBeenCalledWith('home', null, true);
+  });
+
+  it('revalidates source at execution time and halts if source removed between modal open and confirmation', async () => {
+    storage.saveProgram(sampleCompletedProgram);
+    storage.setCurrentProgramId(sampleCompletedProgram.id);
+    const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
+
+    render(
+      <AnalyticsView
+        workoutLogs={logs}
+        initialProgramId={sampleCompletedProgram.id}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /rerun program/i }));
+    expect(screen.getByText('Program Continuation Cycle')).toBeDefined();
+
+    // Source program is removed from storage while modal is open
+    localStorage.setItem('programList', JSON.stringify([]));
+
+    fireEvent.click(screen.getByRole('button', { name: /start cycle 2/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Source program no longer exists in storage/i)).toBeDefined();
+    });
+
+    // Created nothing, pointer unchanged
+    expect(storage.getPrograms().length).toBe(0);
+  });
+
+  it('revalidates source at execution time and halts if source becomes incomplete before confirmation', async () => {
+    storage.saveProgram(sampleCompletedProgram);
+    storage.setCurrentProgramId(sampleCompletedProgram.id);
+    const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
 
     render(
       <AnalyticsView
@@ -423,6 +570,252 @@ describe('RPC-2B: Program Report Card Rerun Action Suite', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /rerun program/i }));
 
-    expect(screen.getByText(/A continuation cycle \(Milhouse Mass Split — Cycle 2\) already exists in your library/i)).toBeDefined();
+    // Remove logs from storage before confirmation
+    localStorage.setItem('workoutLogs', JSON.stringify([]));
+
+    fireEvent.click(screen.getByRole('button', { name: /start cycle 2/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Program is not completed and cannot be rerun/i)).toBeDefined();
+    });
+
+    // Created nothing
+    expect(storage.getPrograms().length).toBe(1);
+  });
+
+  it('revalidates source at execution time and halts if source duration becomes infinite before confirmation', async () => {
+    storage.saveProgram(sampleCompletedProgram);
+    storage.setCurrentProgramId(sampleCompletedProgram.id);
+    const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
+
+    render(
+      <AnalyticsView
+        workoutLogs={logs}
+        initialProgramId={sampleCompletedProgram.id}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /rerun program/i }));
+
+    // Mutate source in storage to infinite duration before confirmation
+    storage.saveProgram({ ...sampleCompletedProgram, programDuration: '∞' });
+
+    fireEvent.click(screen.getByRole('button', { name: /start cycle 2/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Ongoing programs cannot be rerun/i)).toBeDefined();
+    });
+
+    // No continuation created
+    expect(storage.getPrograms().length).toBe(1);
+  });
+
+  it('synchronous ref lock blocks two same-event execution calls from creating duplicate successors', async () => {
+    storage.saveProgram(sampleCompletedProgram);
+    storage.setCurrentProgramId(sampleCompletedProgram.id);
+    const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
+
+    render(
+      <AnalyticsView
+        workoutLogs={logs}
+        initialProgramId={sampleCompletedProgram.id}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /rerun program/i }));
+
+    const confirmBtn = screen.getByRole('button', { name: /start cycle 2/i });
+    // Rapid synchronous double-click
+    fireEvent.click(confirmBtn);
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      const progs = storage.getPrograms();
+      expect(progs.length).toBe(2);
+    });
+
+    expect(storage.getPrograms().length).toBe(2);
+  });
+
+  it('storage.saveProgram failure preserves pointer, draft, source, and logs while showing visible error', async () => {
+    storage.saveProgram(sampleCompletedProgram);
+    storage.setCurrentProgramId(sampleCompletedProgram.id);
+    const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
+
+    const saveSpy = vi.spyOn(storage, 'saveProgram').mockImplementationOnce(() => {
+      throw new Error('Disk full write failure');
+    });
+
+    render(
+      <AnalyticsView
+        workoutLogs={logs}
+        initialProgramId={sampleCompletedProgram.id}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /rerun program/i }));
+    fireEvent.click(screen.getByRole('button', { name: /start cycle 2/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to save continuation program to storage/i)).toBeDefined();
+    });
+
+    // Pointer unchanged
+    expect(storage.getCurrentProgramId()).toBe(sampleCompletedProgram.id);
+    // Program list unchanged
+    expect(storage.getPrograms().length).toBe(1);
+
+    saveSpy.mockRestore();
+  });
+
+  it('currentProgramId pointer failure preserves draft, navigation state, and leaves saved successor recoverable', async () => {
+    storage.saveProgram(sampleCompletedProgram);
+    storage.setCurrentProgramId(sampleCompletedProgram.id);
+    const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
+
+    const onNavigateMock = vi.fn();
+
+    const ptrSpy = vi.spyOn(storage, 'setCurrentProgramId').mockImplementationOnce(() => {
+      throw new Error('Pointer state lock error');
+    });
+
+    render(
+      <AnalyticsView
+        workoutLogs={logs}
+        initialProgramId={sampleCompletedProgram.id}
+        onNavigate={onNavigateMock}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /rerun program/i }));
+    fireEvent.click(screen.getByRole('button', { name: /start cycle 2/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to set new program as active/i)).toBeDefined();
+    });
+
+    // Navigation was NOT called
+    expect(onNavigateMock).not.toHaveBeenCalled();
+    // Successor was saved in storage
+    expect(storage.getPrograms().length).toBe(2);
+
+    ptrSpy.mockRestore();
+  });
+
+  it('retry after pointer failure reuses the already-saved successor instead of creating another', async () => {
+    storage.saveProgram(sampleCompletedProgram);
+    storage.setCurrentProgramId(sampleCompletedProgram.id);
+    const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
+
+    const onNavigateMock = vi.fn();
+
+    let failNext = true;
+    const ptrSpy = vi.spyOn(storage, 'setCurrentProgramId').mockImplementation((id: string | null) => {
+      if (failNext) {
+        failNext = false;
+        throw new Error('Pointer lock error');
+      }
+      localStorage.setItem('currentProgramId', id || '');
+    });
+
+    render(
+      <AnalyticsView
+        workoutLogs={logs}
+        initialProgramId={sampleCompletedProgram.id}
+        onNavigate={onNavigateMock}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /rerun program/i }));
+    fireEvent.click(screen.getByRole('button', { name: /start cycle 2/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to set new program as active/i)).toBeDefined();
+    });
+
+    expect(storage.getPrograms().length).toBe(2);
+
+    // Now user retries by clicking the action button
+    const retryBtn = screen.getByRole('button', { name: /(start|resume) cycle 2/i });
+    fireEvent.click(retryBtn);
+
+    await waitFor(() => {
+      expect(onNavigateMock).toHaveBeenCalledWith('home', null, true);
+    });
+
+    // Count is still 2 - reuses already-saved successor rather than creating another
+    expect(storage.getPrograms().length).toBe(2);
+
+    ptrSpy.mockRestore();
+  });
+
+  it('another active Program remains saved after the successor becomes current', async () => {
+    const anotherProgram: Program = {
+      ...sampleCompletedProgram,
+      id: 'prog-other-active',
+      name: 'Push Pull Legs Active',
+    };
+
+    storage.saveProgram(sampleCompletedProgram);
+    storage.saveProgram(anotherProgram);
+    storage.setCurrentProgramId(anotherProgram.id);
+    const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
+
+    render(
+      <AnalyticsView
+        workoutLogs={logs}
+        initialProgramId={sampleCompletedProgram.id}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /rerun program/i }));
+
+    // Confirmation modal shows warning regarding changing active program
+    expect(screen.getByText(/Your current program will remain saved, but this new cycle will become your active program/i)).toBeDefined();
+
+    fireEvent.click(screen.getByRole('button', { name: /start cycle 2/i }));
+
+    await waitFor(() => {
+      expect(storage.getPrograms().length).toBe(3);
+    });
+
+    // Another program is still intact in storage
+    const allProgs = storage.getPrograms();
+    expect(allProgs.some(p => p.id === 'prog-other-active')).toBe(true);
+    // New successor is current
+    const successor = allProgs.find(p => p.parentProgramId === sampleCompletedProgram.id);
+    expect(storage.getCurrentProgramId()).toBe(successor?.id);
+  });
+
+  it('collision safety ensures generated ID never overwrites an existing program', async () => {
+    storage.saveProgram(sampleCompletedProgram);
+    storage.setCurrentProgramId(sampleCompletedProgram.id);
+    const logs = createCompletedLogsForProgram(sampleCompletedProgram);
+    localStorage.setItem('workoutLogs', JSON.stringify(logs));
+
+    render(
+      <AnalyticsView
+        workoutLogs={logs}
+        initialProgramId={sampleCompletedProgram.id}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /rerun program/i }));
+    fireEvent.click(screen.getByRole('button', { name: /start cycle 2/i }));
+
+    await waitFor(() => {
+      expect(storage.getPrograms().length).toBe(2);
+    });
+
+    const progs = storage.getPrograms();
+    const ids = progs.map(p => p.id);
+    const uniqueIds = new Set(ids);
+    expect(uniqueIds.size).toBe(ids.length);
   });
 });

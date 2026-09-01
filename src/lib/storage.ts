@@ -743,7 +743,7 @@ export const storage = {
     const data = localStorage.getItem(KEYS.PROGRAM_LIST);
     if (!data) {
       localStorage.setItem(KEYS.PROGRAM_LIST, JSON.stringify(SEED_PROGRAMS));
-      return [...SEED_PROGRAMS];
+      return SEED_PROGRAMS;
     }
     return JSON.parse(data);
   },

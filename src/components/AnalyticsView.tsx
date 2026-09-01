@@ -50,6 +50,8 @@ export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRef
   const [showRerunConfirmation, setShowRerunConfirmation] = useState(false);
   const [activeWorkoutConflict, setActiveWorkoutConflict] = useState<ActiveWorkoutIdentity | null>(null);
   const [isRerunProcessing, setIsRerunProcessing] = useState(false);
+  const [rerunError, setRerunError] = useState<string | null>(null);
+  const rerunExecutionLockRef = useRef(false);
 
   const { dismiss: dismissReportCard } = useModalHistory(
     selectedReportProgram !== null,
@@ -57,13 +59,19 @@ export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRef
       setSelectedReportProgram(null);
       setShowRerunConfirmation(false);
       setActiveWorkoutConflict(null);
+      setRerunError(null);
+      rerunExecutionLockRef.current = false;
     },
     'program-report-card'
   );
 
   const { dismiss: dismissRerunModal } = useModalHistory(
     showRerunConfirmation,
-    () => setShowRerunConfirmation(false),
+    () => {
+      setShowRerunConfirmation(false);
+      setRerunError(null);
+      rerunExecutionLockRef.current = false;
+    },
     'program-rerun-confirmation'
   );
 
@@ -325,8 +333,14 @@ export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRef
   const existingSuccessor = useMemo(() => {
     if (!selectedReportProgram) return null;
     const list = storage.getPrograms();
-    return list.find(p => p.parentProgramId === selectedReportProgram.id) || null;
-  }, [selectedReportProgram]);
+    return list.find(p => p.parentProgramId === selectedReportProgram.id && !storage.isProgramCompleted(p, workoutLogs)) || null;
+  }, [selectedReportProgram, workoutLogs, showRerunConfirmation]);
+
+  const isOtherProgramActive = useMemo(() => {
+    if (!selectedReportProgram) return false;
+    const currentId = storage.getCurrentProgramId();
+    return Boolean(currentId && currentId !== selectedReportProgram.id && (!existingSuccessor || currentId !== existingSuccessor.id));
+  }, [selectedReportProgram, existingSuccessor, showRerunConfirmation]);
 
   const hasSourceDraft = useMemo(() => {
     if (!selectedReportProgram) return false;
@@ -336,12 +350,19 @@ export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRef
 
   const handleInitiateRerun = () => {
     if (!selectedReportProgram) return;
+    setRerunError(null);
 
     // 1. Revalidate source program exists in storage or prebuilt
     const allPrograms = storage.getPrograms();
-    const exists = allPrograms.some(p => p.id === selectedReportProgram.id) || PREBUILT_TEMPLATES.some(p => p.id === selectedReportProgram.id);
-    if (!exists) {
+    const currentWorkoutLogs = storage.getWorkoutLogs();
+    const source = allPrograms.find(p => p.id === selectedReportProgram.id) || PREBUILT_TEMPLATES.find(p => p.id === selectedReportProgram.id);
+    if (!source) {
       alert('This program is no longer available in storage.');
+      return;
+    }
+
+    if (source.programDuration === '∞' || !storage.isProgramCompleted(source, currentWorkoutLogs)) {
+      alert('This program is not eligible for rerun.');
       return;
     }
 
@@ -359,49 +380,122 @@ export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRef
   };
 
   const handleExecuteRerun = async () => {
-    if (!selectedReportProgram) return;
+    if (rerunExecutionLockRef.current) return;
+    rerunExecutionLockRef.current = true;
     setIsRerunProcessing(true);
+    setRerunError(null);
+
+    const prevCurrentProgramId = storage.getCurrentProgramId();
+
     try {
-      // 1. Revalidate source program
-      const allPrograms = storage.getPrograms();
-      const source = allPrograms.find(p => p.id === selectedReportProgram.id) || PREBUILT_TEMPLATES.find(p => p.id === selectedReportProgram.id);
-      if (!source) {
-        setShowRerunConfirmation(false);
-        setIsRerunProcessing(false);
+      if (!selectedReportProgram) {
+        setRerunError('No program selected for rerun.');
         return;
       }
 
-      // 2. Create continuation cycle
-      const continuation = createProgramContinuation(source);
+      // 1. Full execution-time source revalidation
+      const currentPrograms = storage.getPrograms();
+      const currentWorkoutLogs = storage.getWorkoutLogs();
+      const source = currentPrograms.find(p => p.id === selectedReportProgram.id) || PREBUILT_TEMPLATES.find(p => p.id === selectedReportProgram.id);
 
-      // 3. Save continuation program to storage
-      storage.saveProgram(continuation);
-
-      // 4. Set as current active program
-      storage.setCurrentProgramId(continuation.id);
-
-      // 5. Clean up draft if it belonged to source program
-      const activeDraftMeta = getActiveWorkoutDraft();
-      if (activeDraftMeta && doesDraftMatchProgram(activeDraftMeta.rawDraft, source.id)) {
-        clearActiveWorkoutDraft();
+      if (!source) {
+        setRerunError('Source program no longer exists in storage.');
+        return;
       }
 
-      // 6. Dismiss modals and report card
+      if (source.id !== selectedReportProgram.id) {
+        setRerunError('Program ID mismatch.');
+        return;
+      }
+
+      if (source.programDuration === '∞') {
+        setRerunError('Ongoing programs cannot be rerun.');
+        return;
+      }
+
+      if (!storage.isProgramCompleted(source, currentWorkoutLogs)) {
+        setRerunError('Program is not completed and cannot be rerun.');
+        return;
+      }
+
+      // 2. Locate existing uncompleted successor
+      const existingUncompletedSuccessor = currentPrograms.find(
+        p => p.parentProgramId === source.id && !storage.isProgramCompleted(p, currentWorkoutLogs)
+      );
+
+      let targetProgramId = '';
+
+      if (existingUncompletedSuccessor) {
+        // Reuse existing uncompleted successor
+        targetProgramId = existingUncompletedSuccessor.id;
+      } else {
+        // Construct new continuation cycle with collision-safe ID validation
+        let continuation = createProgramContinuation(source);
+        let attempts = 0;
+        while (currentPrograms.some(p => p.id === continuation.id) && attempts < 10) {
+          attempts++;
+          continuation = createProgramContinuation(source);
+        }
+
+        if (currentPrograms.some(p => p.id === continuation.id)) {
+          setRerunError('Could not generate a unique program ID. Please try again.');
+          return;
+        }
+
+        // Save successor program
+        try {
+          storage.saveProgram(continuation);
+        } catch (saveErr) {
+          setRerunError('Failed to save continuation program to storage.');
+          return;
+        }
+
+        targetProgramId = continuation.id;
+      }
+
+      // 3. Set current active program
+      try {
+        storage.setCurrentProgramId(targetProgramId);
+      } catch (ptrErr) {
+        setRerunError('Failed to set new program as active.');
+        return;
+      }
+
+      // 4. Clean up explicitly discarded source draft if present
+      const activeDraftMeta = getActiveWorkoutDraft();
+      if (activeDraftMeta && doesDraftMatchProgram(activeDraftMeta.rawDraft, source.id)) {
+        try {
+          clearActiveWorkoutDraft();
+        } catch (draftErr) {
+          // Attempt to restore previous currentProgramId
+          try {
+            if (prevCurrentProgramId) {
+              storage.setCurrentProgramId(prevCurrentProgramId);
+            }
+          } catch (_) {}
+          setRerunError('Failed to clear draft. New cycle was saved but not activated.');
+          return;
+        }
+      }
+
+      // 5. Dismiss modals and report card
       setShowRerunConfirmation(false);
       setSelectedReportProgram(null);
 
-      // 7. Refresh storage-dependent components
+      // 6. Refresh storage-dependent components
       if (onRefresh) {
         onRefresh();
       }
 
-      // 8. Navigate to Home
+      // 7. Navigate to Home
       if (onNavigate) {
         onNavigate('home', null, true);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to rerun program continuation:', e);
+      setRerunError(e?.message || 'An unexpected error occurred while starting the cycle.');
     } finally {
+      rerunExecutionLockRef.current = false;
       setIsRerunProcessing(false);
     }
   };
@@ -784,13 +878,13 @@ export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRef
                   }`}
                 >
                   <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold mb-1">
-                    New Program Cycle
+                    {existingSuccessor ? 'Resuming Existing Cycle' : 'New Program Cycle'}
                   </div>
                   <div className="text-sm font-black text-white uppercase mb-1">
-                    {nextCycleName}
+                    {existingSuccessor ? existingSuccessor.name : nextCycleName}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-indigo-400 font-mono font-bold uppercase">
-                    <span>Cycle {nextCycleIndex}</span>
+                    <span>Cycle {existingSuccessor?.cycleIndex || nextCycleIndex}</span>
                     <span>•</span>
                     <span>{selectedReportProgram.programDuration} Weeks</span>
                     <span>•</span>
@@ -813,22 +907,42 @@ export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRef
                   </div>
                 </div>
 
-                {/* Stale draft alert if draft belongs to source program */}
-                {hasSourceDraft && (
-                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5 text-amber-300">
-                    <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+                {/* Existing uncompleted successor notice */}
+                {existingSuccessor && (
+                  <div className="p-3 bg-slate-950 border border-slate-800 flex items-start gap-2.5 text-slate-300">
+                    <Info className="w-4 h-4 shrink-0 text-indigo-400 mt-0.5" />
                     <span className="text-[11px] leading-relaxed">
-                      An unfinished workout draft for this completed program will be discarded when starting the new cycle.
+                      A continuation cycle already exists. MetReps will resume <strong className="text-white">{existingSuccessor.name}</strong> rather than create a duplicate.
                     </span>
                   </div>
                 )}
 
-                {/* Existing successor notice */}
-                {existingSuccessor && (
+                {/* Another active program notice */}
+                {isOtherProgramActive && (
                   <div className="p-3 bg-slate-950 border border-slate-800 flex items-start gap-2.5 text-slate-400">
                     <Info className="w-4 h-4 shrink-0 text-indigo-400 mt-0.5" />
                     <span className="text-[11px] leading-relaxed">
-                      Note: A continuation cycle ({existingSuccessor.name}) already exists in your library.
+                      Your current program will remain saved, but this new cycle will become your active program.
+                    </span>
+                  </div>
+                )}
+
+                {/* Stale draft alert if draft belongs to source program */}
+                {hasSourceDraft && (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5 text-amber-300">
+                    <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+                    <span className="text-[11px] leading-relaxed font-semibold">
+                      An in-progress draft exists for this program. Discard draft and start new cycle?
+                    </span>
+                  </div>
+                )}
+
+                {/* Error message if execution fails */}
+                {rerunError && (
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/30 flex items-start gap-2.5 text-rose-300">
+                    <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+                    <span className="text-[11px] leading-relaxed font-semibold">
+                      {rerunError}
                     </span>
                   </div>
                 )}
@@ -850,7 +964,7 @@ export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRef
                       : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300'
                   }`}
                 >
-                  CANCEL
+                  {hasSourceDraft ? 'KEEP WORKOUT' : 'CANCEL'}
                 </button>
                 <button
                   type="button"
@@ -865,7 +979,13 @@ export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRef
                   }`}
                 >
                   <Repeat className="w-3.5 h-3.5" />
-                  {isRerunProcessing ? 'STARTING...' : `START CYCLE ${nextCycleIndex}`}
+                  {isRerunProcessing
+                    ? 'STARTING...'
+                    : hasSourceDraft
+                    ? 'DISCARD DRAFT & START CYCLE'
+                    : existingSuccessor
+                    ? `RESUME CYCLE ${existingSuccessor.cycleIndex || nextCycleIndex}`
+                    : `START CYCLE ${nextCycleIndex}`}
                 </button>
               </div>
             </div>
