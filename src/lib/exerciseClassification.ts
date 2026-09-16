@@ -9,6 +9,7 @@ export type EquipmentType = 'freeweight' | 'machine';
 export interface CustomExerciseItem {
   name: string;
   category: string;
+  exerciseKey?: string;
   modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded';
   movementCategory?: MovementCategory;
   equipment?: EquipmentType;
@@ -143,6 +144,7 @@ export function detectExerciseClassification(
  */
 export function getExerciseClassification(exercise: {
   name: string;
+  exerciseKey?: string;
   modality?: string;
   movementCategory?: MovementCategory;
   equipment?: EquipmentType;
@@ -160,7 +162,11 @@ export function getExerciseClassification(exercise: {
     const saved = localStorage.getItem('metreps_custom_exercises');
     if (saved) {
       const customs: CustomExerciseItem[] = JSON.parse(saved);
-      const match = customs.find(c => c.name.toLowerCase() === exercise.name.trim().toLowerCase());
+      const match = customs.find(c => 
+        (exercise.exerciseKey && c.exerciseKey)
+          ? c.exerciseKey === exercise.exerciseKey
+          : c.name.toLowerCase() === exercise.name.trim().toLowerCase()
+      );
       if (match) {
         const detected = detectExerciseClassification(match.name, match.modality || exercise.modality);
         return {

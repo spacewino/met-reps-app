@@ -22,6 +22,45 @@ export type ActiveWorkoutIdentity =
       workoutId: string;
     };
 
+export interface ActiveWorkoutDraftPayload {
+  editLogId?: string | null;
+  programId?: string | null;
+  programName?: string | null;
+  weekNum?: number | string;
+  dayNum?: number | string;
+  dateStr?: string;
+  workoutDate?: string;
+  isOneOff?: boolean;
+  scheduledDate?: string | null;
+  exercises?: any[];
+  userRawExercises?: any[] | null;
+  duration?: number | '';
+  notes?: string;
+  sleep?: number | '';
+  hydration?: any;
+  calories?: number | '';
+  protein?: number | '';
+  soreness?: number;
+  motivation?: number;
+  checkedSets?: Record<string, boolean>;
+  completionTouchedSets?: Record<string, boolean>;
+  collapsed?: Record<number, boolean>;
+  objective?: string;
+  userTouchedSets?: Record<string, boolean>;
+  prescribedTargetSnapshots?: Record<string, any>;
+  committedLiveEvidenceBySet?: Record<string, any>;
+  liveAdjustedSets?: Record<string, boolean>;
+  currentSetGuideKey?: string | null;
+  bodyweightSnapshot?: any;
+  restIntervals?: any[];
+  startTime?: string;
+  prescriptionBoundary?: {
+    sessionStartedAt: number;
+    prescriptionTargetDate: string;
+  } | null;
+  [key: string]: any;
+}
+
 /**
  * Extracts a structured ActiveWorkoutIdentity from navigation view parameters.
  */
@@ -69,46 +108,48 @@ export function getWorkoutIdentityFromParams(params: any): ActiveWorkoutIdentity
 /**
  * Extracts a structured ActiveWorkoutIdentity from a raw localStorage draft object.
  */
-export function getWorkoutIdentityFromDraft(draft: any): ActiveWorkoutIdentity | null {
-  if (!draft || typeof draft !== 'object') {
+export function getWorkoutIdentityFromDraft(draft: unknown): ActiveWorkoutIdentity | null {
+  if (!draft || typeof draft !== 'object' || Array.isArray(draft)) {
     return null;
   }
 
-  if (draft.editLogId !== null && draft.editLogId !== undefined && String(draft.editLogId).trim() !== '') {
+  const d = draft as Record<string, unknown>;
+
+  if (d.editLogId !== null && d.editLogId !== undefined && String(d.editLogId).trim() !== '') {
     return {
       kind: 'historical_edit',
-      workoutId: String(draft.editLogId).trim(),
+      workoutId: String(d.editLogId).trim(),
     };
   }
 
-  if (draft.isOneOff === true) {
+  if (d.isOneOff === true) {
     return {
       kind: 'one_off',
-      workoutId: draft.workoutId ? String(draft.workoutId) : (draft.redoFromLogId ? String(draft.redoFromLogId) : null),
+      workoutId: d.workoutId ? String(d.workoutId) : (d.redoFromLogId ? String(d.redoFromLogId) : null),
     };
   }
 
-  if (draft.programId) {
+  if (d.programId !== null && d.programId !== undefined && String(d.programId).trim() !== '') {
     return {
       kind: 'programmed',
-      programId: String(draft.programId),
-      weekNum: draft.weekNum !== undefined ? draft.weekNum : (draft.week !== undefined ? draft.week : '1'),
-      dayNum: draft.dayNum !== undefined ? draft.dayNum : (draft.day !== undefined ? draft.day : '1'),
-      programName: draft.programName || null,
-      workoutName: draft.workoutName || draft.programName || null,
-      workoutId: draft.workoutId ? String(draft.workoutId) : null,
+      programId: String(d.programId),
+      weekNum: d.weekNum !== undefined ? (d.weekNum as number | string) : (d.week !== undefined ? (d.week as number | string) : '1'),
+      dayNum: d.dayNum !== undefined ? (d.dayNum as number | string) : (d.day !== undefined ? (d.day as number | string) : '1'),
+      programName: typeof d.programName === 'string' ? d.programName : null,
+      workoutName: typeof d.workoutName === 'string' ? d.workoutName : (typeof d.programName === 'string' ? d.programName : null),
+      workoutId: d.workoutId ? String(d.workoutId) : null,
     };
   }
 
-  if (draft.redoFromLogId) {
+  if (d.redoFromLogId !== null && d.redoFromLogId !== undefined && String(d.redoFromLogId).trim() !== '') {
     return {
       kind: 'one_off',
-      workoutId: String(draft.redoFromLogId),
+      workoutId: String(d.redoFromLogId),
     };
   }
 
   // If draft has exercises or data without explicit tags, treat as generic one-off if exercises exist
-  if (Array.isArray(draft.exercises) && draft.exercises.length > 0) {
+  if (Array.isArray(d.exercises) && d.exercises.length > 0) {
     return { kind: 'one_off', workoutId: null };
   }
 
@@ -118,14 +159,17 @@ export function getWorkoutIdentityFromDraft(draft: any): ActiveWorkoutIdentity |
 /**
  * Safely parses the active workout draft from localStorage.
  */
-export function getActiveWorkoutDraft(): { rawDraft: any; identity: ActiveWorkoutIdentity | null } | null {
+export function getActiveWorkoutDraft(): { rawDraft: Record<string, any>; identity: ActiveWorkoutIdentity | null } | null {
   try {
     const draftStr = localStorage.getItem('metreps_workout_draft');
     if (!draftStr) return null;
-    const rawDraft = JSON.parse(draftStr);
-    const identity = getWorkoutIdentityFromDraft(rawDraft);
+    const rawParsed: unknown = JSON.parse(draftStr);
+    const identity = getWorkoutIdentityFromDraft(rawParsed);
     if (!identity) return null;
-    return { rawDraft, identity };
+    if (typeof rawParsed !== 'object' || rawParsed === null || Array.isArray(rawParsed)) {
+      return null;
+    }
+    return { rawDraft: rawParsed as Record<string, any>, identity };
   } catch (e) {
     // Malformed JSON should fail safely
     return null;
@@ -135,14 +179,14 @@ export function getActiveWorkoutDraft(): { rawDraft: any; identity: ActiveWorkou
 /**
  * Alias helper for getting active draft metadata and structured identity.
  */
-export function getActiveWorkoutDraftMetadata(): { rawDraft: any; identity: ActiveWorkoutIdentity | null } | null {
+export function getActiveWorkoutDraftMetadata(): { rawDraft: Record<string, any>; identity: ActiveWorkoutIdentity | null } | null {
   return getActiveWorkoutDraft();
 }
 
 /**
  * Safely saves the active workout draft to localStorage.
  */
-export function saveActiveWorkoutDraft(payload: any): void {
+export function saveActiveWorkoutDraft(payload: Record<string, any> | unknown): void {
   try {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('metreps_workout_draft', JSON.stringify(payload));
@@ -168,26 +212,28 @@ export function clearActiveWorkoutDraft(): void {
  * Strictly checks that the draft is a programmed session for this program ID,
  * and not a historical edit or generic one-off.
  */
-export function doesDraftMatchProgram(draft: any, programId: string | number | null | undefined): boolean {
-  if (!draft || typeof draft !== 'object' || programId === null || programId === undefined) {
+export function doesDraftMatchProgram(draft: unknown, programId: string | number | null | undefined): boolean {
+  if (!draft || typeof draft !== 'object' || Array.isArray(draft) || programId === null || programId === undefined) {
     return false;
   }
   const cleanProgId = String(programId).trim();
   if (!cleanProgId) return false;
 
+  const d = draft as Record<string, unknown>;
+
   // Historical edit or generic one-off drafts do not belong to a program
   if (
-    (draft.editLogId !== null && draft.editLogId !== undefined && String(draft.editLogId).trim() !== '') ||
-    draft.isOneOff === true
+    (d.editLogId !== null && d.editLogId !== undefined && String(d.editLogId).trim() !== '') ||
+    d.isOneOff === true
   ) {
     return false;
   }
 
-  if (draft.programId === null || draft.programId === undefined) {
+  if (d.programId === null || d.programId === undefined) {
     return false;
   }
 
-  const draftProgId = String(draft.programId).trim();
+  const draftProgId = String(d.programId).trim();
   if (!draftProgId) return false;
 
   return draftProgId === cleanProgId;

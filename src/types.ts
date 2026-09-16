@@ -5,6 +5,158 @@
 
 export type WeightUnit = 'kg' | 'lb';
 
+export type TargetProgressionMode =
+  | 'performance_led'
+  | 'metreps_guided';
+
+export type ExerciseModality = 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded';
+
+export type ProgressionLoadBasis =
+  | 'external_weight_v1'
+  | 'bodyweight_normalized_v1'
+  | 'assisted_net_normalized_v1';
+
+export type ProgressionNudgeType =
+  | 'none'
+  | 'rep_nudge'
+  | 'load_nudge'
+  | 'hold';
+
+export type ExerciseProgressionRole =
+  | 'main_movement'
+  | 'accessory';
+
+export type GuidedCoachingReasonCode =
+  | 'BASE_PRESCRIPTION'
+  | 'REP_NUDGE'
+  | 'LOAD_NUDGE_MAIN_MOVEMENT'
+  | 'LOAD_PROMOTION_CEILING_REACHED'
+  | 'CHALLENGE_CAP_HOLD'
+  | 'HIGH_EXERTION_HOLD'
+  | 'STEP_OUT_BASE_ONLY'
+  | 'BODYWEIGHT_CEILING_HOLD'
+  | 'BODYWEIGHT_MAIN_LOAD_HOLD'
+  | 'MINIMUM_ASSISTANCE_REACHED'
+  | 'MISSING_BODYWEIGHT_HOLD'
+  | 'INVALID_ASSISTANCE_HOLD'
+  | 'ZERO_NET_LOAD_HOLD'
+  | 'MARGINAL_MISS_TARGET_HELD'
+  | 'NUDGE_NEUTRAL_RETRY'
+  | 'NUDGE_MARGINAL_FAILURE_ROLLBACK'
+  | 'NUDGE_SUBSTANTIAL_FAILURE_ROLLBACK'
+  | 'DEGRADED_HISTORY_HOLD'
+  | 'INCONSISTENT_HISTORY_HOLD';
+
+const _ALL_GUIDED_COACHING_REASON_CODES_LIST: readonly GuidedCoachingReasonCode[] = [
+  'BASE_PRESCRIPTION',
+  'REP_NUDGE',
+  'LOAD_NUDGE_MAIN_MOVEMENT',
+  'LOAD_PROMOTION_CEILING_REACHED',
+  'CHALLENGE_CAP_HOLD',
+  'HIGH_EXERTION_HOLD',
+  'STEP_OUT_BASE_ONLY',
+  'BODYWEIGHT_CEILING_HOLD',
+  'BODYWEIGHT_MAIN_LOAD_HOLD',
+  'MINIMUM_ASSISTANCE_REACHED',
+  'MISSING_BODYWEIGHT_HOLD',
+  'INVALID_ASSISTANCE_HOLD',
+  'ZERO_NET_LOAD_HOLD',
+  'MARGINAL_MISS_TARGET_HELD',
+  'NUDGE_NEUTRAL_RETRY',
+  'NUDGE_MARGINAL_FAILURE_ROLLBACK',
+  'NUDGE_SUBSTANTIAL_FAILURE_ROLLBACK',
+  'DEGRADED_HISTORY_HOLD',
+  'INCONSISTENT_HISTORY_HOLD',
+];
+
+export const ALL_GUIDED_COACHING_REASON_CODES: readonly GuidedCoachingReasonCode[] & {
+  has(code: unknown): code is GuidedCoachingReasonCode;
+  readonly size: number;
+} = Object.assign([..._ALL_GUIDED_COACHING_REASON_CODES_LIST], {
+  has(code: unknown): code is GuidedCoachingReasonCode {
+    return (
+      typeof code === 'string' &&
+      _ALL_GUIDED_COACHING_REASON_CODES_LIST.includes(code as GuidedCoachingReasonCode)
+    );
+  },
+  get size() {
+    return _ALL_GUIDED_COACHING_REASON_CODES_LIST.length;
+  },
+});
+
+export function isGuidedCoachingReasonCode(code: unknown): code is GuidedCoachingReasonCode {
+  return typeof code === 'string' && ALL_GUIDED_COACHING_REASON_CODES.has(code as GuidedCoachingReasonCode);
+}
+
+export type GuidedRollbackTarget = {
+  weight: number;
+  reps: number;
+  rpe: number;
+  comparisonLoadKg: number | null;
+};
+
+export type ClosedPeriodisationLaneContext =
+  | {
+      readonly algorithmId: 'hypertrophy_linear';
+      readonly waveType: 'volume' | 'heavy';
+    }
+  | {
+      readonly algorithmId: 'hypertrophy_step';
+      readonly effectivePhase: number;
+    }
+  | {
+      readonly algorithmId: 'strength_undulating';
+      readonly anchorReps: number;
+      readonly anchorRpe: number;
+    }
+  | {
+      readonly algorithmId: 'strength_linear';
+      readonly linearPhase: number;
+      readonly maxWeeks: number;
+    }
+  | {
+      readonly algorithmId: 'none';
+      readonly familyToken: 'standard_baseline';
+    };
+
+export type PrescriptionSnapshot = {
+  snapshotVersion: number;
+  progressionPolicyVersion: number;
+  algorithmVersion: number;
+
+  progressionMode: TargetProgressionMode;
+  algorithmId: string;
+
+  exerciseKey: string;
+  exerciseRole: ExerciseProgressionRole;
+  modality: ExerciseModality;
+  comparableLaneKey: string;
+  workingSetOrdinal: number;
+  prescribedWorkingSetCount: number;
+
+  baseWeight: number;
+  baseReps: number;
+  baseRpe: number;
+
+  presentedWeight: number;
+  presentedReps: number;
+  presentedRpe: number;
+
+  bodyweightSnapshot: number | null;
+  weightUnit: WeightUnit;
+  comparisonLoadKg: number | null;
+  loadBasis: ProgressionLoadBasis;
+  loadIncrement: number;
+
+  nudgeType: ProgressionNudgeType;
+  coachingReasonCode: GuidedCoachingReasonCode;
+
+  confirmedStepIndexBefore: number;
+  presentedStepIndex: number;
+  successCreditEligible: boolean;
+  rollbackTarget: GuidedRollbackTarget | null;
+};
+
 export type HydrationLevel = 'Dehydrated' | 'Under-hydrated' | 'Adequate' | 'Optimal';
 
 export const mapHydrationToLiters = (level: HydrationLevel | string | number | null | undefined): number => {
@@ -37,12 +189,14 @@ export type SetEntry = {
   dropSubSets?: { weight?: number | null; reps?: number | null }[] | null;
   isCompleted?: boolean;
   isSkipped?: boolean;
+  prescriptionSnapshot?: PrescriptionSnapshot | null;
 };
 
 export type ExerciseEntry = {
   name: string;
   muscleGroup: string;
-  modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded';
+  exerciseKey?: string;
+  modality?: ExerciseModality;
   sets: SetEntry[];
   isSuperset?: boolean | null;
   isMainMovement?: boolean | null;
@@ -116,6 +270,10 @@ export type Program = {
   parentProgramId?: string;
   cycleIndex?: number;
   algorithmPhaseOffset?: number;
+  targetProgressionMode?: TargetProgressionMode;
+  progressionPolicyVersion?: number;
+  algorithmVersion?: number;
+  unit?: WeightUnit;
 };
 
 export type PlannedSession = {

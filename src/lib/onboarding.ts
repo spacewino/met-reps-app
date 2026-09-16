@@ -7,6 +7,8 @@ import { storage } from './storage';
 
 export const CURRENT_ONBOARDING_VERSION = 1;
 export const ONBOARDING_STORAGE_KEY = 'metreps_onboarding_version';
+export const METREPS_VIDEO_GUIDE_URL =
+  'https://www.youtube.com/watch?v=YDZPj4iVHKM';
 
 export type OnboardingUserStatus = 'blank' | 'established' | 'unavailable';
 

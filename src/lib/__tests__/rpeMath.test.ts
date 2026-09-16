@@ -79,28 +79,49 @@ describe('RPE validation and half-step rounding', () => {
     expect(roundRPEToHalfStep(6.0)).toBe(6.0);
   });
 
-  it('raw RPE below 6.0 or above 10.0 is rejected before rounding', () => {
-    // Below 6.0
+  it('returns true only for the exact nine supported half-step values [6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]', () => {
+    const validValues = [6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0];
+    for (const val of validValues) {
+      expect(isValidRPE(val)).toBe(true);
+    }
+  });
+
+  it('returns false for all near-half, fractional, out-of-range, and non-finite values without rounding or tolerance', () => {
+    const requiredFalseCases = [
+      5.99,
+      6.01,
+      6.04,
+      6.49,
+      6.51,
+      7.33,
+      7.99,
+      8.01,
+      8.04,
+      8.2,
+      8.49,
+      8.51,
+      9.99,
+      10.01,
+      NaN,
+      Infinity,
+      -Infinity,
+    ];
+
+    for (const val of requiredFalseCases) {
+      expect(isValidRPE(val)).toBe(false);
+    }
+
+    // Additional out-of-bounds, negative, zero, and missing cases
     expect(isValidRPE(5.9)).toBe(false);
     expect(isValidRPE(5.8)).toBe(false);
     expect(isValidRPE(0)).toBe(false);
     expect(isValidRPE(-1)).toBe(false);
     expect(isValidRPE(4.0)).toBe(false);
-    // Above 10.0
     expect(isValidRPE(10.1)).toBe(false);
     expect(isValidRPE(10.5)).toBe(false);
     expect(isValidRPE(12)).toBe(false);
-
-    // Valid boundaries
-    expect(isValidRPE(6.0)).toBe(true);
-    expect(isValidRPE(10.0)).toBe(true);
-    expect(isValidRPE(7.5)).toBe(true);
-
-    // Missing / non-finite values
     expect(isValidRPE(null)).toBe(false);
     expect(isValidRPE(undefined)).toBe(false);
-    expect(isValidRPE(NaN)).toBe(false);
-    expect(isValidRPE(Infinity)).toBe(false);
   });
 });
 

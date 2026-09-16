@@ -1,6 +1,6 @@
 import { ExerciseEntry, WorkoutLog } from '../types';
 import { getRTSMultiplier, isValidRPE } from './rpeMath';
-import { roundToNearest25 } from './weightMath';
+import { roundToNearestIncrement, TARGET_LOAD_ROUNDING_INCREMENT } from './weightMath';
 import { extractSetPerformanceEvidence } from './progressionEvidence';
 
 export type FatiguePriorProfile = 'hypertrophy' | 'strength_normal' | 'strength_post_test';
@@ -24,7 +24,7 @@ export interface GeneratedWorkingSetTarget {
   workingSetOrdinal: number; // 1..6
   reps: number;
   rpe: number;
-  weight: number;            // Final load rounded to nearest 2.5 kg
+  weight: number;            // Final load rounded to nearest canonical increment (default 2.5 kg)
 }
 
 export interface ObservedSessionRatio {
@@ -329,9 +329,16 @@ function validateAnchorBaseline(anchor: SessionAnchor): boolean {
  */
 export function distributeHypertrophySets(
   anchor: SessionAnchor,
-  fatigueRatios: number[]
+  fatigueRatios: number[],
+  loadRoundingIncrement: number = TARGET_LOAD_ROUNDING_INCREMENT
 ): GeneratedWorkingSetTarget[] | null {
-  if (!validateAnchorBaseline(anchor) || !Array.isArray(fatigueRatios)) {
+  if (
+    !validateAnchorBaseline(anchor) ||
+    !Array.isArray(fatigueRatios) ||
+    typeof loadRoundingIncrement !== 'number' ||
+    !Number.isFinite(loadRoundingIncrement) ||
+    loadRoundingIncrement <= 0
+  ) {
     return null;
   }
 
@@ -403,7 +410,7 @@ export function distributeHypertrophySets(
         return null;
       }
       const rawWeight = capacity_i * fallbackMultiplier;
-      let roundedWeight = roundToNearest25(rawWeight);
+      let roundedWeight = roundToNearestIncrement(rawWeight, loadRoundingIncrement);
       roundedWeight = Math.min(roundedWeight, prevWeight);
 
       if (!Number.isFinite(roundedWeight) || roundedWeight <= 0) {
@@ -430,9 +437,16 @@ export function distributeHypertrophySets(
  */
 export function distributeStrengthSets(
   anchor: SessionAnchor,
-  fatigueRatios: number[]
+  fatigueRatios: number[],
+  loadRoundingIncrement: number = TARGET_LOAD_ROUNDING_INCREMENT
 ): GeneratedWorkingSetTarget[] | null {
-  if (!validateAnchorBaseline(anchor) || !Array.isArray(fatigueRatios)) {
+  if (
+    !validateAnchorBaseline(anchor) ||
+    !Array.isArray(fatigueRatios) ||
+    typeof loadRoundingIncrement !== 'number' ||
+    !Number.isFinite(loadRoundingIncrement) ||
+    loadRoundingIncrement <= 0
+  ) {
     return null;
   }
   // Normal strength must not be called for peak single (1 rep @ >= 9.5)
@@ -469,13 +483,13 @@ export function distributeStrengthSets(
     }
 
     const rawWeight = anchor.baselineE1RM * F_i * multiplier;
-    let roundedWeight = roundToNearest25(rawWeight);
+    let roundedWeight = roundToNearestIncrement(rawWeight, loadRoundingIncrement);
 
     // Boundary check against canonical RPE-10 capacity at current fatigue:
     const max10Multiplier = getRTSMultiplier(anchor.anchorReps, 10.0) ?? 1.0;
     const max10Weight = anchor.baselineE1RM * F_i * max10Multiplier;
     if (roundedWeight > max10Weight + 1e-6) {
-      roundedWeight = Math.floor((max10Weight + 1e-6) / 2.5) * 2.5;
+      roundedWeight = Math.floor((max10Weight + 1e-6) / loadRoundingIncrement) * loadRoundingIncrement;
     }
 
     roundedWeight = Math.min(roundedWeight, prevWeight);
@@ -503,9 +517,16 @@ export function distributeStrengthSets(
  */
 export function distributePeakSingleStrengthSets(
   anchor: SessionAnchor,
-  fatigueRatios: number[]
+  fatigueRatios: number[],
+  loadRoundingIncrement: number = TARGET_LOAD_ROUNDING_INCREMENT
 ): GeneratedWorkingSetTarget[] | null {
-  if (!validateAnchorBaseline(anchor) || !Array.isArray(fatigueRatios)) {
+  if (
+    !validateAnchorBaseline(anchor) ||
+    !Array.isArray(fatigueRatios) ||
+    typeof loadRoundingIncrement !== 'number' ||
+    !Number.isFinite(loadRoundingIncrement) ||
+    loadRoundingIncrement <= 0
+  ) {
     return null;
   }
   // Strict peak-single guard
@@ -546,13 +567,13 @@ export function distributePeakSingleStrengthSets(
     // Strictly uses unrounded baselineE1RM
     const capacity_i = anchor.baselineE1RM * F_i;
     const rawWeight = capacity_i * multiplier;
-    let roundedWeight = roundToNearest25(rawWeight);
+    let roundedWeight = roundToNearestIncrement(rawWeight, loadRoundingIncrement);
 
     // Boundary check against canonical 3RM @ RPE-10 capacity at current fatigue:
     const max10Multiplier = getRTSMultiplier(3, 10.0) ?? 1.0;
     const max10Weight = capacity_i * max10Multiplier;
     if (roundedWeight > max10Weight + 1e-6) {
-      roundedWeight = Math.floor((max10Weight + 1e-6) / 2.5) * 2.5;
+      roundedWeight = Math.floor((max10Weight + 1e-6) / loadRoundingIncrement) * loadRoundingIncrement;
     }
 
     roundedWeight = Math.min(roundedWeight, prevWeight);
@@ -582,7 +603,8 @@ export function distributePeakSingleStrengthSets(
 export function distributeMultiSetTargets(
   anchor: SessionAnchor,
   exerciseName: string,
-  historicalLogs: WorkoutLog[] = []
+  historicalLogs: WorkoutLog[] = [],
+  loadRoundingIncrement: number = TARGET_LOAD_ROUNDING_INCREMENT
 ): MultiSetDistributionResult {
   // 1. Skipped exercise bypass
   if (anchor?.isSkipped === true) {
@@ -616,6 +638,9 @@ export function distributeMultiSetTargets(
   if (
     !anchor ||
     typeof anchor !== 'object' ||
+    typeof loadRoundingIncrement !== 'number' ||
+    !Number.isFinite(loadRoundingIncrement) ||
+    loadRoundingIncrement <= 0 ||
     typeof anchor.baselineE1RM !== 'number' ||
     !Number.isFinite(anchor.baselineE1RM) ||
     anchor.baselineE1RM <= 0 ||
@@ -744,11 +769,11 @@ export function distributeMultiSetTargets(
   // 7. Generate distributed targets according to profile type
   let rawTargets: GeneratedWorkingSetTarget[] | null = null;
   if (anchor.profileType === 'hypertrophy') {
-    rawTargets = distributeHypertrophySets(anchor, ratioScalars);
+    rawTargets = distributeHypertrophySets(anchor, ratioScalars, loadRoundingIncrement);
   } else if (anchor.profileType === 'strength_post_test') {
-    rawTargets = distributePeakSingleStrengthSets(anchor, ratioScalars);
+    rawTargets = distributePeakSingleStrengthSets(anchor, ratioScalars, loadRoundingIncrement);
   } else if (anchor.profileType === 'strength_normal') {
-    rawTargets = distributeStrengthSets(anchor, ratioScalars);
+    rawTargets = distributeStrengthSets(anchor, ratioScalars, loadRoundingIncrement);
   }
 
   if (rawTargets === null) {
@@ -805,10 +830,11 @@ export function distributeMultiSetTargets(
       };
     }
 
-    // Verify weight is a valid nearest-2.5 increment within floating point tolerance
-    const rem = (t.weight / 2.5) % 1;
-    const isIncrement25 = Math.abs(rem) < 1e-5 || Math.abs(rem - 1) < 1e-5;
-    if (!isIncrement25) {
+    // Verify weight is a valid nearest loadRoundingIncrement within floating point tolerance
+    const quotient = t.weight / loadRoundingIncrement;
+    const nearestInt = Math.round(quotient);
+    const isIncrementValid = Math.abs(quotient - nearestInt) < 1e-5;
+    if (!isIncrementValid) {
       return {
         isBypassed: true,
         bypassReason: 'invalid_anchor_inputs',

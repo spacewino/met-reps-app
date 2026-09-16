@@ -9,6 +9,9 @@ import {
   solveBodyweightRepTarget,
   ProjectAssistedTargetParams,
   SolveBodyweightRepParams,
+  getAssistedIncrement,
+  getWeightedIncrement,
+  getGuidedCanonicalIncrement,
 } from '../modalityTargetMath';
 import { convertWeightUnit } from '../assistedLoadMath';
 import { getRTSMultiplier } from '../rpeMath';
@@ -679,6 +682,92 @@ describe('modalityTargetMath', () => {
 
       expect(res1).toEqual(res2);
       expect(params).toEqual(copy);
+    });
+  });
+
+  describe('Guided canonical increment authorities', () => {
+    // 1. Weighted kg resolves to 2.5.
+    it('1. resolves weighted kg to 2.5', () => {
+      expect(getWeightedIncrement('kg')).toBe(2.5);
+      expect(getGuidedCanonicalIncrement('weighted', 'kg')).toBe(2.5);
+    });
+
+    // 2. Weighted lb resolves to 5.0.
+    it('2. resolves weighted lb to 5.0', () => {
+      expect(getWeightedIncrement('lb')).toBe(5.0);
+      expect(getGuidedCanonicalIncrement('weighted', 'lb')).toBe(5.0);
+    });
+
+    // 3. Assisted kg resolves through getAssistedIncrement to 2.5.
+    it('3. resolves assisted kg through getAssistedIncrement to 2.5', () => {
+      expect(getAssistedIncrement('kg')).toBe(2.5);
+      expect(getGuidedCanonicalIncrement('assisted', 'kg')).toBe(2.5);
+      expect(getGuidedCanonicalIncrement('assisted', 'kg')).toBe(getAssistedIncrement('kg'));
+    });
+
+    // 4. Assisted lb resolves through getAssistedIncrement to 5.0.
+    it('4. resolves assisted lb through getAssistedIncrement to 5.0', () => {
+      expect(getAssistedIncrement('lb')).toBe(5.0);
+      expect(getGuidedCanonicalIncrement('assisted', 'lb')).toBe(5.0);
+      expect(getGuidedCanonicalIncrement('assisted', 'lb')).toBe(getAssistedIncrement('lb'));
+    });
+
+    // 5. Bodyweight kg resolves to the 2.5 contract increment.
+    it('5. resolves bodyweight kg to 2.5 contract increment', () => {
+      expect(getGuidedCanonicalIncrement('bodyweight', 'kg')).toBe(2.5);
+    });
+
+    // 6. Bodyweight lb resolves to the 5.0 contract increment.
+    it('6. resolves bodyweight lb to 5.0 contract increment', () => {
+      expect(getGuidedCanonicalIncrement('bodyweight', 'lb')).toBe(5.0);
+    });
+
+    // 7. Timed is unsupported.
+    it('7. fails closed on timed modality', () => {
+      expect(getGuidedCanonicalIncrement('timed', 'kg')).toBeNull();
+      expect(getGuidedCanonicalIncrement('timed', 'lb')).toBeNull();
+    });
+
+    // 8. Distance is unsupported.
+    it('8. fails closed on distance modality', () => {
+      expect(getGuidedCanonicalIncrement('distance', 'kg')).toBeNull();
+      expect(getGuidedCanonicalIncrement('distance', 'lb')).toBeNull();
+    });
+
+    // 9. distance_loaded is unsupported.
+    it('9. fails closed on distance_loaded modality', () => {
+      expect(getGuidedCanonicalIncrement('distance_loaded', 'kg')).toBeNull();
+      expect(getGuidedCanonicalIncrement('distance_loaded', 'lb')).toBeNull();
+    });
+
+    // 10. Missing modality fails closed.
+    it('10. fails closed on undefined/null modality', () => {
+      expect(getGuidedCanonicalIncrement(undefined, 'kg')).toBeNull();
+      expect(getGuidedCanonicalIncrement(null as any, 'kg')).toBeNull();
+    });
+
+    // 11. Unrecognized modality fails closed.
+    it('11. fails closed on unrecognized modality', () => {
+      expect(getGuidedCanonicalIncrement('unknown_modality' as any, 'kg')).toBeNull();
+      expect(getGuidedCanonicalIncrement('' as any, 'kg')).toBeNull();
+    });
+
+    // 12. Invalid runtime unit fails closed.
+    it('12. fails closed on invalid runtime unit', () => {
+      expect(getWeightedIncrement('stone' as any)).toBeNull();
+      expect(getWeightedIncrement('' as any)).toBeNull();
+      expect(getWeightedIncrement(undefined as any)).toBeNull();
+      expect(getGuidedCanonicalIncrement('weighted', 'stone' as any)).toBeNull();
+      expect(getGuidedCanonicalIncrement('weighted', '' as any)).toBeNull();
+      expect(getGuidedCanonicalIncrement('weighted', undefined as any)).toBeNull();
+      expect(getGuidedCanonicalIncrement('assisted', 'invalid' as any)).toBeNull();
+      expect(getGuidedCanonicalIncrement('bodyweight', 'invalid' as any)).toBeNull();
+    });
+
+    // 13. No modality defaults to weighted.
+    it('13. defaults to weighted when modality is omitted in getWeightedIncrement', () => {
+      expect(getWeightedIncrement('kg')).toBe(2.5);
+      expect(getWeightedIncrement('lb')).toBe(5.0);
     });
   });
 });

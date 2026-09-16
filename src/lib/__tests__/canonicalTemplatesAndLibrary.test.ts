@@ -4,6 +4,10 @@ import { detectExerciseClassification } from '../exerciseClassification';
 import { PREBUILT_TEMPLATES, storage } from '../storage';
 import { Program } from '../../types';
 
+const extractNames = (list: any[]): string[] => {
+  return (list || []).map(item => (typeof item === 'string' ? item : item?.name || ''));
+};
+
 describe('Part 1 & Part 5: Canonical Default Exercise Library Registration', () => {
   const approvedNewExercises: Record<string, string> = {
     'Plate-Loaded Romanian Deadlift': 'Hamstrings',
@@ -20,17 +24,17 @@ describe('Part 1 & Part 5: Canonical Default Exercise Library Registration', () 
 
   it('1. All ten new exercises occur exactly once in their intended category', () => {
     Object.entries(approvedNewExercises).forEach(([exerciseName, intendedCategory]) => {
-      const categoryList = (defaultExercises as Record<string, string[]>)[intendedCategory] || [];
-      const matches = categoryList.filter(name => name === exerciseName);
+      const categoryList = (defaultExercises as Record<string, any[]>)[intendedCategory] || [];
+      const matches = extractNames(categoryList).filter(name => name === exerciseName);
       expect(matches.length, `Expected "${exerciseName}" to exist exactly once in category "${intendedCategory}"`).toBe(1);
     });
   });
 
   it('2. None of the ten are added under an incorrect category', () => {
     Object.entries(approvedNewExercises).forEach(([exerciseName, intendedCategory]) => {
-      Object.entries(defaultExercises as Record<string, string[]>).forEach(([category, list]) => {
+      Object.entries(defaultExercises as Record<string, any[]>).forEach(([category, list]) => {
         if (category !== intendedCategory) {
-          expect(list).not.toContain(exerciseName);
+          expect(extractNames(list)).not.toContain(exerciseName);
         }
       });
     });
@@ -47,24 +51,24 @@ describe('Part 1 & Part 5: Canonical Default Exercise Library Registration', () 
   });
 
   it('4. No existing default name is renamed or removed, including legacy spellings', () => {
-    const pecs = defaultExercises['Pecs'] as string[];
+    const pecs = extractNames(defaultExercises['Pecs'] as any[]);
     expect(pecs).toContain('Dumbell Bench Press (incline)');
     expect(pecs).toContain('Dumbell Fly (incline)');
     expect(pecs).toContain('Barbell Bench Press (flat)');
 
-    const back = defaultExercises['Back'] as string[];
+    const back = extractNames(defaultExercises['Back'] as any[]);
     expect(back).toContain('Pull-Up (Wide Grip)');
     expect(back).toContain('Chin-Up (Underhand)');
     expect(back).toContain('Lat Pulldown (Wide)');
 
-    const hamstrings = defaultExercises['Hamstrings'] as string[];
+    const hamstrings = extractNames(defaultExercises['Hamstrings'] as any[]);
     expect(hamstrings).toContain('Deadlift (Conventional)');
     expect(hamstrings).toContain('Romanian Deadlift (RDL)');
     expect(hamstrings).toContain('Lying Leg Curl (Machine)');
   });
 
   it('5. No Chin-Up (Weighted), Technogym Pulldown or Hip Adduction Machine entry is added by this task', () => {
-    const allExercises = Object.values(defaultExercises as Record<string, string[]>).flat();
+    const allExercises = extractNames(Object.values(defaultExercises as Record<string, any[]>).flat());
     expect(allExercises).not.toContain('Chin-Up (Weighted)');
     expect(allExercises).not.toContain('Technogym Pulldown');
     expect(allExercises).not.toContain('Hip Adduction Machine');
@@ -347,7 +351,7 @@ describe('Part 2, 3 & Part 5: Prebuilt Template Structure Verification', () => {
     PREBUILT_TEMPLATES.forEach(tpl => {
       Object.values(tpl.exercisesByDay).forEach(dayExercises => {
         dayExercises.forEach(ex => {
-          const categoryList = (defaultExercises as Record<string, string[]>)[ex.muscleGroup];
+          const categoryList = extractNames((defaultExercises as Record<string, any[]>)[ex.muscleGroup]);
           expect(categoryList, `Muscle group ${ex.muscleGroup} not found for exercise ${ex.name}`).toBeDefined();
           expect(categoryList).toContain(ex.name);
         });
@@ -973,8 +977,8 @@ describe('Part 7: Milhouse Mass Split 7-Exercise Balance Update Verification', (
   });
 
   it('56. Standing Leg Curl (Machine) and Glute Kickback Machine remain available in the default Exercise Library', () => {
-    const hamstrings = (defaultExercises as any)['Hamstrings'];
-    const glutes = (defaultExercises as any)['Glutes'];
+    const hamstrings = extractNames((defaultExercises as any)['Hamstrings']);
+    const glutes = extractNames((defaultExercises as any)['Glutes']);
     expect(hamstrings).toContain('Standing Leg Curl (Machine)');
     expect(glutes).toContain('Glute Kickback Machine');
   });
@@ -982,7 +986,7 @@ describe('Part 7: Milhouse Mass Split 7-Exercise Balance Update Verification', (
   it('57. All retained Milhouse exercises resolve to canonical Exercise Library entries with full metadata', () => {
     Object.values(milhouse.exercisesByDay).forEach(dayExercises => {
       dayExercises.forEach(ex => {
-        const cat = (defaultExercises as any)[ex.muscleGroup];
+        const cat = extractNames((defaultExercises as any)[ex.muscleGroup]);
         expect(cat).toBeDefined();
         expect(cat).toContain(ex.name);
         expect(ex.modality).toBeDefined();

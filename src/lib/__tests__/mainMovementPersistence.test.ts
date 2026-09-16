@@ -233,8 +233,8 @@ describe('Main Movement Persistence, Recovery & Baseline Protection Integration 
     expect(isEligibleStrengthMainMovement({ name: 'Squat', muscleGroup: 'Quads', sets: [] })).toBe(true); // undefined modality
 
     expect(isEligibleStrengthMainMovement({ name: 'Squat', muscleGroup: 'Quads', sets: [], modality: 'weighted', isSkipped: true })).toBe(false);
-    expect(isEligibleStrengthMainMovement({ name: 'Pullup', muscleGroup: 'Back', sets: [], modality: 'bodyweight' })).toBe(false);
-    expect(isEligibleStrengthMainMovement({ name: 'Dip', muscleGroup: 'Chest', sets: [], modality: 'assisted' })).toBe(false);
+    expect(isEligibleStrengthMainMovement({ name: 'Pullup', muscleGroup: 'Back', sets: [], modality: 'bodyweight' })).toBe(true);
+    expect(isEligibleStrengthMainMovement({ name: 'Dip', muscleGroup: 'Chest', sets: [], modality: 'assisted' })).toBe(true);
     expect(isEligibleStrengthMainMovement({ name: 'Plank', muscleGroup: 'Core', sets: [], modality: 'timed' })).toBe(false);
     expect(isEligibleStrengthMainMovement({ name: 'Run', muscleGroup: 'Cardio', sets: [], modality: 'distance' })).toBe(false);
     expect(isEligibleStrengthMainMovement({ name: 'Carry', muscleGroup: 'Core', sets: [], modality: 'distance_loaded' })).toBe(false);
@@ -582,6 +582,162 @@ describe('Main Movement Persistence, Recovery & Baseline Protection Integration 
       // Verify locking rule in Week 2 (weekNum > 1 && eligibleCount === 1)
       const isLockedInWeek2 = 2 > 1 && getEligibleMainMovementCount(week2Day1Template) === 1;
       expect(isLockedInWeek2).toBe(true);
+    });
+  });
+
+  describe('Assisted and Bodyweight Main Movement Persistence & Integrity', () => {
+    const assistedExercise: ExerciseEntry = {
+      name: 'Pull-Up (Assisted)',
+      muscleGroup: 'Back',
+      modality: 'assisted',
+      isMainMovement: false,
+      sets: [
+        { setNumber: 1, weight: 20, reps: 5, rpe: 8, form: 'standard' },
+        { setNumber: 2, weight: 20, reps: 5, rpe: 8, form: 'standard' },
+      ],
+    };
+
+    const bodyweightExercise: ExerciseEntry = {
+      name: 'Pull-Up',
+      muscleGroup: 'Back',
+      modality: 'bodyweight',
+      isMainMovement: false,
+      sets: [
+        { setNumber: 1, weight: 0, reps: 6, rpe: 8, form: 'standard' },
+        { setNumber: 2, weight: 0, reps: 6, rpe: 8, form: 'standard' },
+      ],
+    };
+
+    const accessoryExercise: ExerciseEntry = {
+      name: 'Biceps Curl',
+      muscleGroup: 'Arms',
+      modality: 'weighted',
+      isMainMovement: false,
+      sets: [
+        { setNumber: 1, weight: 15, reps: 10, rpe: 8, form: 'standard' },
+      ],
+    };
+
+    const assistedProgram: Program = {
+      id: 'prog-assisted-test',
+      name: 'Assisted Strength Program',
+      daysPerWeek: 1,
+      programDuration: 4,
+      createdAt: '2026-08-23T10:00:00.000Z',
+      assignedWeekdays: { 1: 1 },
+      objective: 'Strength',
+      algorithmId: 'strength_linear',
+      exercisesByDay: {
+        1: [assistedExercise, bodyweightExercise, accessoryExercise],
+      },
+    };
+
+    it('1. selecting an assisted exercise as Main Movement persists isMainMovement: true in program metadata path', () => {
+      const updateResult = updateProgramDayMainMovement(assistedProgram, 1, 0, 'Pull-Up (Assisted)');
+      expect(updateResult.success).toBe(true);
+      const day1 = updateResult.updatedProgram.exercisesByDay[1];
+      expect(day1[0].isMainMovement).toBe(true);
+      expect(isEligibleStrengthMainMovement(day1[0])).toBe(true);
+      expect(getEligibleMainMovementCount(day1)).toBe(1);
+
+      storage.saveProgram(updateResult.updatedProgram);
+      const reloaded = storage.getPrograms().find(p => p.id === assistedProgram.id);
+      expect(reloaded).toBeDefined();
+      expect(reloaded!.exercisesByDay[1][0].isMainMovement).toBe(true);
+    });
+
+    it('2. selecting a bodyweight exercise as Main Movement persists correctly', () => {
+      const updateResult = updateProgramDayMainMovement(assistedProgram, 1, 1, 'Pull-Up');
+      expect(updateResult.success).toBe(true);
+      const day1 = updateResult.updatedProgram.exercisesByDay[1];
+      expect(day1[1].isMainMovement).toBe(true);
+      expect(isEligibleStrengthMainMovement(day1[1])).toBe(true);
+      expect(getEligibleMainMovementCount(day1)).toBe(1);
+
+      storage.saveProgram(updateResult.updatedProgram);
+      const reloaded = storage.getPrograms().find(p => p.id === assistedProgram.id);
+      expect(reloaded).toBeDefined();
+      expect(reloaded!.exercisesByDay[1][1].isMainMovement).toBe(true);
+    });
+
+    it('3. changing assist weight, reps or RPE does not remove the designation', () => {
+      const activeEx: ExerciseEntry = {
+        ...assistedExercise,
+        isMainMovement: true,
+      };
+      // User updates set 1: assist weight from 20 to 15 kg, reps from 5 to 6, RPE from 8 to 8.5
+      const updatedSets = activeEx.sets.map((s, idx) => 
+        idx === 0 ? { ...s, weight: 15, reps: 6, rpe: 8.5 } : s
+      );
+      const modifiedEx: ExerciseEntry = {
+        ...activeEx,
+        sets: updatedSets,
+      };
+
+      expect(modifiedEx.isMainMovement).toBe(true);
+      expect(modifiedEx.sets[0].weight).toBe(15);
+      expect(modifiedEx.sets[0].reps).toBe(6);
+      expect(modifiedEx.sets[0].rpe).toBe(8.5);
+      expect(isEligibleStrengthMainMovement(modifiedEx)).toBe(true);
+      expect(getEligibleMainMovementCount([modifiedEx])).toBe(1);
+    });
+
+    it('4. draft serialization/restoration preserves the designation', () => {
+      const draftPayload = {
+        programId: assistedProgram.id,
+        weekNum: 1,
+        dayNum: 1,
+        isOneOff: false,
+        dateStr: '2026-08-23',
+        exercises: [
+          { ...assistedExercise, isMainMovement: true },
+          accessoryExercise,
+        ],
+      };
+      localStorage.setItem('metreps_workout_draft', JSON.stringify(draftPayload));
+
+      const raw = localStorage.getItem('metreps_workout_draft');
+      expect(raw).toBeTruthy();
+      const restored = JSON.parse(raw!);
+      expect(restored.exercises[0].isMainMovement).toBe(true);
+      expect(restored.exercises[0].modality).toBe('assisted');
+      expect(getEligibleMainMovementCount(restored.exercises)).toBe(1);
+    });
+
+    it('5. weighted Main Movement behaviour remains unchanged', () => {
+      const updateResult = updateProgramDayMainMovement(assistedProgram, 1, 2, 'Biceps Curl');
+      expect(updateResult.success).toBe(true);
+      const day1 = updateResult.updatedProgram.exercisesByDay[1];
+      expect(day1[2].isMainMovement).toBe(true);
+      expect(isEligibleStrengthMainMovement(day1[2])).toBe(true);
+      expect(getEligibleMainMovementCount(day1)).toBe(1);
+    });
+
+    it('6. sibling exercise Main Movement flags retain the existing exactly-one semantics', () => {
+      // Set assisted exercise 0 as Main
+      const res1 = updateProgramDayMainMovement(assistedProgram, 1, 0, 'Pull-Up (Assisted)');
+      expect(res1.updatedProgram.exercisesByDay[1][0].isMainMovement).toBe(true);
+      expect(res1.updatedProgram.exercisesByDay[1][1].isMainMovement).toBe(false);
+      expect(res1.updatedProgram.exercisesByDay[1][2].isMainMovement).toBe(false);
+      expect(getEligibleMainMovementCount(res1.updatedProgram.exercisesByDay[1])).toBe(1);
+
+      // Now swap to bodyweight exercise 1
+      const res2 = updateProgramDayMainMovement(res1.updatedProgram, 1, 1, 'Pull-Up');
+      expect(res2.updatedProgram.exercisesByDay[1][0].isMainMovement).toBe(false);
+      expect(res2.updatedProgram.exercisesByDay[1][1].isMainMovement).toBe(true);
+      expect(res2.updatedProgram.exercisesByDay[1][2].isMainMovement).toBe(false);
+      expect(getEligibleMainMovementCount(res2.updatedProgram.exercisesByDay[1])).toBe(1);
+    });
+
+    it('7. no input Program or ExerciseEntry object is mutated unexpectedly', () => {
+      const progSnapshot = JSON.parse(JSON.stringify(assistedProgram));
+      const exSnapshot = JSON.parse(JSON.stringify(assistedExercise));
+
+      updateProgramDayMainMovement(assistedProgram, 1, 0, 'Pull-Up (Assisted)');
+      expect(assistedProgram).toEqual(progSnapshot);
+
+      isEligibleStrengthMainMovement(assistedExercise);
+      expect(assistedExercise).toEqual(exSnapshot);
     });
   });
 });
