@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -5,11 +6,13 @@
 
 import React from 'react';
 import { renderToString } from 'react-dom/server';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, cleanup } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { storage } from '../storage';
 import {
   CURRENT_ONBOARDING_VERSION,
   ONBOARDING_STORAGE_KEY,
+  METREPS_VIDEO_GUIDE_URL,
   classifyUserStatus,
   isEstablishedUser,
   shouldAutoOpenOnboarding,
@@ -43,42 +46,52 @@ describe('MetReps — Versioned First-Use Quick Start Onboarding (Full 35-Check 
     vi.restoreAllMocks();
   });
 
-  // 1. Exact approved copy on every page
-  it('1. contains exact approved copy on all 4 pages', () => {
-    const page1Html = renderToString(<OnboardingModal isOpen={true} onClose={() => {}} />);
-    expect(page1Html).toContain('Choose a built-in template or create your own training week. Templates provide the days and exercises.');
-    expect(page1Html).toContain('Your selected objective and progression algorithm control how targets are generated. Hypertrophy can guide the whole workout, Strength targets the designated Main Movement, and Off remains self-directed.');
-    
-    // Check remaining page copy texts in definitions
-    const page2P1 = 'Open Workout for your scheduled program session, or One-Off to record training outside a program.';
-    const page2P2 = 'Finishing a workout confirms every valid, unskipped set as performed. Leave a set unchanged if you completed it as shown; edit it when your actual performance differs.';
-    const page3P1 = 'Leave the RPE unchanged when the target felt right. If it felt different, select the RPE you actually reached.';
-    const page3P2 = 'This locks that completed set against automatic changes while Live Adjustments can update the remaining untouched sets.';
-    const page3P3 = 'Auto Warm-Up creates preparation sets from a valid working target. Tap the three-dot button beside a set to open Set Options, including the Equivalent Set Calculator.';
-    const page4P1 = 'Diary helps you review completed workouts, personal records, volume and muscle-group work. Trends shows your longer-term progress.';
-    const page4P2 = 'Your training data is stored locally in this browser or device. Export regular backups from Settings → App Data Management.';
-    const page4P3 = 'The information button on Home contains the full help guide and lets you replay this introduction.';
+  afterEach(() => {
+    cleanup();
+  });
 
-    expect(page2P1).toBeDefined();
-    expect(page2P2).toBeDefined();
-    expect(page3P1).toBeDefined();
-    expect(page3P2).toBeDefined();
-    expect(page3P3).toBeDefined();
-    expect(page4P1).toBeDefined();
-    expect(page4P2).toBeDefined();
-    expect(page4P3).toBeDefined();
+  // 1. Exact approved copy on every page
+  it('1. contains exact approved copy on all 4 pages and supersedes old copy', () => {
+    const page1Html = renderToString(<OnboardingModal isOpen={true} onClose={() => {}} initialPage={1} />);
+    expect(page1Html).toContain('Use Program to choose a template or create your own training week.');
+    expect(page1Html).toContain('Choose a Training Goal and Periodisation Method. Workout Target Mode determines whether targets follow that method alone or can be adapted by MetReps Coach.');
+    expect(page1Html).toContain('Strength programs use one designated Main Movement for strength-specific targets.');
+
+    const page2Html = renderToString(<OnboardingModal isOpen={true} onClose={() => {}} initialPage={2} />);
+    expect(page2Html).toContain('Use Workout for the scheduled session in your active program. Use One-Off for training outside a program.');
+    expect(page2Html).toContain('Leave a set unchanged when you complete it as shown. Edit its weight, repetitions or RPE when your performance differs, or skip it if it was not performed.');
+
+    const page3Html = renderToString(<OnboardingModal isOpen={true} onClose={() => {}} initialPage={3} />);
+    expect(page3Html).toContain('Record the weight, repetitions and RPE you actually complete. Completed or edited sets stay fixed while eligible Live Adjustments can update remaining untouched sets.');
+    expect(page3Html).toContain('Open Set Options from the three-dot button for additional tools, including Auto Warm-Up and the Equivalent Set Calculator.');
+
+    const page4Html = renderToString(<OnboardingModal isOpen={true} onClose={() => {}} initialPage={4} />);
+    expect(page4Html).toContain('Use Diary to review completed workouts and records. Use Trends to follow longer-term changes.');
+    expect(page4Html).toContain('MetReps stores your training data locally on this device. Create regular backups in Settings → App Data Management.');
+    expect(page4Html).toContain('Open Information on Home to access the full help guide or replay this introduction.');
+
+    // Assert superseded copy is completely absent
+    const allPagesHtml = [page1Html, page2Html, page3Html, page4Html].join(' ');
+    expect(allPagesHtml).not.toContain('progression algorithm control how targets');
+    expect(allPagesHtml).not.toContain('BUILD YOUR TRAINING');
+    expect(allPagesHtml).not.toContain('LOG WHAT YOU ACTUALLY DO');
+    expect(allPagesHtml).not.toContain('ADJUST ON THE GYM FLOOR');
+    expect(allPagesHtml).not.toContain('REVIEW AND PROTECT YOUR PROGRESS');
   });
 
   // 2. Exact page headings
   it('2. contains exact approved headings for all 4 pages', () => {
-    const headings = [
-      'BUILD YOUR TRAINING',
-      'LOG WHAT YOU ACTUALLY DO',
-      'ADJUST ON THE GYM FLOOR',
-      'REVIEW AND PROTECT YOUR PROGRESS',
-    ];
-    const page1Html = renderToString(<OnboardingModal isOpen={true} onClose={() => {}} />);
-    expect(page1Html).toContain(headings[0]);
+    const page1Html = renderToString(<OnboardingModal isOpen={true} onClose={() => {}} initialPage={1} />);
+    expect(page1Html).toContain('SET UP A PROGRAM');
+
+    const page2Html = renderToString(<OnboardingModal isOpen={true} onClose={() => {}} initialPage={2} />);
+    expect(page2Html).toContain('RECORD A WORKOUT');
+
+    const page3Html = renderToString(<OnboardingModal isOpen={true} onClose={() => {}} initialPage={3} />);
+    expect(page3Html).toContain('UPDATE SETS WHILE TRAINING');
+
+    const page4Html = renderToString(<OnboardingModal isOpen={true} onClose={() => {}} initialPage={4} />);
+    expect(page4Html).toContain('REVIEW AND BACK UP');
   });
 
   // 3. Exact cue labels and Page 3 cue order
@@ -321,19 +334,54 @@ describe('MetReps — Versioned First-Use Quick Start Onboarding (Full 35-Check 
     expect(html).toContain('METREPS QUICK START');
   });
 
-  // 31. No YouTube action is rendered
-  it('31. no YouTube action or unapproved video link is rendered', () => {
-    const html = renderToString(<OnboardingModal isOpen={true} onClose={() => {}} />);
-    expect(html).not.toContain('WATCH VIDEO GUIDE');
-    expect(html).not.toContain('youtube.com');
-    expect(html).not.toContain('youtu.be');
+  // 31. Video guide link behavior across Step 1-4 and InfoView
+  it('31. video guide link behaves according to requirements on Step 4 and InfoView', () => {
+    const page1Html = renderToString(<OnboardingModal isOpen={true} onClose={() => {}} initialPage={1} />);
+    const page2Html = renderToString(<OnboardingModal isOpen={true} onClose={() => {}} initialPage={2} />);
+    const page3Html = renderToString(<OnboardingModal isOpen={true} onClose={() => {}} initialPage={3} />);
+    const page4Html = renderToString(<OnboardingModal isOpen={true} onClose={() => {}} initialPage={4} />);
+    const infoHtml = renderToString(<InfoView onClose={() => {}} onOpenOnboarding={() => {}} />);
+
+    // Video link absent from Steps 1, 2 and 3
+    expect(page1Html).not.toContain('WATCH VIDEO GUIDE');
+    expect(page1Html).not.toContain(METREPS_VIDEO_GUIDE_URL);
+    expect(page1Html).not.toContain('youtube.com');
+    expect(page2Html).not.toContain('WATCH VIDEO GUIDE');
+    expect(page2Html).not.toContain(METREPS_VIDEO_GUIDE_URL);
+    expect(page3Html).not.toContain('WATCH VIDEO GUIDE');
+    expect(page3Html).not.toContain(METREPS_VIDEO_GUIDE_URL);
+
+    // Video link present on Step 4
+    expect(page4Html).toContain('WATCH VIDEO GUIDE');
+    expect(page4Html).toContain('Opens YouTube');
+    expect(page4Html).toContain(`href="${METREPS_VIDEO_GUIDE_URL}"`);
+    expect(page4Html).toContain('target="_blank"');
+    expect(page4Html).toContain('rel="noopener noreferrer"');
+    expect(page4Html).toContain('aria-label="Watch MetReps video guide on YouTube (opens in new tab)"');
+
+    // Video link present in InfoView
+    expect(infoHtml).toContain('WATCH VIDEO GUIDE');
+    expect(infoHtml).toContain('Opens YouTube');
+    expect(infoHtml).toContain(`href="${METREPS_VIDEO_GUIDE_URL}"`);
+    expect(infoHtml).toContain('target="_blank"');
+    expect(infoHtml).toContain('rel="noopener noreferrer"');
+    expect(infoHtml).toContain('aria-label="Watch MetReps video guide on YouTube (opens in new tab)"');
+    expect(infoHtml).toContain('Replay app introduction');
+
+    // Both links share the exact expected URL
+    expect(METREPS_VIDEO_GUIDE_URL).toBe('https://www.youtube.com/watch?v=YDZPj4iVHKM');
   });
 
-  // 32. 320 px and 375 px layouts do not overflow
-  it('32. 320 px and 375 px responsive constraints are applied', () => {
+  // 32. 320 px and 375 px layouts do not overflow and standardized geometry is applied
+  it('32. 320 px and 375 px responsive constraints and standardized geometry are applied', () => {
     const html = renderToString(<OnboardingModal isOpen={true} onClose={() => {}} />);
     expect(html).toContain('max-w-sm');
     expect(html).toContain('overflow-y-auto');
+    expect(html).toContain('min-h-0');
+    expect(html).toContain('flex-1');
+    expect(html).toContain('h-[640px]');
+    expect(html).toContain('max-h-[calc(100dvh-2rem)]');
+    expect(html).toContain('shrink-0');
   });
 
   // 33. Active workout drafts are never mutated
@@ -354,7 +402,49 @@ describe('MetReps — Versioned First-Use Quick Start Onboarding (Full 35-Check 
   });
 
   // 35. No tests use .only or .skip
-  it('35. verification passes with all 35 tests enabled without .only or .skip', () => {
+  it('35. verification passes with all tests enabled without .only or .skip', () => {
     expect(true).toBe(true);
+  });
+
+  // 36. Step 4 link participates in focus trap query and interaction does not trigger completion
+  it('36. step 4 video link participates in focus trap query and interaction does not trigger completion', () => {
+    const onClose = vi.fn();
+    const { container, getByRole } = render(
+      <OnboardingModal isOpen={true} onClose={onClose} initialPage={4} />
+    );
+
+    // Prove that a[href] is selected by the focusable elements query
+    const focusable = container.querySelectorAll(
+      'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+    );
+    const linkInFocusable = Array.from(focusable).find(
+      el => el.tagName === 'A' && el.getAttribute('href') === METREPS_VIDEO_GUIDE_URL
+    );
+    expect(linkInFocusable).toBeDefined();
+
+    // Verify interaction does not invoke onClose or mark completion
+    const link = getByRole('link', { name: /Watch MetReps video guide on YouTube/i });
+    expect(link).toBeDefined();
+
+    // Prevent external navigation in test runner
+    link.addEventListener('click', e => e.preventDefault());
+    link.click();
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(storage.getOnboardingVersion()).toBeNull();
+    // Verify current page remains step 4
+    expect(container.textContent).toContain('Step 4 of 4');
+  });
+
+  // 37. Information-screen replay action still opens the introduction normally
+  it('37. Information-screen replay action invokes onOpenOnboarding', () => {
+    const onOpenOnboarding = vi.fn();
+    const { getByRole } = render(
+      <InfoView onClose={() => {}} onOpenOnboarding={onOpenOnboarding} />
+    );
+
+    const replayBtn = getByRole('button', { name: /Replay app introduction/i });
+    replayBtn.click();
+    expect(onOpenOnboarding).toHaveBeenCalledTimes(1);
   });
 });

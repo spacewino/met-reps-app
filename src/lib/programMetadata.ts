@@ -5,14 +5,14 @@ import { ExerciseEntry, Program } from '../types';
  * 
  * An eligible Strength Main Movement must:
  * 1. Not be skipped (isSkipped !== true)
- * 2. Have a modality of 'weighted' or undefined (which defaults to 'weighted')
+ * 2. Have a supported loadable modality: 'weighted', 'assisted', 'bodyweight', or undefined (which defaults to 'weighted')
  * 
- * Non-weighted modalities (bodyweight, assisted, timed, distance, distance_loaded) are ineligible.
+ * Non-loadable modalities (timed, distance, distance_loaded) and other unsupported modalities are ineligible.
  */
 export function isEligibleStrengthMainMovement(ex: ExerciseEntry): boolean {
   if (ex.isSkipped) return false;
   const modality = ex.modality || 'weighted';
-  return modality === 'weighted';
+  return modality === 'weighted' || modality === 'assisted' || modality === 'bodyweight';
 }
 
 /**

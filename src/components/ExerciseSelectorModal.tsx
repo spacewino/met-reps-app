@@ -9,6 +9,11 @@ import libraryData from '../lib/defaultExerciseLibrary.json';
 import { storage } from '../lib/storage';
 import { useModalHistory } from '../lib/useModalHistory';
 import { detectExerciseClassification, MovementCategory, EquipmentType } from '../lib/exerciseClassification';
+import {
+  loadAndRepairCustomExercises,
+  generateUniqueCustomExerciseKey,
+  isCustomExerciseKey,
+} from '../lib/customExerciseIdentity';
 
 export interface ExerciseItem {
   name: string;
@@ -16,6 +21,7 @@ export interface ExerciseItem {
   modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded';
   movementCategory?: MovementCategory;
   equipment?: EquipmentType;
+  exerciseKey?: string;
 }
 
 interface ExerciseSelectorModalProps {
@@ -126,94 +132,7 @@ const getDefaultModality = (name: string): 'weighted' | 'bodyweight' | 'assisted
   return 'weighted';
 };
 
-const typedLibrary = libraryData as Record<string, string[]>;
-
-// Helper function to update existing exercise records across all stored data when exercise attributes are edited
-const migrateExerciseDetails = (oldName: string, newName: string, newModality: any, newCategory: string) => {
-  const oldNameNorm = oldName.trim().toLowerCase();
-  const newNameNorm = newName.trim();
-
-  // 1. Migrate Workout Logs
-  try {
-    const logsStr = localStorage.getItem('workoutLogs');
-    if (logsStr) {
-      const logs = JSON.parse(logsStr);
-      let updatedAny = false;
-      logs.forEach((log: any) => {
-        if (log.exercises && Array.isArray(log.exercises)) {
-          log.exercises.forEach((ex: any) => {
-            if (ex.name && ex.name.trim().toLowerCase() === oldNameNorm) {
-              ex.name = newNameNorm;
-              ex.modality = newModality;
-              ex.muscleGroup = newCategory;
-              updatedAny = true;
-            }
-          });
-        }
-      });
-      if (updatedAny) {
-        localStorage.setItem('workoutLogs', JSON.stringify(logs));
-      }
-    }
-  } catch (err) {
-    console.error('Error migrating workout logs:', err);
-  }
-
-  // 2. Migrate Programs
-  try {
-    const programsStr = localStorage.getItem('programList');
-    if (programsStr) {
-      const programs = JSON.parse(programsStr);
-      let updatedAny = false;
-      programs.forEach((prog: any) => {
-        if (prog.exercisesByDay) {
-          Object.keys(prog.exercisesByDay).forEach((dayKey) => {
-            const exercises = prog.exercisesByDay[dayKey];
-            if (Array.isArray(exercises)) {
-              exercises.forEach((ex: any) => {
-                if (ex.name && ex.name.trim().toLowerCase() === oldNameNorm) {
-                  ex.name = newNameNorm;
-                  ex.modality = newModality;
-                  ex.muscleGroup = newCategory;
-                  updatedAny = true;
-                }
-              });
-            }
-          });
-        }
-      });
-      if (updatedAny) {
-        localStorage.setItem('programList', JSON.stringify(programs));
-      }
-    }
-  } catch (err) {
-    console.error('Error migrating program list:', err);
-  }
-
-  // 3. Migrate active workout draft
-  try {
-    const draftStr = localStorage.getItem('metreps_workout_draft');
-    if (draftStr) {
-      const draft = JSON.parse(draftStr);
-      let updatedAny = false;
-      if (draft.exercises && Array.isArray(draft.exercises)) {
-        draft.exercises.forEach((ex: any) => {
-          if (ex.name && ex.name.trim().toLowerCase() === oldNameNorm) {
-            ex.name = newNameNorm;
-            ex.modality = newModality;
-            ex.muscleGroup = newCategory;
-            updatedAny = true;
-          }
-        });
-      }
-      if (updatedAny) {
-        localStorage.setItem('metreps_workout_draft', JSON.stringify(draft));
-      }
-    }
-  } catch (err) {
-    console.error('Error migrating workout draft:', err);
-  }
-};
+const typedLibrary = libraryData as unknown as Record<string, Array<string | { name: string; exerciseKey?: string }>>;
 
 export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel, isManagementOnly = false }: ExerciseSelectorModalProps) {
   const { dismiss, dismissWithoutCallback } = useModalHistory(isOpen, onClose, 'exercise-selector-modal');
@@ -276,14 +195,9 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
     }
   });
 
-  // Load custom exercises from localStorage
+  // Load custom exercises from localStorage with atomic migration repair
   const [customExercises, setCustomExercises] = useState<ExerciseItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('metreps_custom_exercises');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+    return loadAndRepairCustomExercises();
   });
 
   const listRef = useRef<HTMLDivElement>(null);
@@ -356,24 +270,30 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
 
     // Add default library exercises
     Object.entries(typedLibrary).forEach(([category, exercises]) => {
-      exercises.forEach(ex => {
-        const matchesSearch = ex.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      exercises.forEach(rawEx => {
+        const exName = typeof rawEx === 'string' ? rawEx : rawEx.name;
+        const exKey = typeof rawEx === 'string' ? undefined : rawEx.exerciseKey;
+        const matchesSearch = exName.toLowerCase().includes(searchQuery.toLowerCase()) || 
                               category.toLowerCase().includes(searchQuery.toLowerCase());
         const matchesCategory = selectedCategory === 'All' || selectedCategory === category;
 
-        // Prevent duplication of custom overrides
-        const alreadyAdded = results.some(r => r.name.toLowerCase() === ex.toLowerCase());
-        const isHidden = hiddenDefaults.includes(ex.toLowerCase());
+        // Prevent duplication of built-ins within the same category/view
+        const alreadyAdded = results.some(r => 
+          !r.exerciseKey?.startsWith('custom_') && 
+          ((r.exerciseKey && exKey) ? r.exerciseKey === exKey : r.name.toLowerCase() === exName.toLowerCase())
+        );
+        const isHidden = hiddenDefaults.includes(exName.toLowerCase());
 
         if (matchesSearch && matchesCategory && !alreadyAdded && !isHidden) {
-          const mod = getDefaultModality(ex);
-          const detected = detectExerciseClassification(ex, mod);
+          const mod = getDefaultModality(exName);
+          const detected = detectExerciseClassification(exName, mod);
           results.push({
-            name: ex,
+            name: exName,
             category,
             modality: mod,
             movementCategory: detected.category,
-            equipment: detected.equipment
+            equipment: detected.equipment,
+            ...(exKey ? { exerciseKey: exKey } : {})
           });
         }
       });
@@ -384,11 +304,45 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
 
   if (!isOpen) return null;
 
+  const isCustomItem = (item: ExerciseItem) => {
+    if (item.exerciseKey && isCustomExerciseKey(item.exerciseKey)) {
+      return true;
+    }
+    return customExercises.some(c => {
+      if (c.exerciseKey && item.exerciseKey) {
+        return c.exerciseKey === item.exerciseKey;
+      }
+      return c.name.toLowerCase() === item.name.toLowerCase() && c.category.toLowerCase() === item.category.toLowerCase();
+    });
+  };
+
   const handleToggleChecked = (ex: ExerciseItem) => {
+    if (isCustomItem(ex) && (!ex.exerciseKey || !isCustomExerciseKey(ex.exerciseKey))) {
+      alert('Custom exercise identity could not be saved. Please reload and try again.');
+      return;
+    }
+
     setCheckedExercises(prev => {
-      const isAlreadyChecked = prev.some(item => item.name === ex.name);
+      const isAlreadyChecked = prev.some(item => {
+        if (item.exerciseKey && ex.exerciseKey) {
+          return item.exerciseKey === ex.exerciseKey;
+        }
+        if (!isCustomExerciseKey(ex.exerciseKey) && !isCustomExerciseKey(item.exerciseKey) && !isCustomItem(ex) && !isCustomItem(item)) {
+          return item.name.toLowerCase() === ex.name.toLowerCase();
+        }
+        return false;
+      });
+
       if (isAlreadyChecked) {
-        return prev.filter(item => item.name !== ex.name);
+        return prev.filter(item => {
+          if (item.exerciseKey && ex.exerciseKey) {
+            return item.exerciseKey !== ex.exerciseKey;
+          }
+          if (!isCustomExerciseKey(ex.exerciseKey) && !isCustomExerciseKey(item.exerciseKey) && !isCustomItem(ex) && !isCustomItem(item)) {
+            return item.name.toLowerCase() !== ex.name.toLowerCase();
+          }
+          return true;
+        });
       } else {
         const detected = detectExerciseClassification(ex.name, ex.modality);
         return [...prev, {
@@ -396,26 +350,40 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
           category: ex.category,
           modality: ex.modality,
           movementCategory: ex.movementCategory || detected.category,
-          equipment: ex.equipment || detected.equipment
+          equipment: ex.equipment || detected.equipment,
+          exerciseKey: ex.exerciseKey
         }];
       }
     });
   };
 
-  const handleDeleteCustom = (name: string) => {
-    if (confirm(`Are you sure you want to delete custom exercise "${name}"?`)) {
-      const updatedCustoms = customExercises.filter(c => c.name.toLowerCase() !== name.toLowerCase());
-      setCustomExercises(updatedCustoms);
+  const handleDeleteCustom = (ex: ExerciseItem) => {
+    if (!ex.exerciseKey || !isCustomExerciseKey(ex.exerciseKey)) {
+      alert('Custom exercise identity could not be saved. Please reload and try again.');
+      return;
+    }
+
+    if (confirm(`Are you sure you want to delete custom exercise "${ex.name}"?`)) {
+      const updatedCustoms = customExercises.filter(c => c.exerciseKey !== ex.exerciseKey);
       try {
         localStorage.setItem('metreps_custom_exercises', JSON.stringify(updatedCustoms));
       } catch (e) {
-        console.error(e);
+        console.error('Failed to delete custom exercise from storage:', e);
+        alert('Failed to delete custom exercise.');
+        return;
       }
-      setCheckedExercises(prev => prev.filter(item => item.name.toLowerCase() !== name.toLowerCase()));
+      setCustomExercises(updatedCustoms);
+      setCheckedExercises(prev => prev.filter(item => item.exerciseKey !== ex.exerciseKey));
     }
   };
 
   const handleStartEdit = (ex: ExerciseItem) => {
+    const isCustom = isCustomItem(ex);
+    if (isCustom && (!ex.exerciseKey || !isCustomExerciseKey(ex.exerciseKey))) {
+      alert('Custom exercise identity could not be saved. Please reload and try again.');
+      return;
+    }
+
     const detected = detectExerciseClassification(ex.name, ex.modality);
     const moveCat = ex.movementCategory || detected.category;
     const eqType = ex.equipment || detected.equipment;
@@ -427,7 +395,8 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
       category: ex.category,
       modality: ex.modality || 'weighted',
       movementCategory: moveCat,
-      equipment: eqType
+      equipment: eqType,
+      exerciseKey: ex.exerciseKey
     });
     setCustomName(ex.name);
     setCustomCategory(ex.category);
@@ -705,21 +674,16 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
                     return;
                   }
                   const formattedName = customName.trim();
-                  const newEx: ExerciseItem = { 
-                    name: formattedName, 
-                    category: customCategory,
-                    modality: customModality,
-                    movementCategory: customMovementCategory,
-                    equipment: customEquipment
-                  };
                   
                   let updatedCustoms = [...customExercises];
+                  let savedItem: ExerciseItem;
 
                   if (editingExercise) {
                     const oldName = editingExercise.name;
-                    const isOldDefault = !customExercises.some(c => c.name.toLowerCase() === oldName.toLowerCase());
+                    const isCustom = Boolean(editingExercise.exerciseKey && isCustomExerciseKey(editingExercise.exerciseKey));
 
-                    if (isOldDefault) {
+                    if (!isCustom || !editingExercise.exerciseKey) {
+                      // It was a default/built-in exercise being customized
                       if (oldName.toLowerCase() !== formattedName.toLowerCase()) {
                         const updatedHidden = [...hiddenDefaults, oldName.toLowerCase()];
                         setHiddenDefaults(updatedHidden);
@@ -729,49 +693,75 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
                           console.error(e);
                         }
                       }
-                      updatedCustoms = [newEx, ...updatedCustoms];
+                      const newKey = generateUniqueCustomExerciseKey(customExercises);
+                      savedItem = {
+                        name: formattedName,
+                        category: customCategory,
+                        modality: customModality,
+                        movementCategory: customMovementCategory,
+                        equipment: customEquipment,
+                        exerciseKey: newKey,
+                      };
+                      updatedCustoms = [savedItem, ...updatedCustoms];
                     } else {
-                      const idx = updatedCustoms.findIndex(c => c.name.toLowerCase() === oldName.toLowerCase());
+                      const targetKey = editingExercise.exerciseKey;
+                      savedItem = {
+                        name: formattedName,
+                        category: customCategory,
+                        modality: customModality,
+                        movementCategory: customMovementCategory,
+                        equipment: customEquipment,
+                        exerciseKey: targetKey,
+                      };
+                      const idx = updatedCustoms.findIndex(c => c.exerciseKey === targetKey);
                       if (idx >= 0) {
-                        updatedCustoms[idx] = newEx;
+                        updatedCustoms[idx] = savedItem;
                       } else {
-                        updatedCustoms = [newEx, ...updatedCustoms];
+                        updatedCustoms = [savedItem, ...updatedCustoms];
                       }
-                    }
-
-                    // Run data migrations if name, category or modality changed
-                    if (
-                      oldName.toLowerCase() !== formattedName.toLowerCase() ||
-                      editingExercise.modality !== customModality ||
-                      editingExercise.category !== customCategory
-                    ) {
-                      migrateExerciseDetails(oldName, formattedName, customModality, customCategory);
                     }
 
                     // Auto-check logic
                     setCheckedExercises(prev => {
-                      const filtered = prev.filter(item => item.name.toLowerCase() !== oldName.toLowerCase());
-                      if (filtered.some(item => item.name.toLowerCase() === formattedName.toLowerCase())) {
-                        return filtered;
-                      }
-                      return [...filtered, newEx];
+                      const filtered = prev.filter(item => {
+                        if (editingExercise.exerciseKey && item.exerciseKey) {
+                          return item.exerciseKey !== editingExercise.exerciseKey;
+                        }
+                        if (!isCustomExerciseKey(editingExercise.exerciseKey) && !isCustomExerciseKey(item.exerciseKey)) {
+                          return item.name.toLowerCase() !== oldName.toLowerCase();
+                        }
+                        return true;
+                      });
+                      return [...filtered, savedItem];
                     });
-
                   } else {
                     // Normal custom creation
-                    updatedCustoms = [newEx, ...updatedCustoms];
+                    const newKey = generateUniqueCustomExerciseKey(customExercises);
+                    savedItem = {
+                      name: formattedName,
+                      category: customCategory,
+                      modality: customModality,
+                      movementCategory: customMovementCategory,
+                      equipment: customEquipment,
+                      exerciseKey: newKey,
+                    };
+                    updatedCustoms = [savedItem, ...updatedCustoms];
                     setCheckedExercises(prev => {
-                      if (prev.some(item => item.name.toLowerCase() === formattedName.toLowerCase())) return prev;
-                      return [...prev, newEx];
+                      if (prev.some(item => item.exerciseKey === savedItem.exerciseKey)) return prev;
+                      return [...prev, savedItem];
                     });
                   }
 
-                  setCustomExercises(updatedCustoms);
+                  // Atomic persistence before updating component state
                   try {
                     localStorage.setItem('metreps_custom_exercises', JSON.stringify(updatedCustoms));
                   } catch (e) {
-                    console.error(e);
+                    console.error('Failed to save custom exercise to storage:', e);
+                    alert('Failed to save custom exercise.');
+                    return;
                   }
+
+                  setCustomExercises(updatedCustoms);
 
                   // Reset and exit custom mode
                   setCustomName('');
@@ -820,11 +810,19 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
               </div>
             ) : (
               filteredExercises.map((ex, idx) => {
-                const isChecked = checkedExercises.some(item => item.name === ex.name);
-                const isCustom = customExercises.some(c => c.name.toLowerCase() === ex.name.toLowerCase());
+                const isChecked = checkedExercises.some(item => {
+                  if (item.exerciseKey && ex.exerciseKey) {
+                    return item.exerciseKey === ex.exerciseKey;
+                  }
+                  if (!isCustomExerciseKey(ex.exerciseKey) && !isCustomExerciseKey(item.exerciseKey) && !isCustomItem(ex) && !isCustomItem(item)) {
+                    return item.name.toLowerCase() === ex.name.toLowerCase();
+                  }
+                  return false;
+                });
+                const isCustom = isCustomItem(ex);
                 return (
                   <div
-                    key={idx}
+                    key={ex.exerciseKey ? `ex-${ex.exerciseKey}-${ex.category}` : `ex-${ex.name}-${ex.category}-${idx}`}
                     className={`w-full p-3.5 flex items-center justify-between gap-2 border-y border-x-0 ${
                       !isManagementOnly && isChecked
                         ? 'bg-indigo-950/20 border-indigo-500/50 hover:bg-indigo-950/30'
@@ -885,7 +883,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleDeleteCustom(ex.name);
+                            handleDeleteCustom(ex);
                           }}
                           className="p-2 rounded-none border border-slate-800 bg-slate-950 text-slate-500 hover:text-rose-400 hover:border-rose-500/30 transition cursor-pointer"
                           title="Delete Custom Exercise"
@@ -966,7 +964,8 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
                   onClick={() => {
                     dismissWithoutCallback();
                     if (onSelect) {
-                      onSelect(checkedExercises);
+                      const validSelected = checkedExercises.filter(item => !isCustomItem(item) || (item.exerciseKey && isCustomExerciseKey(item.exerciseKey)));
+                      onSelect(validSelected);
                     }
                     onClose();
                   }}

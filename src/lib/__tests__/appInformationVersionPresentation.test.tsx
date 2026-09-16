@@ -31,13 +31,14 @@ describe('MetReps — App Information Version Presentation Test', () => {
     localStorage.clear();
   });
 
-  it('renders exact version 1.0.6.0 and creator credit in the default (slate/Subnautic) theme', () => {
+  it('renders exact version 1.1.0.0 and creator credit in the default (slate/Subnautic) theme', () => {
     storage.setTheme('slate');
     const html = renderToString(<InfoView onClose={() => {}} />);
 
-    // Check for Ver: label and 1.0.6.0 value
+    // Check for Ver: label and 1.1.0.0 value
     expect(html).toContain('Ver:');
-    expect(html).toContain('1.0.6.0');
+    expect(html).toContain('1.1.0.0');
+    expect(html).not.toContain('1.0.6.0');
     expect(html).not.toContain('1.0.2');
     expect(html).toContain('MetReps by');
     expect(html).toContain('Fil Filidei');
@@ -46,21 +47,23 @@ describe('MetReps — App Information Version Presentation Test', () => {
     expect(html).toContain('MetRepsApp@gmail.com');
   });
 
-  it('renders exact version 1.0.6.0 in the onyx (Abyss) theme', () => {
+  it('renders exact version 1.1.0.0 in the onyx (Abyss) theme', () => {
     storage.setTheme('onyx');
     const html = renderToString(<InfoView onClose={() => {}} />);
 
     expect(html).toContain('Ver:');
-    expect(html).toContain('1.0.6.0');
+    expect(html).toContain('1.1.0.0');
+    expect(html).not.toContain('1.0.6.0');
     expect(html).not.toContain('1.0.2');
   });
 
-  it('renders exact version 1.0.6.0 in the amber (Desert) theme', () => {
+  it('renders exact version 1.1.0.0 in the amber (Desert) theme', () => {
     storage.setTheme('amber');
     const html = renderToString(<InfoView onClose={() => {}} />);
 
     expect(html).toContain('Ver:');
-    expect(html).toContain('1.0.6.0');
+    expect(html).toContain('1.1.0.0');
+    expect(html).not.toContain('1.0.6.0');
     expect(html).not.toContain('1.0.2');
   });
 });

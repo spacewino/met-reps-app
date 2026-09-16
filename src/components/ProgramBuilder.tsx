@@ -4,10 +4,11 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Dumbbell, Plus, Trash2, ArrowLeft, Clipboard, HelpCircle, Save, Info, Pencil, Check, TrendingUp, CalendarX, User } from 'lucide-react';
+import { Dumbbell, Plus, Trash2, ArrowLeft, Clipboard, HelpCircle, Save, Info, Pencil, Check, TrendingUp, CalendarX, User, X } from 'lucide-react';
 import { motion } from 'motion/react';
-import { Program, ExerciseEntry, WeightUnit } from '../types';
+import { Program, ExerciseEntry, WeightUnit, TargetProgressionMode } from '../types';
 import { storage, PREBUILT_TEMPLATES } from '../lib/storage';
+import { resolveProgramProgressionMode } from '../lib/programProgressionMode';
 import { getActiveWorkoutDraft, doesDraftMatchProgram, clearActiveWorkoutDraft } from '../lib/navigationGuard';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -30,6 +31,56 @@ const WEEKDAYS = [
   { value: 5, label: 'Saturday', short: 'Sat' },
   { value: 6, label: 'Sunday', short: 'Sun' },
 ];
+
+type InfoModalKey =
+  | 'periodisation_targets'
+  | 'metreps_coach'
+  | 'hypertrophy_linear'
+  | 'hypertrophy_step'
+  | 'strength_undulating'
+  | 'strength_linear';
+
+interface InfoDialogContent {
+  title: string;
+  secondaryHeading?: string;
+  body: string;
+  note?: string;
+}
+
+const INFO_DIALOG_CONTENTS: Record<InfoModalKey, InfoDialogContent> = {
+  periodisation_targets: {
+    title: 'Periodisation Targets',
+    secondaryHeading: 'How this mode works',
+    body: 'MetReps uses your recorded performance as the baseline, then applies your selected periodisation method to calculate the session’s targets. It does not use Coach rules to decide whether you have earned a progression, should hold, or should retry a target.',
+  },
+  metreps_coach: {
+    title: 'MetReps Coach',
+    secondaryHeading: 'How this mode works',
+    body: 'MetReps Coach starts with the same periodisation-based targets, then compares completed workouts with previous prescribed targets. When the available evidence supports a decision, it can progress, hold, retry or adjust future weight and repetition targets.',
+  },
+  hypertrophy_linear: {
+    title: 'Wave Volume',
+    secondaryHeading: 'How this method works',
+    body: 'Alternates weekly between higher-repetition waves (12–15 reps) and heavier, lower-repetition waves (6–12 reps), anchored at RPE 8.0. Rep targets adjust automatically for compound versus isolation and free-weight versus machine exercises.',
+  },
+  hypertrophy_step: {
+    title: 'Step Loading',
+    secondaryHeading: 'How this method works',
+    body: 'Organises training into 4-week blocks. Target RPE rises through Weeks 1–3, then holds in Week 4 while reps increase. Each new block shifts to a heavier, lower-rep range, with rep targets adjusted for exercise type and equipment.',
+  },
+  strength_undulating: {
+    title: 'Wave Strength',
+    secondaryHeading: 'How this method works',
+    body: 'Progresses designated Main Movements through changing strength rep ranges across 4, 8, or 12 weeks, finishing with an RPE 10 peak single. Other exercises remain self-directed.',
+    note: 'Only mark an exercise as a Main Movement if it is suitable for low-repetition strength work and peak singles.',
+  },
+  strength_linear: {
+    title: 'Linear Periodisation',
+    secondaryHeading: 'How this method works',
+    body: 'Progresses designated Main Movements across the program by gradually reducing target reps from 8 in Week 1 to 1 in the final week while increasing target RPE from 7.0 to 10.0. Other exercises remain self-directed.',
+    note: 'Only mark an exercise as a Main Movement if it is suitable for low-repetition strength work and peak singles.',
+  },
+};
 
 const getDefaultWeekdays = (num: number): Record<number, number> => {
   if (num === 3) {
@@ -76,6 +127,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
         durationWeeks: 8,
         objective: 'Hypertrophy',
         algorithmId: 'hypertrophy_linear',
+        targetProgressionMode: 'performance_led' as TargetProgressionMode,
         exercisesByDay: { 1: [], 2: [], 3: [] },
         assignedWeekdays: getDefaultWeekdays(3)
       };
@@ -84,6 +136,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     const durNum = dur && typeof dur === 'number' && [4, 6, 8, 12].includes(dur) ? dur : 8;
     const initObj = activeProg.objective || 'Hypertrophy';
     const initAlgo = activeProg.algorithmId || (initObj === 'Strength' ? 'strength_undulating' : 'hypertrophy_linear');
+    const initProgressionMode = resolveProgramProgressionMode(activeProg);
     return {
       id: activeProg.id,
       name: activeProg.name,
@@ -91,6 +144,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       durationWeeks: durNum,
       objective: initObj,
       algorithmId: initAlgo,
+      targetProgressionMode: initProgressionMode,
       exercisesByDay: JSON.parse(JSON.stringify(activeProg.exercisesByDay)),
       assignedWeekdays: activeProg.assignedWeekdays ? JSON.parse(JSON.stringify(activeProg.assignedWeekdays)) : getDefaultWeekdays(activeProg.daysPerWeek)
     };
@@ -111,6 +165,9 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     if (activeProg?.algorithmId) return activeProg.algorithmId;
     return activeProg?.objective === 'Strength' ? 'strength_undulating' : 'hypertrophy_linear';
   });
+  const [targetProgressionMode, setTargetProgressionMode] = useState<TargetProgressionMode>(() =>
+    resolveProgramProgressionMode(activeProg)
+  );
   const [alertMsg, setAlertMsg] = useState<string | null>(null);
   const [savedPrograms, setSavedPrograms] = useState<Program[]>(() => storage.getPrograms());
   const [isDaysDropdownOpen, setIsDaysDropdownOpen] = useState(false);
@@ -155,6 +212,45 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
   // Active workout draft conflict state
   const [showDraftConflictModal, setShowDraftConflictModal] = useState(false);
   const [pendingDraftConflictProgram, setPendingDraftConflictProgram] = useState<Program | null>(null);
+
+  // Progression & Periodisation Information Dialog State
+  const [activeInfoModal, setActiveInfoModal] = useState<InfoModalKey | null>(null);
+  const infoTriggerRef = useRef<HTMLElement | null>(null);
+  const closeBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  const openInfoModal = (key: InfoModalKey, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      infoTriggerRef.current = e.currentTarget as HTMLElement;
+    } else {
+      infoTriggerRef.current = document.activeElement as HTMLElement | null;
+    }
+    setActiveInfoModal(key);
+  };
+
+  const closeInfoModal = () => {
+    setActiveInfoModal(null);
+    setTimeout(() => {
+      if (infoTriggerRef.current) {
+        infoTriggerRef.current.focus();
+      }
+    }, 0);
+  };
+
+  useEffect(() => {
+    if (!activeInfoModal) {
+      return undefined;
+    }
+    closeBtnRef.current?.focus();
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        closeInfoModal();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeInfoModal]);
 
   // Unenroll state
   const [showUnenrollConfirm, setShowUnenrollConfirm] = useState(false);
@@ -205,6 +301,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     const durNum = dur && typeof dur === 'number' && (isUndulating ? [4, 8, 12] : [4, 6, 8, 12]).includes(dur) ? dur : 8;
     const saveObj = updatedProgram.objective || 'Hypertrophy';
     const saveAlgo = updatedProgram.algorithmId || (saveObj === 'Strength' ? 'strength_undulating' : 'hypertrophy_linear');
+    const saveProgressionMode = resolveProgramProgressionMode(updatedProgram);
     setSnapshot({
       id: updatedProgram.id,
       name: updatedProgram.name,
@@ -212,6 +309,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       durationWeeks: durNum,
       objective: saveObj,
       algorithmId: saveAlgo,
+      targetProgressionMode: saveProgressionMode,
       exercisesByDay: JSON.parse(JSON.stringify(updatedProgram.exercisesByDay)),
       assignedWeekdays: updatedProgram.assignedWeekdays ? JSON.parse(JSON.stringify(updatedProgram.assignedWeekdays)) : getDefaultWeekdays(updatedProgram.daysPerWeek)
     });
@@ -236,7 +334,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     setIsSelectorOpen(true);
   };
 
-  const handleSelectExercise = (selectedList: { name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded' }[]) => {
+  const handleSelectExercise = (selectedList: { name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded'; exerciseKey?: string }[]) => {
     if (selectedList.length === 0) return;
     if (selectorTarget) {
       const { dayIdx, exIdx } = selectorTarget;
@@ -249,6 +347,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
             name: item.name,
             muscleGroup: item.category,
             modality: item.modality || 'weighted',
+            ...(item.exerciseKey ? { exerciseKey: item.exerciseKey } : {}),
             sets: [{ setNumber: 1, weight: 0, reps: 8 }]
           }));
           return {
@@ -263,7 +362,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
           const currentList = prev[dayIdx] || [];
           const updated = currentList.map((ex, idx) => {
             if (idx === exIdx) {
-              return {
+              const updatedEx: any = {
                 ...ex,
                 name: first.name,
                 muscleGroup: first.category,
@@ -271,6 +370,12 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                 isMainMovement: false, // Reset main movement status on exercise replacement
                 isSuperset: false,     // Reset superset status on exercise replacement
               };
+              if (first.exerciseKey) {
+                updatedEx.exerciseKey = first.exerciseKey;
+              } else {
+                delete updatedEx.exerciseKey;
+              }
+              return updatedEx;
             }
             return ex;
           });
@@ -284,6 +389,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
               name: item.name,
               muscleGroup: item.category,
               modality: item.modality || 'weighted',
+              ...(item.exerciseKey ? { exerciseKey: item.exerciseKey } : {}),
               sets: [{ setNumber: 1, weight: 0, reps: 8 }]
             }));
             return {
@@ -321,10 +427,11 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     const durationChanged = durationWeeks !== snapshot.durationWeeks;
     const objectiveChanged = objective !== snapshot.objective;
     const algorithmChanged = algorithmId !== snapshot.algorithmId;
+    const progressionModeChanged = targetProgressionMode !== snapshot.targetProgressionMode;
     const exercisesChanged = JSON.stringify(exercisesByDay) !== JSON.stringify(snapshot.exercisesByDay);
     const weekdaysChanged = JSON.stringify(assignedWeekdays) !== JSON.stringify(snapshot.assignedWeekdays);
 
-    if (nameChanged || daysChanged || durationChanged || objectiveChanged || algorithmChanged || exercisesChanged || weekdaysChanged) {
+    if (nameChanged || daysChanged || durationChanged || objectiveChanged || algorithmChanged || progressionModeChanged || exercisesChanged || weekdaysChanged) {
       dirty = true;
     }
 
@@ -337,6 +444,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     durationWeeks,
     objective,
     algorithmId,
+    targetProgressionMode,
     exercisesByDay,
     assignedWeekdays,
     snapshot,
@@ -347,6 +455,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
   const handleSelectPrebuiltTemplate = (tpl: any) => {
     const tplDuration = tpl.programDuration === '∞' ? 8 : Number(tpl.programDuration);
     const tplWeekdays = tpl.assignedWeekdays ? JSON.parse(JSON.stringify(tpl.assignedWeekdays)) : getDefaultWeekdays(tpl.daysPerWeek);
+    const tplProgressionMode = resolveProgramProgressionMode(tpl);
 
     setEditingProgramId(tpl.id);
     setName(tpl.name);
@@ -355,6 +464,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     setDurationWeeks(tplDuration);
     setExercisesByDay(JSON.parse(JSON.stringify(tpl.exercisesByDay)));
     setAssignedWeekdays(tplWeekdays);
+    setTargetProgressionMode(tplProgressionMode);
     // Note: objective and algorithmId are intentionally preserved to honour the user's creation-form selection
     setActiveTabDay(1);
 
@@ -366,6 +476,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       durationWeeks: tplDuration,
       objective: objective,
       algorithmId: algorithmId,
+      targetProgressionMode: tplProgressionMode,
       exercisesByDay: JSON.parse(JSON.stringify(tpl.exercisesByDay)),
       assignedWeekdays: tplWeekdays
     });
@@ -377,6 +488,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     const progAlgorithm = prog.algorithmId || (progObjective === 'Strength' ? 'strength_undulating' : 'hypertrophy_linear');
     const progDuration = prog.programDuration === '∞' ? 8 : Number(prog.programDuration);
     const progWeekdays = prog.assignedWeekdays ? JSON.parse(JSON.stringify(prog.assignedWeekdays)) : getDefaultWeekdays(prog.daysPerWeek);
+    const progProgressionMode = resolveProgramProgressionMode(prog);
 
     setEditingProgramId(prog.id);
     setName(prog.name);
@@ -387,6 +499,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     setAssignedWeekdays(progWeekdays);
     setObjective(progObjective);
     setAlgorithmId(progAlgorithm);
+    setTargetProgressionMode(progProgressionMode);
     setActiveTabDay(1);
 
     // Update snapshot
@@ -397,6 +510,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       durationWeeks: progDuration,
       objective: progObjective,
       algorithmId: progAlgorithm,
+      targetProgressionMode: progProgressionMode,
       exercisesByDay: JSON.parse(JSON.stringify(prog.exercisesByDay)),
       assignedWeekdays: progWeekdays
     });
@@ -417,12 +531,14 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     const targetWeekdays = swapTarget.assignedWeekdays ? JSON.parse(JSON.stringify(swapTarget.assignedWeekdays)) : getDefaultWeekdays(swapTarget.daysPerWeek);
     const targetObjective = swapTarget.objective || 'Hypertrophy';
     const targetAlgorithm = swapTarget.algorithmId || (targetObjective === 'Strength' ? 'strength_undulating' : 'hypertrophy_linear');
+    const targetProgressionModeVal = resolveProgramProgressionMode(swapTarget);
 
     setDurationWeeks(targetDuration);
     setExercisesByDay(JSON.parse(JSON.stringify(swapTarget.exercisesByDay)));
     setAssignedWeekdays(targetWeekdays);
     setObjective(targetObjective);
     setAlgorithmId(targetAlgorithm);
+    setTargetProgressionMode(targetProgressionModeVal);
     setActiveTabDay(1);
     
     // Update snapshot
@@ -433,6 +549,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       durationWeeks: targetDuration,
       objective: targetObjective,
       algorithmId: targetAlgorithm,
+      targetProgressionMode: targetProgressionModeVal,
       exercisesByDay: JSON.parse(JSON.stringify(swapTarget.exercisesByDay)),
       assignedWeekdays: targetWeekdays
     });
@@ -457,10 +574,11 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     const durationChanged = updatedProgram.programDuration !== snapshot.durationWeeks;
     const objectiveChanged = updatedProgram.objective !== snapshot.objective;
     const algorithmChanged = updatedProgram.algorithmId !== snapshot.algorithmId;
+    const progressionModeChanged = resolveProgramProgressionMode(updatedProgram) !== snapshot.targetProgressionMode;
     const exercisesChanged = JSON.stringify(updatedProgram.exercisesByDay) !== JSON.stringify(snapshot.exercisesByDay);
     const weekdaysChanged = JSON.stringify(updatedProgram.assignedWeekdays) !== JSON.stringify(snapshot.assignedWeekdays);
 
-    const isDirty = nameChanged || daysChanged || durationChanged || objectiveChanged || algorithmChanged || exercisesChanged || weekdaysChanged;
+    const isDirty = nameChanged || daysChanged || durationChanged || objectiveChanged || algorithmChanged || progressionModeChanged || exercisesChanged || weekdaysChanged;
 
     const isEditingCustomProgram = editingProgramId !== null && !editingProgramId.startsWith('prog-tpl-');
     const isSavingSameName = isEditingCustomProgram && originalName !== 'My Custom Strength Program' && !hasNameChanged && isDirty;
@@ -508,6 +626,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     setAssignedWeekdays(getDefaultWeekdays(3));
     setObjective('Hypertrophy');
     setAlgorithmId('hypertrophy_linear');
+    setTargetProgressionMode('performance_led');
     setActiveTabDay(1);
 
     // Update snapshot
@@ -518,6 +637,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       durationWeeks: 8,
       objective: 'Hypertrophy',
       algorithmId: 'hypertrophy_linear',
+      targetProgressionMode: 'performance_led',
       exercisesByDay: { 1: [], 2: [], 3: [] },
       assignedWeekdays: getDefaultWeekdays(3)
     });
@@ -618,6 +738,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       ? (storage.getPrograms().find(p => p.id === editingProgramId) || savedPrograms.find(p => p.id === editingProgramId))
       : null;
 
+    const savedProgressionMode: TargetProgressionMode = objective === 'Off' ? 'performance_led' : targetProgressionMode;
+
     const updatedProgram: Program = {
       id: targetId,
       name: name,
@@ -628,6 +750,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       assignedWeekdays: cleanedAssignedWeekdays,
       objective: objective,
       algorithmId: algorithmId,
+      targetProgressionMode: savedProgressionMode,
       ...(existingProg?.parentProgramId !== undefined && !isNewProgram ? { parentProgramId: existingProg.parentProgramId } : {}),
       ...(existingProg?.cycleIndex !== undefined && !isNewProgram ? { cycleIndex: existingProg.cycleIndex } : {}),
       ...(existingProg?.algorithmPhaseOffset !== undefined && !isNewProgram ? { algorithmPhaseOffset: existingProg.algorithmPhaseOffset } : {}),
@@ -867,9 +990,14 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
 
           {/* Core Objective Switcher */}
           <div className="space-y-1.5">
-            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide">
-              Program Objective
-            </label>
+            <div>
+              <label className="block text-xs font-bold text-slate-300 tracking-normal">
+                Training Goal
+              </label>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Choose the main focus for this program.
+              </p>
+            </div>
             <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1 border border-slate-850">
               {(['Hypertrophy', 'Strength', 'Off'] as const).map((obj) => {
                 const isActive = objective === obj;
@@ -888,6 +1016,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                         }
                       } else {
                         setAlgorithmId('none');
+                        setTargetProgressionMode('performance_led');
                       }
                     }}
                     className={`py-3 px-1 text-[12px] font-black uppercase tracking-wide border cursor-pointer text-center transition-all duration-150 flex items-center justify-center ${
@@ -915,14 +1044,18 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
           {/* Sub-Algorithm formula picker (Only if focus is NOT Off) */}
           {objective !== 'Off' && (
             <div className="space-y-2 animate-fadeIn">
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide">
-                Progression Algorithm
-              </label>
+              <div>
+                <label className="block text-xs font-bold text-slate-300 tracking-normal">
+                  Periodisation Method
+                </label>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Choose how reps and target effort are structured across the weeks of your program.
+                </p>
+              </div>
               
               {objective === 'Hypertrophy' ? (
                 <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
+                  <div
                     onClick={() => setAlgorithmId('hypertrophy_linear')}
                     className={`flex flex-col justify-between text-left p-3.5 border rounded-none transition-all cursor-pointer h-full ${
                       algorithmId === 'hypertrophy_linear'
@@ -931,12 +1064,32 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                     }`}
                   >
                     <div>
-                      <span className="text-[11px] font-black uppercase tracking-wider text-white">Wave Volume</span>
-                      <span className="block text-[12px] font-medium mt-1 leading-relaxed text-slate-400">Alternates higher-rep (12–15) and lower-rep (6–12) weeks at RPE 8.0.</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setAlgorithmId('hypertrophy_linear')}
+                            className="text-[12px] font-bold text-white tracking-wide hover:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer rounded-none text-left"
+                          >
+                            Wave Volume
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="About Wave Volume"
+                            onClick={(e) => openInfoModal('hypertrophy_linear', e)}
+                            className="p-1 text-slate-400 hover:text-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer rounded-none flex items-center justify-center min-w-[28px] min-h-[28px]"
+                          >
+                            <Info className="w-3.5 h-3.5" aria-hidden="true" />
+                          </button>
+                        </div>
+                      </div>
+                      <span className="block text-[11px] font-normal mt-1.5 leading-relaxed text-slate-400">
+                        Alternates higher-rep (12–15) and lower-rep (6–12) weeks at RPE 8.0.
+                      </span>
                     </div>
-                  </button>
-                  <button
-                    type="button"
+                  </div>
+
+                  <div
                     onClick={() => setAlgorithmId('hypertrophy_step')}
                     className={`flex flex-col justify-between text-left p-3.5 border rounded-none transition-all cursor-pointer h-full ${
                       algorithmId === 'hypertrophy_step'
@@ -945,15 +1098,34 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                     }`}
                   >
                     <div>
-                      <span className="text-[11px] font-black uppercase tracking-wider text-white">Step Loading</span>
-                      <span className="block text-[12px] font-medium mt-1 leading-relaxed text-slate-400">Builds RPE through each 4-week block, finishing with a higher-rep week.</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setAlgorithmId('hypertrophy_step')}
+                            className="text-[12px] font-bold text-white tracking-wide hover:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer rounded-none text-left"
+                          >
+                            Step Loading
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="About Step Loading"
+                            onClick={(e) => openInfoModal('hypertrophy_step', e)}
+                            className="p-1 text-slate-400 hover:text-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer rounded-none flex items-center justify-center min-w-[28px] min-h-[28px]"
+                          >
+                            <Info className="w-3.5 h-3.5" aria-hidden="true" />
+                          </button>
+                        </div>
+                      </div>
+                      <span className="block text-[11px] font-normal mt-1.5 leading-relaxed text-slate-400">
+                        Builds RPE through each 4-week block, finishing with a higher-rep week.
+                      </span>
                     </div>
-                  </button>
+                  </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
+                  <div
                     onClick={() => {
                       setAlgorithmId('strength_undulating');
                       if (durationWeeks === 6) {
@@ -967,12 +1139,37 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                     }`}
                   >
                     <div>
-                      <span className="text-[11px] font-black uppercase tracking-wider text-white">Wave Strength</span>
-                      <span className="block text-[12px] font-medium mt-1 leading-relaxed text-slate-400">Progresses Main Movements through lower-rep phases and finishes with an RPE 10 peak single.</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAlgorithmId('strength_undulating');
+                              if (durationWeeks === 6) {
+                                setDurationWeeks(8);
+                              }
+                            }}
+                            className="text-[12px] font-bold text-white tracking-wide hover:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer rounded-none text-left"
+                          >
+                            Wave Strength
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="About Wave Strength"
+                            onClick={(e) => openInfoModal('strength_undulating', e)}
+                            className="p-1 text-slate-400 hover:text-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer rounded-none flex items-center justify-center min-w-[28px] min-h-[28px]"
+                          >
+                            <Info className="w-3.5 h-3.5" aria-hidden="true" />
+                          </button>
+                        </div>
+                      </div>
+                      <span className="block text-[11px] font-normal mt-1.5 leading-relaxed text-slate-400">
+                        Progresses Main Movements through lower-rep phases and finishes with an RPE 10 peak single.
+                      </span>
                     </div>
-                  </button>
-                  <button
-                    type="button"
+                  </div>
+
+                  <div
                     onClick={() => setAlgorithmId('strength_linear')}
                     className={`flex flex-col justify-between text-left p-3.5 border rounded-none transition-all cursor-pointer h-full ${
                       algorithmId === 'strength_linear'
@@ -981,43 +1178,34 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                     }`}
                   >
                     <div>
-                      <span className="text-[11px] font-black uppercase tracking-wider text-white">Linear Periodisation</span>
-                      <span className="block text-[12px] font-medium mt-1 leading-relaxed text-slate-400">Tapers reps from 8 to 1 while increasing target RPE from 7.0 to 10.0.</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setAlgorithmId('strength_linear')}
+                            className="text-[12px] font-bold text-white tracking-wide hover:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer rounded-none text-left"
+                          >
+                            Linear Periodisation
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="About Linear Periodisation"
+                            onClick={(e) => openInfoModal('strength_linear', e)}
+                            className="p-1 text-slate-400 hover:text-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer rounded-none flex items-center justify-center min-w-[28px] min-h-[28px]"
+                          >
+                            <Info className="w-3.5 h-3.5" aria-hidden="true" />
+                          </button>
+                        </div>
+                      </div>
+                      <span className="block text-[11px] font-normal mt-1.5 leading-relaxed text-slate-400">
+                        Tapers reps from 8 to 1 while increasing target RPE from 7.0 to 10.0.
+                      </span>
                     </div>
-                  </button>
+                  </div>
                 </div>
               )}
-
-              {/* Informative explanation card about the selected algorithm */}
-              <div className="bg-slate-950 border border-slate-850 p-3.5 space-y-2 rounded-none">
-                <div className="flex items-center gap-2">
-                  <Info className="w-4 h-4 text-cyan-400 shrink-0" />
-                  <span className="text-[14px] font-black uppercase tracking-wider text-slate-300 font-mono">
-                    Periodisation Mechanics
-                  </span>
-                </div>
-                <p className="text-[12px] text-slate-400 leading-normal font-sans pl-6">
-                    {algorithmId === 'hypertrophy_linear' && (
-                      "Wave Volume: Alternates weekly between higher-repetition waves (12–15 reps) and heavier, lower-repetition waves (6–12 reps), anchored at RPE 8.0. Rep targets adjust automatically for compound versus isolation and free-weight versus machine exercises."
-                    )}
-                    {algorithmId === 'hypertrophy_step' && (
-                      "Step Loading: Organises training into 4-week blocks. Target RPE rises through Weeks 1–3, then holds in Week 4 while reps increase. Each new block shifts to a heavier, lower-rep range, with rep targets adjusted for exercise type and equipment."
-                    )}
-                    {algorithmId === 'strength_undulating' && (
-                      "Wave Strength: Progresses designated Main Movements through changing strength rep ranges across 4, 8, or 12 weeks, finishing with an RPE 10 peak single. Other exercises remain self-directed."
-                    )}
-                    {algorithmId === 'strength_linear' && (
-                      "Linear Periodisation: Progresses designated Main Movements across the program by gradually reducing target reps from 8 in Week 1 to 1 in the final week while increasing target RPE from 7.0 to 10.0. Other exercises remain self-directed."
-                    )}
-                  </p>
-                  {objective === 'Strength' && (
-                    <p className="text-[11px] text-indigo-400/90 font-mono pl-6 pt-0.5">
-                      Only mark an exercise as a Main Movement if it is suitable for low-repetition strength work and peak singles.
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
+            </div>
+          )}
 
           {objective === 'Off' && (
             <div className="bg-slate-950 border border-slate-850 p-3 flex gap-2.5 items-start">
@@ -1032,6 +1220,130 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
               </div>
             </div>
           )}
+
+          {/* Workout Target Mode */}
+          <div className="space-y-2">
+            <div>
+              <label className="block text-xs font-bold text-slate-300 tracking-normal">
+                Workout Target Mode
+              </label>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Choose how MetReps sets weight and repetition targets for future workouts.
+              </p>
+            </div>
+
+            <div
+              role="radiogroup"
+              aria-label="Workout Target Mode"
+              className="grid grid-cols-1 sm:grid-cols-2 gap-2"
+            >
+              {/* Periodisation Targets */}
+              <div
+                onClick={() => setTargetProgressionMode('performance_led')}
+                className={`relative flex flex-col justify-between p-3.5 border rounded-none transition-all cursor-pointer h-full ${
+                  targetProgressionMode === 'performance_led'
+                    ? 'bg-indigo-950/40 border-indigo-500/80 text-indigo-200 shadow-inner'
+                    : 'bg-slate-950 border-slate-850 text-slate-400 hover:border-slate-800'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={targetProgressionMode === 'performance_led'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTargetProgressionMode('performance_led');
+                        }}
+                        className="text-left font-bold text-white text-[12px] tracking-wide hover:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer rounded-none"
+                      >
+                        Periodisation Targets
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="About Periodisation Targets"
+                        onClick={(e) => openInfoModal('periodisation_targets', e)}
+                        className="p-1 text-slate-400 hover:text-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer rounded-none flex items-center justify-center min-w-[28px] min-h-[28px]"
+                      >
+                        <Info className="w-3.5 h-3.5" aria-hidden="true" />
+                      </button>
+                    </div>
+                    {targetProgressionMode === 'performance_led' && (
+                      <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0" aria-hidden="true" />
+                    )}
+                  </div>
+                  <span className="block text-[11px] font-normal mt-1.5 leading-relaxed text-slate-400">
+                    Applies your periodisation method without Coach making adaptive progression decisions.
+                  </span>
+                </div>
+              </div>
+
+              {/* MetReps Coach */}
+              <div
+                onClick={() => {
+                  if (objective !== 'Off') {
+                    setTargetProgressionMode('metreps_guided');
+                  }
+                }}
+                className={`relative flex flex-col justify-between p-3.5 border rounded-none transition-all h-full ${
+                  objective === 'Off'
+                    ? 'opacity-40 border-slate-900 bg-slate-950 text-slate-500'
+                    : targetProgressionMode === 'metreps_guided'
+                    ? 'bg-indigo-950/40 border-indigo-500/80 text-indigo-200 shadow-inner cursor-pointer'
+                    : 'bg-slate-950 border-slate-850 text-slate-400 hover:border-slate-800 cursor-pointer'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={targetProgressionMode === 'metreps_guided'}
+                        aria-disabled={objective === 'Off'}
+                        disabled={objective === 'Off'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (objective !== 'Off') {
+                            setTargetProgressionMode('metreps_guided');
+                          }
+                        }}
+                        className={`text-left font-bold text-[12px] tracking-wide focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded-none ${
+                          objective === 'Off'
+                            ? 'text-slate-500 cursor-not-allowed'
+                            : 'text-white hover:text-indigo-200 cursor-pointer'
+                        }`}
+                      >
+                        MetReps Coach
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="About MetReps Coach"
+                        onClick={(e) => openInfoModal('metreps_coach', e)}
+                        className="p-1 text-slate-400 hover:text-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer rounded-none flex items-center justify-center min-w-[28px] min-h-[28px]"
+                      >
+                        <Info className="w-3.5 h-3.5" aria-hidden="true" />
+                      </button>
+                    </div>
+                    {targetProgressionMode === 'metreps_guided' && objective !== 'Off' && (
+                      <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0" aria-hidden="true" />
+                    )}
+                  </div>
+                  <span className="block text-[11px] font-normal mt-1.5 leading-relaxed text-slate-400">
+                    Reviews completed workouts and can progress, hold or adjust future weight and repetition targets.
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {objective === 'Off' && (
+              <p className="text-[11px] text-amber-400/90 font-mono">
+                MetReps Coach is available for Hypertrophy and Strength programs.
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1288,6 +1600,76 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
           }
         }}
       />
+
+      {/* Information Dialog */}
+      {activeInfoModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="progression-info-title"
+          aria-describedby="progression-info-desc"
+          className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={closeInfoModal}
+        >
+          <div
+            className="bg-slate-900 border border-slate-800 rounded-none w-full max-w-md max-h-[90vh] overflow-y-auto flex flex-col shadow-2xl shadow-indigo-950/40 p-5 font-sans animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-850">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-none border border-indigo-500/20 bg-indigo-500/10 text-indigo-400">
+                  <Info className="w-4 h-4" aria-hidden="true" />
+                </div>
+                <h3
+                  id="progression-info-title"
+                  className="text-sm font-bold text-white tracking-wide"
+                >
+                  {INFO_DIALOG_CONTENTS[activeInfoModal].title}
+                </h3>
+              </div>
+              <button
+                ref={closeBtnRef}
+                type="button"
+                aria-label="Close"
+                onClick={closeInfoModal}
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 transition rounded-none focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="py-4 space-y-3">
+              {INFO_DIALOG_CONTENTS[activeInfoModal].secondaryHeading && (
+                <h4 className="text-[11px] font-black uppercase tracking-wider text-indigo-400 font-mono">
+                  {INFO_DIALOG_CONTENTS[activeInfoModal].secondaryHeading}
+                </h4>
+              )}
+              <p
+                id="progression-info-desc"
+                className="text-xs text-slate-300 leading-relaxed font-sans"
+              >
+                {INFO_DIALOG_CONTENTS[activeInfoModal].body}
+              </p>
+              {INFO_DIALOG_CONTENTS[activeInfoModal].note && (
+                <p className="text-[11px] text-indigo-400/90 font-mono pt-1">
+                  {INFO_DIALOG_CONTENTS[activeInfoModal].note}
+                </p>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-850 flex justify-end">
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={closeInfoModal}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-bold rounded-none transition focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

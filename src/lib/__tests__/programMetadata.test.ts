@@ -54,25 +54,67 @@ describe('programMetadata - Main Movement Eligibility & Pure Metadata Persistenc
   };
 
   describe('isEligibleStrengthMainMovement', () => {
-    it('returns true for weighted exercises', () => {
+    it('1. weighted is eligible', () => {
       expect(isEligibleStrengthMainMovement({ name: 'Squat', muscleGroup: 'Quads', sets: [], modality: 'weighted' })).toBe(true);
     });
 
-    it('returns true for undefined modality (defaults to weighted)', () => {
+    it('2. missing modality retains the legacy weighted fallback', () => {
       expect(isEligibleStrengthMainMovement({ name: 'Squat', muscleGroup: 'Quads', sets: [] })).toBe(true);
     });
 
-    it('returns false for skipped exercises regardless of modality', () => {
-      expect(isEligibleStrengthMainMovement({ name: 'Squat', muscleGroup: 'Quads', sets: [], modality: 'weighted', isSkipped: true })).toBe(false);
-      expect(isEligibleStrengthMainMovement({ name: 'Squat', muscleGroup: 'Quads', sets: [], isSkipped: true })).toBe(false);
+    it('3. assisted is eligible', () => {
+      expect(isEligibleStrengthMainMovement({ name: 'Pull-Up (Assisted)', muscleGroup: 'Back', sets: [], modality: 'assisted' })).toBe(true);
     });
 
-    it('returns false for non-weighted modalities', () => {
-      expect(isEligibleStrengthMainMovement({ name: 'Pullup', muscleGroup: 'Back', sets: [], modality: 'bodyweight' })).toBe(false);
-      expect(isEligibleStrengthMainMovement({ name: 'Dips', muscleGroup: 'Triceps', sets: [], modality: 'assisted' })).toBe(false);
+    it('4. bodyweight is eligible', () => {
+      expect(isEligibleStrengthMainMovement({ name: 'Pullup', muscleGroup: 'Back', sets: [], modality: 'bodyweight' })).toBe(true);
+    });
+
+    it('5. timed is ineligible', () => {
       expect(isEligibleStrengthMainMovement({ name: 'Plank', muscleGroup: 'Core', sets: [], modality: 'timed' })).toBe(false);
+    });
+
+    it('6. distance is ineligible', () => {
       expect(isEligibleStrengthMainMovement({ name: 'Run', muscleGroup: 'Cardio', sets: [], modality: 'distance' })).toBe(false);
+    });
+
+    it('7. distance_loaded is ineligible', () => {
       expect(isEligibleStrengthMainMovement({ name: 'Farmer Walk', muscleGroup: 'Full Body', sets: [], modality: 'distance_loaded' })).toBe(false);
+    });
+
+    it('8. skipped weighted is ineligible', () => {
+      expect(isEligibleStrengthMainMovement({ name: 'Squat', muscleGroup: 'Quads', sets: [], modality: 'weighted', isSkipped: true })).toBe(false);
+    });
+
+    it('9. skipped assisted is ineligible', () => {
+      expect(isEligibleStrengthMainMovement({ name: 'Pull-Up (Assisted)', muscleGroup: 'Back', sets: [], modality: 'assisted', isSkipped: true })).toBe(false);
+    });
+
+    it('10. skipped bodyweight is ineligible', () => {
+      expect(isEligibleStrengthMainMovement({ name: 'Pullup', muscleGroup: 'Back', sets: [], modality: 'bodyweight', isSkipped: true })).toBe(false);
+    });
+
+    it('11. malformed/unsupported modality fails closed if represented at an untrusted-data boundary', () => {
+      const untrustedEx: ExerciseEntry = { name: 'Mystery Movement', muscleGroup: 'Other', sets: [] };
+      Reflect.set(untrustedEx, 'modality', 'cardio_custom');
+      expect(isEligibleStrengthMainMovement(untrustedEx)).toBe(false);
+
+      const invalidEx: ExerciseEntry = { name: 'Invalid', muscleGroup: 'Other', sets: [] };
+      Reflect.set(invalidEx, 'modality', 'unknown_modality');
+      expect(isEligibleStrengthMainMovement(invalidEx)).toBe(false);
+    });
+
+    it('12. the input exercise is not mutated', () => {
+      const testEx: ExerciseEntry = {
+        name: 'Bench Press',
+        muscleGroup: 'Chest',
+        modality: 'weighted',
+        isMainMovement: true,
+        sets: [{ setNumber: 1, weight: 100, reps: 5, rpe: 8 }],
+      };
+      const clonedEx = JSON.parse(JSON.stringify(testEx));
+      isEligibleStrengthMainMovement(testEx);
+      expect(testEx).toEqual(clonedEx);
     });
   });
 
@@ -81,26 +123,73 @@ describe('programMetadata - Main Movement Eligibility & Pure Metadata Persistenc
       expect(getEligibleMainMovementCount([samplePristineExercise1, samplePristineExercise2])).toBe(0);
     });
 
-    it('returns 1 when one weighted exercise has isMainMovement: true', () => {
-      const exList: ExerciseEntry[] = [
+    it('13. one checked assisted Main Movement produces count 1', () => {
+      const assistedList: ExerciseEntry[] = [
+        { name: 'Pull-Up (Assisted)', muscleGroup: 'Back', sets: [], modality: 'assisted', isMainMovement: true },
+        samplePristineExercise2,
+      ];
+      expect(getEligibleMainMovementCount(assistedList)).toBe(1);
+    });
+
+    it('14. one checked bodyweight Main Movement produces count 1', () => {
+      const bwList: ExerciseEntry[] = [
+        { name: 'Pullup', muscleGroup: 'Back', sets: [], modality: 'bodyweight', isMainMovement: true },
+        samplePristineExercise2,
+      ];
+      expect(getEligibleMainMovementCount(bwList)).toBe(1);
+    });
+
+    it('15. one checked weighted Main Movement produces count 1', () => {
+      const weightedList: ExerciseEntry[] = [
         { ...samplePristineExercise1, isMainMovement: true },
         samplePristineExercise2,
       ];
-      expect(getEligibleMainMovementCount(exList)).toBe(1);
+      expect(getEligibleMainMovementCount(weightedList)).toBe(1);
     });
 
-    it('returns 0 if the only isMainMovement exercise is skipped or non-weighted', () => {
-      const exList: ExerciseEntry[] = [
-        { ...samplePristineExercise1, isMainMovement: true, isSkipped: true },
+    it('16. an assisted exercise without isMainMovement does not count', () => {
+      const unassistedList: ExerciseEntry[] = [
+        { name: 'Pull-Up (Assisted)', muscleGroup: 'Back', sets: [], modality: 'assisted', isMainMovement: false },
         samplePristineExercise2,
       ];
-      expect(getEligibleMainMovementCount(exList)).toBe(0);
+      expect(getEligibleMainMovementCount(unassistedList)).toBe(0);
+    });
 
-      const bwList: ExerciseEntry[] = [
-        { ...samplePristineExercise1, isMainMovement: true, modality: 'bodyweight' },
-        samplePristineExercise2,
+    it('17. mixed supported checked Main Movements count accurately', () => {
+      const mixedList: ExerciseEntry[] = [
+        { name: 'Squat', muscleGroup: 'Quads', sets: [], modality: 'weighted', isMainMovement: true },
+        { name: 'Pull-Up (Assisted)', muscleGroup: 'Back', sets: [], modality: 'assisted', isMainMovement: true },
+        { name: 'Dip', muscleGroup: 'Chest', sets: [], modality: 'bodyweight', isMainMovement: true },
       ];
-      expect(getEligibleMainMovementCount(bwList)).toBe(0);
+      expect(getEligibleMainMovementCount(mixedList)).toBe(3);
+    });
+
+    it('18. unsupported checked modalities do not count', () => {
+      const unsupportedList: ExerciseEntry[] = [
+        { name: 'Plank', muscleGroup: 'Core', sets: [], modality: 'timed', isMainMovement: true },
+        { name: 'Run', muscleGroup: 'Cardio', sets: [], modality: 'distance', isMainMovement: true },
+        { name: 'Farmer Walk', muscleGroup: 'Full Body', sets: [], modality: 'distance_loaded', isMainMovement: true },
+      ];
+      expect(getEligibleMainMovementCount(unsupportedList)).toBe(0);
+    });
+
+    it('19. skipped supported Main Movements do not count', () => {
+      const skippedList: ExerciseEntry[] = [
+        { name: 'Squat', muscleGroup: 'Quads', sets: [], modality: 'weighted', isMainMovement: true, isSkipped: true },
+        { name: 'Pull-Up (Assisted)', muscleGroup: 'Back', sets: [], modality: 'assisted', isMainMovement: true, isSkipped: true },
+        { name: 'Dip', muscleGroup: 'Chest', sets: [], modality: 'bodyweight', isMainMovement: true, isSkipped: true },
+      ];
+      expect(getEligibleMainMovementCount(skippedList)).toBe(0);
+    });
+
+    it('20. inputs are not mutated', () => {
+      const countTestList: ExerciseEntry[] = [
+        { name: 'Squat', muscleGroup: 'Quads', sets: [], modality: 'weighted', isMainMovement: true },
+        { name: 'Dip', muscleGroup: 'Chest', sets: [], modality: 'bodyweight', isMainMovement: false },
+      ];
+      const snapshot = JSON.parse(JSON.stringify(countTestList));
+      getEligibleMainMovementCount(countTestList);
+      expect(countTestList).toEqual(snapshot);
     });
 
     it('returns >1 if multiple eligible exercises have isMainMovement: true (corrupted state)', () => {

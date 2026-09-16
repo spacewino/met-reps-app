@@ -13,6 +13,7 @@ import {
   ObservedSessionRatio,
 } from '../setDistribution';
 import { WorkoutLog, BodyweightSnapshot } from '../../types';
+import { TARGET_LOAD_ROUNDING_INCREMENT } from '../weightMath';
 
 describe('setDistribution', () => {
   describe('isValidFatiguePriorProfile', () => {
@@ -1220,6 +1221,207 @@ describe('setDistribution', () => {
       const deepCopy = JSON.parse(JSON.stringify(testLog));
       extractObservedFatigueRatios('Pull-up', [testLog], 'hypertrophy');
       expect(testLog).toEqual(deepCopy);
+    });
+  });
+
+  describe('Distribution Increment Authority (D2B-2A-RC1)', () => {
+    const anchorStrengthKg: SessionAnchor = {
+      algorithmId: 'strength_linear',
+      profileType: 'strength_normal',
+      baselineE1RM: 120.0,
+      rawAnchorWeight: 100.0,
+      roundedAnchorWeight: 100.0,
+      anchorReps: 5,
+      anchorRPE: 8.0,
+      workingSetCount: 4,
+      movementCategory: 'compound',
+      equipment: 'freeweight',
+      modality: 'weighted',
+    };
+
+    const anchorStrengthLb: SessionAnchor = {
+      algorithmId: 'strength_linear',
+      profileType: 'strength_normal',
+      baselineE1RM: 264.55,
+      rawAnchorWeight: 220.0,
+      roundedAnchorWeight: 220.0,
+      anchorReps: 5,
+      anchorRPE: 8.0,
+      workingSetCount: 4,
+      movementCategory: 'compound',
+      equipment: 'freeweight',
+      modality: 'weighted',
+    };
+
+    const peakAnchorLb: SessionAnchor = {
+      algorithmId: 'strength_undulating',
+      profileType: 'strength_post_test',
+      baselineE1RM: 315.0,
+      rawAnchorWeight: 300.0,
+      roundedAnchorWeight: 300.0,
+      anchorReps: 1,
+      anchorRPE: 9.5,
+      workingSetCount: 4,
+      movementCategory: 'compound',
+      equipment: 'freeweight',
+      modality: 'weighted',
+    };
+
+    it('14. explicit 2.5 kg produces targets quantized to 2.5 kg', () => {
+      const res = distributeMultiSetTargets(anchorStrengthKg, 'Squat', [], 2.5);
+      expect(res.isBypassed).toBe(false);
+      expect(res.targets).toHaveLength(4);
+      for (const t of res.targets) {
+        expect(t.weight % 2.5).toBeCloseTo(0, 5);
+      }
+    });
+
+    it('15. explicit 5.0 lb produces targets quantized to 5.0 lb', () => {
+      const res = distributeMultiSetTargets(anchorStrengthLb, 'Squat', [], 5.0);
+      expect(res.isBypassed).toBe(false);
+      expect(res.targets).toHaveLength(4);
+      for (const t of res.targets) {
+        expect(t.weight % 5.0).toBeCloseTo(0, 5);
+      }
+    });
+
+    it('16. non-Guided callers omitting the increment parameter retain existing behaviour (2.5 default)', () => {
+      const resWithOmission = distributeMultiSetTargets(anchorStrengthKg, 'Squat', []);
+      const resExplicit25 = distributeMultiSetTargets(anchorStrengthKg, 'Squat', [], 2.5);
+      expect(resWithOmission.isBypassed).toBe(false);
+      expect(resWithOmission.targets).toEqual(resExplicit25.targets);
+    });
+
+    it('17. a pound-mode distributed target cannot land on a non-5-lb value', () => {
+      const res = distributeMultiSetTargets(peakAnchorLb, 'Deadlift', [], 5.0);
+      expect(res.isBypassed).toBe(false);
+      for (const t of res.targets) {
+        expect(t.weight % 5.0).toBeCloseTo(0, 5);
+        expect(Math.abs((t.weight % 5.0) - 2.5) < 1e-4).toBe(false);
+      }
+    });
+
+    it('18. invalid explicit increment fails closed or follows safe result', () => {
+      expect(distributeMultiSetTargets(anchorStrengthKg, 'Squat', [], 0).isBypassed).toBe(true);
+      expect(distributeMultiSetTargets(anchorStrengthKg, 'Squat', [], -2.5).isBypassed).toBe(true);
+      expect(distributeMultiSetTargets(anchorStrengthKg, 'Squat', [], NaN).isBypassed).toBe(true);
+      expect(distributeMultiSetTargets(anchorStrengthKg, 'Squat', [], Infinity).isBypassed).toBe(true);
+
+      const priors = [1.0, 0.98, 0.96, 0.94];
+      expect(distributeStrengthSets(anchorStrengthKg, priors, 0)).toBeNull();
+      expect(distributeStrengthSets(anchorStrengthKg, priors, -5)).toBeNull();
+      expect(distributeHypertrophySets(anchorStrengthKg, priors, 0)).toBeNull();
+      expect(distributePeakSingleStrengthSets(peakAnchorLb, priors, 0)).toBeNull();
+    });
+  });
+
+  describe('Test B: Distributor half-grid acceptance and authority separation (I1-RC2)', () => {
+    const halfGrid1925Anchor: SessionAnchor = {
+      algorithmId: 'hypertrophy_linear',
+      profileType: 'hypertrophy',
+      baselineE1RM: 240.0,
+      rawAnchorWeight: 192.5,
+      roundedAnchorWeight: 192.5,
+      anchorReps: 8,
+      anchorRPE: 8.0,
+      workingSetCount: 3,
+      movementCategory: 'compound',
+      equipment: 'freeweight',
+    };
+
+    const halfGrid1875Anchor: SessionAnchor = {
+      algorithmId: 'hypertrophy_linear',
+      profileType: 'hypertrophy',
+      baselineE1RM: 235.0,
+      rawAnchorWeight: 187.5,
+      roundedAnchorWeight: 187.5,
+      anchorReps: 8,
+      anchorRPE: 8.0,
+      workingSetCount: 3,
+      movementCategory: 'compound',
+      equipment: 'freeweight',
+    };
+
+    it('1. A valid 192.5 lb-style anchor with target-load rounding increment 2.5 succeeds without invalid_anchor_inputs', () => {
+      const res = distributeMultiSetTargets(halfGrid1925Anchor, 'Bench Press', [], TARGET_LOAD_ROUNDING_INCREMENT);
+      expect(res.isBypassed).toBe(false);
+      expect(res.bypassReason).toBeUndefined();
+      expect(res.targets).toHaveLength(3);
+      // Ordinal 1 remains 192.5
+      expect(res.targets[0].workingSetOrdinal).toBe(1);
+      expect(res.targets[0].weight).toBe(192.5);
+      // Back-off targets lie on the 2.5-unit grid
+      for (const t of res.targets) {
+        expect(t.weight % TARGET_LOAD_ROUNDING_INCREMENT).toBeCloseTo(0, 5);
+      }
+    });
+
+    it('2. Default invocation (omitted increment) defaults to 2.5 and succeeds for 192.5 lb', () => {
+      const res = distributeMultiSetTargets(halfGrid1925Anchor, 'Bench Press', []);
+      expect(res.isBypassed).toBe(false);
+      expect(res.targets[0].weight).toBe(192.5);
+      for (const t of res.targets) {
+        expect(t.weight % 2.5).toBeCloseTo(0, 5);
+      }
+    });
+
+    it('3. A valid 187.5 half-grid base anchor succeeds', () => {
+      const res = distributeMultiSetTargets(halfGrid1875Anchor, 'Bench Press', [], 2.5);
+      expect(res.isBypassed).toBe(false);
+      expect(res.targets[0].weight).toBe(187.5);
+      for (const t of res.targets) {
+        expect(t.weight % 2.5).toBeCloseTo(0, 5);
+      }
+    });
+
+    it('4. An invalid 191.25 anchor fails closed with invalid_anchor_inputs', () => {
+      const offGridAnchor: SessionAnchor = {
+        ...halfGrid1925Anchor,
+        rawAnchorWeight: 191.25,
+        roundedAnchorWeight: 191.25,
+      };
+      const res = distributeMultiSetTargets(offGridAnchor, 'Bench Press', [], 2.5);
+      expect(res.isBypassed).toBe(true);
+      expect(res.bypassReason).toBe('invalid_anchor_inputs');
+      expect(res.targets).toHaveLength(0);
+    });
+
+    it('5. Non-positive and non-finite rounding increments fail closed', () => {
+      expect(distributeMultiSetTargets(halfGrid1925Anchor, 'Bench Press', [], 0).isBypassed).toBe(true);
+      expect(distributeMultiSetTargets(halfGrid1925Anchor, 'Bench Press', [], -2.5).isBypassed).toBe(true);
+      expect(distributeMultiSetTargets(halfGrid1925Anchor, 'Bench Press', [], NaN).isBypassed).toBe(true);
+      expect(distributeMultiSetTargets(halfGrid1925Anchor, 'Bench Press', [], Infinity).isBypassed).toBe(true);
+    });
+
+    it('6. Existing working-set count and malformed-anchor guards remain intact', () => {
+      const zeroSetsAnchor: SessionAnchor = { ...halfGrid1925Anchor, workingSetCount: 0 };
+      expect(distributeMultiSetTargets(zeroSetsAnchor, 'Bench Press', []).targets).toHaveLength(0);
+
+      const malformedAnchor: SessionAnchor = { ...halfGrid1925Anchor, roundedAnchorWeight: -10 };
+      const res = distributeMultiSetTargets(malformedAnchor, 'Bench Press', []);
+      expect(res.isBypassed).toBe(true);
+      expect(res.bypassReason).toBe('invalid_anchor_inputs');
+    });
+
+    it('7. Existing kg golden values remain unchanged', () => {
+      const kgAnchor: SessionAnchor = {
+        algorithmId: 'strength_linear',
+        profileType: 'strength_normal',
+        baselineE1RM: 147.0588,
+        rawAnchorWeight: 120.0,
+        roundedAnchorWeight: 120.0,
+        anchorReps: 5,
+        anchorRPE: 8.0,
+        workingSetCount: 3,
+        movementCategory: 'compound',
+        equipment: 'freeweight',
+      };
+      const res = distributeMultiSetTargets(kgAnchor, 'Squat', [], 2.5);
+      expect(res.isBypassed).toBe(false);
+      expect(res.targets[0].weight).toBe(120.0);
+      for (const t of res.targets) {
+        expect(t.weight % 2.5).toBeCloseTo(0, 5);
+      }
     });
   });
 });

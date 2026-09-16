@@ -1,211 +1,760 @@
 {
   "Delts": [
-    "Overhead Press (Barbell)",
-    "Seated Dumbbell Shoulder Press",
-    "Military Press",
-    "Push Press",
-    "Arnold Press",
-    "Plate-Loaded Shoulder Press",
-    "Lateral Raise (Dumbbell)",
-    "Cable Lateral Raise",
-    "Machine Lateral Raise",
-    "Front Raise (Dumbbell/Plate)",
-    "Landmine Press",
-    "Rear Delt Fly (Dumbbell)",
-    "Cable Rear Delt Fly",
-    "Reverse Pec Deck",
-    "Face Pull",
-    "Dumbell Y Raise",
-    "Cable Y Raise",
-    "Cuban Press"
+    {
+      "name": "Overhead Press (Barbell)",
+      "exerciseKey": "overhead_press_barbell"
+    },
+    {
+      "name": "Seated Dumbbell Shoulder Press",
+      "exerciseKey": "seated_dumbbell_shoulder_press"
+    },
+    {
+      "name": "Military Press",
+      "exerciseKey": "military_press"
+    },
+    {
+      "name": "Push Press",
+      "exerciseKey": "push_press"
+    },
+    {
+      "name": "Arnold Press",
+      "exerciseKey": "arnold_press"
+    },
+    {
+      "name": "Plate-Loaded Shoulder Press",
+      "exerciseKey": "plate_loaded_shoulder_press"
+    },
+    {
+      "name": "Lateral Raise (Dumbbell)",
+      "exerciseKey": "lateral_raise_dumbbell"
+    },
+    {
+      "name": "Cable Lateral Raise",
+      "exerciseKey": "cable_lateral_raise"
+    },
+    {
+      "name": "Machine Lateral Raise",
+      "exerciseKey": "machine_lateral_raise"
+    },
+    {
+      "name": "Front Raise (Dumbbell/Plate)",
+      "exerciseKey": "front_raise_dumbbell_plate"
+    },
+    {
+      "name": "Landmine Press",
+      "exerciseKey": "landmine_press"
+    },
+    {
+      "name": "Rear Delt Fly (Dumbbell)",
+      "exerciseKey": "rear_delt_fly_dumbbell"
+    },
+    {
+      "name": "Cable Rear Delt Fly",
+      "exerciseKey": "cable_rear_delt_fly"
+    },
+    {
+      "name": "Reverse Pec Deck",
+      "exerciseKey": "reverse_pec_deck"
+    },
+    {
+      "name": "Face Pull",
+      "exerciseKey": "face_pull"
+    },
+    {
+      "name": "Dumbell Y Raise",
+      "exerciseKey": "dumbell_y_raise"
+    },
+    {
+      "name": "Cable Y Raise",
+      "exerciseKey": "cable_y_raise"
+    },
+    {
+      "name": "Cuban Press",
+      "exerciseKey": "cuban_press"
+    }
   ],
   "Traps": [
-    "Barbell Shrugs",
-    "Dumbbell Shrugs",
-    "Trap Bar Shrug",
-    "Smith Machine Shrug (Behind-the-Back)",
-    "Plate-Loaded Shrug Machine",
-    "Upright Row (Barbell)",
-    "Cable Upright Row",
-    "Power Shrug",
-    "High Pull (Barbell)",
-    "Dumbbell High Pull",
-    "Farmer's Carry"
+    {
+      "name": "Barbell Shrugs",
+      "exerciseKey": "barbell_shrugs"
+    },
+    {
+      "name": "Dumbbell Shrugs",
+      "exerciseKey": "dumbbell_shrugs"
+    },
+    {
+      "name": "Trap Bar Shrug",
+      "exerciseKey": "trap_bar_shrug"
+    },
+    {
+      "name": "Smith Machine Shrug (Behind-the-Back)",
+      "exerciseKey": "smith_machine_shrug_behind_the_back"
+    },
+    {
+      "name": "Plate-Loaded Shrug Machine",
+      "exerciseKey": "plate_loaded_shrug_machine"
+    },
+    {
+      "name": "Upright Row (Barbell)",
+      "exerciseKey": "upright_row_barbell"
+    },
+    {
+      "name": "Cable Upright Row",
+      "exerciseKey": "cable_upright_row"
+    },
+    {
+      "name": "Power Shrug",
+      "exerciseKey": "power_shrug"
+    },
+    {
+      "name": "High Pull (Barbell)",
+      "exerciseKey": "high_pull_barbell"
+    },
+    {
+      "name": "Dumbbell High Pull",
+      "exerciseKey": "dumbbell_high_pull"
+    },
+    {
+      "name": "Farmer's Carry",
+      "exerciseKey": "farmer_s_carry"
+    }
   ],
   "Biceps": [
-    "Barbell Curl",
-    "EZ-Bar Curl",
-    "Dumbbell Curl (Alternating)",
-    "Incline Dumbbell Curl",
-    "Concentration Curl",
-    "Cable Curl (Straight Bar)",
-    "Rope Hammer Curl",
-    "Dumbbell Hammer Curl",
-    "Cross-Body Hammer Curl",
-    "Preacher Curl (Bar/EZ/DB)",
-    "Spider Curl",
-    "Bayesian Cable Curl",
-    "Drag Curl",
-    "Zottman Curl",
-    "Reverse Curl"
+    {
+      "name": "Barbell Curl",
+      "exerciseKey": "barbell_curl"
+    },
+    {
+      "name": "EZ-Bar Curl",
+      "exerciseKey": "ez_bar_curl"
+    },
+    {
+      "name": "Dumbbell Curl (Alternating)",
+      "exerciseKey": "dumbbell_curl_alternating"
+    },
+    {
+      "name": "Incline Dumbbell Curl",
+      "exerciseKey": "incline_dumbbell_curl"
+    },
+    {
+      "name": "Concentration Curl",
+      "exerciseKey": "concentration_curl"
+    },
+    {
+      "name": "Cable Curl (Straight Bar)",
+      "exerciseKey": "cable_curl_straight_bar"
+    },
+    {
+      "name": "Rope Hammer Curl",
+      "exerciseKey": "rope_hammer_curl"
+    },
+    {
+      "name": "Dumbbell Hammer Curl",
+      "exerciseKey": "dumbbell_hammer_curl"
+    },
+    {
+      "name": "Cross-Body Hammer Curl",
+      "exerciseKey": "cross_body_hammer_curl"
+    },
+    {
+      "name": "Preacher Curl (Bar/EZ/DB)",
+      "exerciseKey": "preacher_curl_bar_ez_db"
+    },
+    {
+      "name": "Spider Curl",
+      "exerciseKey": "spider_curl"
+    },
+    {
+      "name": "Bayesian Cable Curl",
+      "exerciseKey": "bayesian_cable_curl"
+    },
+    {
+      "name": "Drag Curl",
+      "exerciseKey": "drag_curl"
+    },
+    {
+      "name": "Zottman Curl",
+      "exerciseKey": "zottman_curl"
+    },
+    {
+      "name": "Reverse Curl",
+      "exerciseKey": "reverse_curl"
+    }
   ],
   "Triceps": [
-    "Triceps Pushdown (Rope)",
-    "Triceps Pushdown (V-Bar)",
-    "Triceps Pushdown (Straight Bar)",
-    "Overhead Cable Extension (Rope)",
-    "Overhead Dumbbell Extension (Seated)",
-    "Skull Crushers (EZ-Bar)",
-    "Skull Crushers (DB)",
-    "Close-Grip Bench Press",
-    "Dips (Parallel Bar)",
-    "Dips (Assisted)",
-    "Bench Dips",
-    "Diamond Push-Ups",
-    "Dumbbell Kickback",
-    "JM Press",
-    "Tate Press",
-    "Triceps Pushdown (single arm)"
+    {
+      "name": "Triceps Pushdown (Rope)",
+      "exerciseKey": "triceps_pushdown_rope"
+    },
+    {
+      "name": "Triceps Pushdown (V-Bar)",
+      "exerciseKey": "triceps_pushdown_v_bar"
+    },
+    {
+      "name": "Triceps Pushdown (Straight Bar)",
+      "exerciseKey": "triceps_pushdown_straight_bar"
+    },
+    {
+      "name": "Overhead Cable Extension (Rope)",
+      "exerciseKey": "overhead_cable_extension_rope"
+    },
+    {
+      "name": "Overhead Dumbbell Extension (Seated)",
+      "exerciseKey": "overhead_dumbbell_extension_seated"
+    },
+    {
+      "name": "Skull Crushers (EZ-Bar)",
+      "exerciseKey": "skull_crushers_ez_bar"
+    },
+    {
+      "name": "Skull Crushers (DB)",
+      "exerciseKey": "skull_crushers_db"
+    },
+    {
+      "name": "Close-Grip Bench Press",
+      "exerciseKey": "close_grip_bench_press"
+    },
+    {
+      "name": "Dips (Parallel Bar)",
+      "exerciseKey": "dips_parallel_bar"
+    },
+    {
+      "name": "Dips (Assisted)",
+      "exerciseKey": "dips_assisted"
+    },
+    {
+      "name": "Bench Dips",
+      "exerciseKey": "bench_dips"
+    },
+    {
+      "name": "Diamond Push-Ups",
+      "exerciseKey": "diamond_push_ups"
+    },
+    {
+      "name": "Dumbbell Kickback",
+      "exerciseKey": "dumbbell_kickback"
+    },
+    {
+      "name": "JM Press",
+      "exerciseKey": "jm_press"
+    },
+    {
+      "name": "Tate Press",
+      "exerciseKey": "tate_press"
+    },
+    {
+      "name": "Triceps Pushdown (single arm)",
+      "exerciseKey": "triceps_pushdown_single_arm"
+    }
   ],
   "Pecs": [
-    "Barbell Bench Press (flat)",
-    "Dumbbell Bench Press (Flat)",
-    "Incline Bench Press (Barbell)",
-    "Dumbell Bench Press (incline)",
-    "Decline Bench Press",
-    "Push-Ups",
-    "Weighted Push-Up",
-    "Plate-Loaded Chest Press",
-    "Machine Chest Press",
-    "Smith Machine Bench Press",
-    "Smith Machine Incline Bench Press",
-    "Cable Fly (High-to-Low)",
-    "Cable Fly (Low-to-High)",
-    "Cable Fly (Mid)",
-    "Pec Deck Machine Fly",
-    "Dumbbell Fly (Flat)",
-    "Dumbell Fly (incline)",
-    "Squeeze Press (Dumbbell)",
-    "Dips (Chest Lean)",
-    "Landmine Press (Chest Focus)",
-    "Guillotine Press"
+    {
+      "name": "Barbell Bench Press (flat)",
+      "exerciseKey": "barbell_bench_press_flat"
+    },
+    {
+      "name": "Dumbbell Bench Press (Flat)",
+      "exerciseKey": "dumbbell_bench_press_flat"
+    },
+    {
+      "name": "Incline Bench Press (Barbell)",
+      "exerciseKey": "incline_bench_press_barbell"
+    },
+    {
+      "name": "Dumbell Bench Press (incline)",
+      "exerciseKey": "dumbell_bench_press_incline"
+    },
+    {
+      "name": "Decline Bench Press",
+      "exerciseKey": "decline_bench_press"
+    },
+    {
+      "name": "Push-Ups",
+      "exerciseKey": "push_ups"
+    },
+    {
+      "name": "Weighted Push-Up",
+      "exerciseKey": "weighted_push_up"
+    },
+    {
+      "name": "Plate-Loaded Chest Press",
+      "exerciseKey": "plate_loaded_chest_press"
+    },
+    {
+      "name": "Machine Chest Press",
+      "exerciseKey": "machine_chest_press"
+    },
+    {
+      "name": "Smith Machine Bench Press",
+      "exerciseKey": "smith_machine_bench_press"
+    },
+    {
+      "name": "Smith Machine Incline Bench Press",
+      "exerciseKey": "smith_machine_incline_bench_press"
+    },
+    {
+      "name": "Cable Fly (High-to-Low)",
+      "exerciseKey": "cable_fly_high_to_low"
+    },
+    {
+      "name": "Cable Fly (Low-to-High)",
+      "exerciseKey": "cable_fly_low_to_high"
+    },
+    {
+      "name": "Cable Fly (Mid)",
+      "exerciseKey": "cable_fly_mid"
+    },
+    {
+      "name": "Pec Deck Machine Fly",
+      "exerciseKey": "pec_deck_machine_fly"
+    },
+    {
+      "name": "Dumbbell Fly (Flat)",
+      "exerciseKey": "dumbbell_fly_flat"
+    },
+    {
+      "name": "Dumbell Fly (incline)",
+      "exerciseKey": "dumbell_fly_incline"
+    },
+    {
+      "name": "Squeeze Press (Dumbbell)",
+      "exerciseKey": "squeeze_press_dumbbell"
+    },
+    {
+      "name": "Dips (Chest Lean)",
+      "exerciseKey": "dips_chest_lean"
+    },
+    {
+      "name": "Landmine Press (Chest Focus)",
+      "exerciseKey": "landmine_press_chest_focus"
+    },
+    {
+      "name": "Guillotine Press",
+      "exerciseKey": "guillotine_press"
+    }
   ],
   "Back": [
-    "Pull-Up (Wide Grip)",
-    "Pull-Up (Weighted)",
-    "Pull-Up (Assisted)",
-    "Chin-Up (Underhand)",
-    "Chin-Up (Assisted)",
-    "Neutral-Grip Pull-Up",
-    "Lat Pulldown (Wide)",
-    "Close-Grip Pulldown",
-    "Straight-Arm Pulldown",
-    "Diverging Lat Pulldown Machine",
-    "Barbell Row (Bent-Over)",
-    "Pendlay Row",
-    "T-Bar Row",
-    "Seated Cable Row",
-    "Chest-Supported Row (Dumbbell)",
-    "Single-Arm Dumbbell Row",
-    "Meadows Row (Landmine One-Arm)",
-    "Landmine Row (Two-Hand)",
-    "Yates Row (Underhand Barbell Row)",
-    "Inverted Row",
-    "Machine Row",
-    "Seal Row"
+    {
+      "name": "Pull-Up (Wide Grip)",
+      "exerciseKey": "pull_up_wide_grip"
+    },
+    {
+      "name": "Pull-Up (Weighted)",
+      "exerciseKey": "pull_up_weighted"
+    },
+    {
+      "name": "Pull-Up (Assisted)",
+      "exerciseKey": "pull_up_assisted"
+    },
+    {
+      "name": "Chin-Up (Underhand)",
+      "exerciseKey": "chin_up_underhand"
+    },
+    {
+      "name": "Chin-Up (Assisted)",
+      "exerciseKey": "chin_up_assisted"
+    },
+    {
+      "name": "Neutral-Grip Pull-Up",
+      "exerciseKey": "neutral_grip_pull_up"
+    },
+    {
+      "name": "Lat Pulldown (Wide)",
+      "exerciseKey": "lat_pulldown_wide"
+    },
+    {
+      "name": "Close-Grip Pulldown",
+      "exerciseKey": "close_grip_pulldown"
+    },
+    {
+      "name": "Straight-Arm Pulldown",
+      "exerciseKey": "straight_arm_pulldown"
+    },
+    {
+      "name": "Diverging Lat Pulldown Machine",
+      "exerciseKey": "diverging_lat_pulldown_machine"
+    },
+    {
+      "name": "Barbell Row (Bent-Over)",
+      "exerciseKey": "barbell_row_bent_over"
+    },
+    {
+      "name": "Pendlay Row",
+      "exerciseKey": "pendlay_row"
+    },
+    {
+      "name": "T-Bar Row",
+      "exerciseKey": "t_bar_row"
+    },
+    {
+      "name": "Seated Cable Row",
+      "exerciseKey": "seated_cable_row"
+    },
+    {
+      "name": "Chest-Supported Row (Dumbbell)",
+      "exerciseKey": "chest_supported_row_dumbbell"
+    },
+    {
+      "name": "Single-Arm Dumbbell Row",
+      "exerciseKey": "single_arm_dumbbell_row"
+    },
+    {
+      "name": "Meadows Row (Landmine One-Arm)",
+      "exerciseKey": "meadows_row_landmine_one_arm"
+    },
+    {
+      "name": "Landmine Row (Two-Hand)",
+      "exerciseKey": "landmine_row_two_hand"
+    },
+    {
+      "name": "Yates Row (Underhand Barbell Row)",
+      "exerciseKey": "yates_row_underhand_barbell_row"
+    },
+    {
+      "name": "Inverted Row",
+      "exerciseKey": "inverted_row"
+    },
+    {
+      "name": "Machine Row",
+      "exerciseKey": "machine_row"
+    },
+    {
+      "name": "Seal Row",
+      "exerciseKey": "seal_row"
+    }
   ],
   "Abs": [
-    "Plank",
-    "Side Plank",
-    "Crunches",
-    "Crunches (Weighted)",
-    "Bicycle Crunch",
-    "Reverse Crunch",
-    "Hanging Leg Raise",
-    "Captain's Chair Leg Raise",
-    "Lying Leg Raise",
-    "Toes-to-Bar",
-    "Cable Crunch",
-    "Ab Wheel Rollout",
-    "Dead Bug",
-    "Hollow Body Hold",
-    "Russian Twist",
-    "Pallof Press",
-    "Bird Dog"
+    {
+      "name": "Plank",
+      "exerciseKey": "plank"
+    },
+    {
+      "name": "Side Plank",
+      "exerciseKey": "side_plank"
+    },
+    {
+      "name": "Crunches",
+      "exerciseKey": "crunches"
+    },
+    {
+      "name": "Crunches (Weighted)",
+      "exerciseKey": "crunches_weighted"
+    },
+    {
+      "name": "Bicycle Crunch",
+      "exerciseKey": "bicycle_crunch"
+    },
+    {
+      "name": "Reverse Crunch",
+      "exerciseKey": "reverse_crunch"
+    },
+    {
+      "name": "Hanging Leg Raise",
+      "exerciseKey": "hanging_leg_raise"
+    },
+    {
+      "name": "Captain's Chair Leg Raise",
+      "exerciseKey": "captain_s_chair_leg_raise"
+    },
+    {
+      "name": "Lying Leg Raise",
+      "exerciseKey": "lying_leg_raise"
+    },
+    {
+      "name": "Toes-to-Bar",
+      "exerciseKey": "toes_to_bar"
+    },
+    {
+      "name": "Cable Crunch",
+      "exerciseKey": "cable_crunch"
+    },
+    {
+      "name": "Ab Wheel Rollout",
+      "exerciseKey": "ab_wheel_rollout"
+    },
+    {
+      "name": "Dead Bug",
+      "exerciseKey": "dead_bug"
+    },
+    {
+      "name": "Hollow Body Hold",
+      "exerciseKey": "hollow_body_hold"
+    },
+    {
+      "name": "Russian Twist",
+      "exerciseKey": "russian_twist"
+    },
+    {
+      "name": "Pallof Press",
+      "exerciseKey": "pallof_press"
+    },
+    {
+      "name": "Bird Dog",
+      "exerciseKey": "bird_dog"
+    }
   ],
   "Quads": [
-    "Back Squat (High Bar)",
-    "Front Squat",
-    "Goblet Squat",
-    "Zercher Squat",
-    "Hack Squat (Machine)",
-    "Smith Machine Squat",
-    "Leg Press",
-    "Smith Machine Bulgarian Split Squat",
-    "Bulgarian Split Squat",
-    "Split Squat",
-    "Walking Lunge",
-    "Reverse Lunge",
-    "Step-Ups",
-    "Sissy Squat",
-    "Leg Extension",
-    "Cyclist Squat (Heels Elevated)",
-    "Pistol Squat",
-    "Pistol Squat (Assisted)"
+    {
+      "name": "Back Squat (High Bar)",
+      "exerciseKey": "back_squat_high_bar"
+    },
+    {
+      "name": "Front Squat",
+      "exerciseKey": "front_squat"
+    },
+    {
+      "name": "Goblet Squat",
+      "exerciseKey": "goblet_squat"
+    },
+    {
+      "name": "Zercher Squat",
+      "exerciseKey": "zercher_squat"
+    },
+    {
+      "name": "Hack Squat (Machine)",
+      "exerciseKey": "hack_squat_machine"
+    },
+    {
+      "name": "Smith Machine Squat",
+      "exerciseKey": "smith_machine_squat"
+    },
+    {
+      "name": "Leg Press",
+      "exerciseKey": "leg_press"
+    },
+    {
+      "name": "Smith Machine Bulgarian Split Squat",
+      "exerciseKey": "smith_machine_bulgarian_split_squat"
+    },
+    {
+      "name": "Bulgarian Split Squat",
+      "exerciseKey": "bulgarian_split_squat"
+    },
+    {
+      "name": "Split Squat",
+      "exerciseKey": "split_squat"
+    },
+    {
+      "name": "Walking Lunge",
+      "exerciseKey": "walking_lunge"
+    },
+    {
+      "name": "Reverse Lunge",
+      "exerciseKey": "reverse_lunge"
+    },
+    {
+      "name": "Step-Ups",
+      "exerciseKey": "step_ups"
+    },
+    {
+      "name": "Sissy Squat",
+      "exerciseKey": "sissy_squat"
+    },
+    {
+      "name": "Leg Extension",
+      "exerciseKey": "leg_extension"
+    },
+    {
+      "name": "Cyclist Squat (Heels Elevated)",
+      "exerciseKey": "cyclist_squat_heels_elevated"
+    },
+    {
+      "name": "Pistol Squat",
+      "exerciseKey": "pistol_squat"
+    },
+    {
+      "name": "Pistol Squat (Assisted)",
+      "exerciseKey": "pistol_squat_assisted"
+    }
   ],
   "Hamstrings": [
-    "Deadlift (Conventional)",
-    "Romanian Deadlift (RDL)",
-    "Plate-Loaded Romanian Deadlift",
-    "Stiff-Leg Deadlift",
-    "Single-Leg RDL",
-    "Good Morning",
-    "Glute Bridge (Weighted)",
-    "Hip Thrust (Barbell)",
-    "Nordic Hamstring Curl",
-    "Standing Leg Curl (Machine)",
-    "Lying Leg Curl (Machine)",
-    "Seated Leg Curl",
-    "Cable Pull-Through",
-    "Reverse Hyperextension",
-    "45° Back Extension (Hip Hinge)"
+    {
+      "name": "Deadlift (Conventional)",
+      "exerciseKey": "deadlift_conventional"
+    },
+    {
+      "name": "Romanian Deadlift (RDL)",
+      "exerciseKey": "romanian_deadlift_rdl"
+    },
+    {
+      "name": "Plate-Loaded Romanian Deadlift",
+      "exerciseKey": "plate_loaded_romanian_deadlift"
+    },
+    {
+      "name": "Stiff-Leg Deadlift",
+      "exerciseKey": "stiff_leg_deadlift"
+    },
+    {
+      "name": "Single-Leg RDL",
+      "exerciseKey": "single_leg_rdl"
+    },
+    {
+      "name": "Good Morning",
+      "exerciseKey": "good_morning"
+    },
+    {
+      "name": "Glute Bridge (Weighted)",
+      "exerciseKey": "glute_bridge_weighted"
+    },
+    {
+      "name": "Hip Thrust (Barbell)",
+      "exerciseKey": "hip_thrust_barbell"
+    },
+    {
+      "name": "Nordic Hamstring Curl",
+      "exerciseKey": "nordic_hamstring_curl"
+    },
+    {
+      "name": "Standing Leg Curl (Machine)",
+      "exerciseKey": "standing_leg_curl_machine"
+    },
+    {
+      "name": "Lying Leg Curl (Machine)",
+      "exerciseKey": "lying_leg_curl_machine"
+    },
+    {
+      "name": "Seated Leg Curl",
+      "exerciseKey": "seated_leg_curl"
+    },
+    {
+      "name": "Cable Pull-Through",
+      "exerciseKey": "cable_pull_through"
+    },
+    {
+      "name": "Reverse Hyperextension",
+      "exerciseKey": "reverse_hyperextension"
+    },
+    {
+      "name": "45° Back Extension (Hip Hinge)",
+      "exerciseKey": "45_back_extension_hip_hinge"
+    }
   ],
   "Calves": [
-    "Standing Calf Raise",
-    "Standing Calf Raise (machine)",
-    "Seated Calf Raise",
-    "Donkey Calf Raise",
-    "Leg Press Calf Raise",
-    "Smith Machine Calf Raise",
-    "Single-Leg Calf Raise",
-    "Single-leg calf raise (DB)",
-    "Farmer's Walk on Toes",
-    "Tibialis Raise"
+    {
+      "name": "Standing Calf Raise",
+      "exerciseKey": "standing_calf_raise"
+    },
+    {
+      "name": "Standing Calf Raise (machine)",
+      "exerciseKey": "standing_calf_raise_machine"
+    },
+    {
+      "name": "Seated Calf Raise",
+      "exerciseKey": "seated_calf_raise"
+    },
+    {
+      "name": "Donkey Calf Raise",
+      "exerciseKey": "donkey_calf_raise"
+    },
+    {
+      "name": "Leg Press Calf Raise",
+      "exerciseKey": "leg_press_calf_raise"
+    },
+    {
+      "name": "Smith Machine Calf Raise",
+      "exerciseKey": "smith_machine_calf_raise"
+    },
+    {
+      "name": "Single-Leg Calf Raise",
+      "exerciseKey": "single_leg_calf_raise"
+    },
+    {
+      "name": "Single-leg calf raise (DB)",
+      "exerciseKey": "single_leg_calf_raise_db"
+    },
+    {
+      "name": "Farmer's Walk on Toes",
+      "exerciseKey": "farmer_s_walk_on_toes"
+    },
+    {
+      "name": "Tibialis Raise",
+      "exerciseKey": "tibialis_raise"
+    }
   ],
   "Glutes": [
-    "Barbell Hip Thrust",
-    "Glute Bridge",
-    "Romanian Deadlift",
-    "Bulgarian Split Squat",
-    "Glute Kickback Machine",
-    "Hip Abduction Machine",
-    "Cable Glute Kickback",
-    "Walking Lunge"
+    {
+      "name": "Barbell Hip Thrust",
+      "exerciseKey": "barbell_hip_thrust"
+    },
+    {
+      "name": "Glute Bridge",
+      "exerciseKey": "glute_bridge"
+    },
+    {
+      "name": "Romanian Deadlift",
+      "exerciseKey": "romanian_deadlift"
+    },
+    {
+      "name": "Bulgarian Split Squat",
+      "exerciseKey": "bulgarian_split_squat"
+    },
+    {
+      "name": "Glute Kickback Machine",
+      "exerciseKey": "glute_kickback_machine"
+    },
+    {
+      "name": "Hip Abduction Machine",
+      "exerciseKey": "hip_abduction_machine"
+    },
+    {
+      "name": "Cable Glute Kickback",
+      "exerciseKey": "cable_glute_kickback"
+    },
+    {
+      "name": "Walking Lunge",
+      "exerciseKey": "walking_lunge"
+    }
   ],
   "Forearms": [
-    "Wrist Curl",
-    "Reverse Wrist Curl",
-    "Farmer’s Carry"
+    {
+      "name": "Wrist Curl",
+      "exerciseKey": "wrist_curl"
+    },
+    {
+      "name": "Reverse Wrist Curl",
+      "exerciseKey": "reverse_wrist_curl"
+    },
+    {
+      "name": "Farmer’s Carry",
+      "exerciseKey": "farmer_s_carry"
+    }
   ],
   "Conditioning": [
-    "Sled Push",
-    "Sled Pull",
-    "Farmer's Carry",
-    "Treadmill Run",
-    "Rowing Machine",
-    "Stationary Bike",
-    "Jump Rope",
-    "Burpees",
-    "Battle Ropes"
+    {
+      "name": "Sled Push",
+      "exerciseKey": "sled_push"
+    },
+    {
+      "name": "Sled Pull",
+      "exerciseKey": "sled_pull"
+    },
+    {
+      "name": "Farmer's Carry",
+      "exerciseKey": "farmer_s_carry"
+    },
+    {
+      "name": "Treadmill Run",
+      "exerciseKey": "treadmill_run"
+    },
+    {
+      "name": "Rowing Machine",
+      "exerciseKey": "rowing_machine"
+    },
+    {
+      "name": "Stationary Bike",
+      "exerciseKey": "stationary_bike"
+    },
+    {
+      "name": "Jump Rope",
+      "exerciseKey": "jump_rope"
+    },
+    {
+      "name": "Burpees",
+      "exerciseKey": "burpees"
+    },
+    {
+      "name": "Battle Ropes",
+      "exerciseKey": "battle_ropes"
+    }
   ]
 }

@@ -112,6 +112,10 @@ export function createProgramContinuation(
     parentProgramId: sourceProgram.id,
     cycleIndex: nextCycleIndex,
     algorithmPhaseOffset: nextPhaseOffset,
+    targetProgressionMode: sourceProgram.targetProgressionMode,
+    progressionPolicyVersion: sourceProgram.progressionPolicyVersion,
+    algorithmVersion: sourceProgram.algorithmVersion,
+    unit: sourceProgram.unit,
   };
 
   return continuation;

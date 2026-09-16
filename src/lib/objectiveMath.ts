@@ -1,4 +1,4 @@
-import { ExerciseEntry, SetEntry, WorkoutLog, BodyweightSnapshot, WeightUnit } from '../types';
+import { ExerciseEntry, SetEntry, WorkoutLog, BodyweightSnapshot, WeightUnit, ClosedPeriodisationLaneContext } from '../types';
 import { getExerciseClassification } from './exerciseClassification';
 import { getTodayLocalDateString } from './dateUtils';
 import {
@@ -121,9 +121,9 @@ const STRENGTH_PROFILES: Record<number, Record<number, { reps: number; targetRPE
     2: { reps: 5, targetRPE: 8.0 },
     3: { reps: 5, targetRPE: 8.5 },
     4: { reps: 5, targetRPE: 9.0 },
-    5: { reps: 3, targetRPE: 7.5 },
+    5: { reps: 3, targetRPE: 7.0 },
     6: { reps: 3, targetRPE: 8.0 },
-    7: { reps: 3, targetRPE: 9.0 },
+    7: { reps: 3, targetRPE: 8.5 },
     8: { reps: 2, targetRPE: 8.0 },
     9: { reps: 2, targetRPE: 8.5 },
     10: { reps: 2, targetRPE: 9.5 },
@@ -1230,6 +1230,7 @@ export interface SessionDistributionResolution {
   roundedAnchorWeight?: number;
   anchorReps?: number;
   anchorRPE?: number;
+  periodisationLane?: ClosedPeriodisationLaneContext;
 }
 
 export interface ResolveSessionDistributionParams {
@@ -1259,6 +1260,7 @@ export interface PrescriptionShape {
   anchorReps: number;
   anchorRPE: number;
   profileType: FatiguePriorProfile;
+  periodisationLane: ClosedPeriodisationLaneContext;
 }
 
 /**
@@ -1282,6 +1284,7 @@ export function deriveCanonicalPrescriptionShape(params: {
   let anchorReps = 10;
   let anchorRPE = 8.0;
   let profileType: FatiguePriorProfile = 'hypertrophy';
+  let periodisationLane: ClosedPeriodisationLaneContext;
 
   if (objective === 'Hypertrophy') {
     if (effectiveAlgorithmId === 'hypertrophy_step') {
@@ -1315,6 +1318,10 @@ export function deriveCanonicalPrescriptionShape(params: {
 
       anchorReps = baseReps;
       anchorRPE = baseRPE;
+      periodisationLane = {
+        algorithmId: 'hypertrophy_step',
+        effectivePhase,
+      };
     } else {
       // hypertrophy_linear (Wave Volume)
       const isOddWeek = weekNum % 2 !== 0;
@@ -1338,9 +1345,14 @@ export function deriveCanonicalPrescriptionShape(params: {
       }
 
       anchorRPE = 8.0;
+      periodisationLane = {
+        algorithmId: 'hypertrophy_linear',
+        waveType: isOddWeek ? 'volume' : 'heavy',
+      };
     }
     profileType = 'hypertrophy';
-  } else if (objective === 'Strength') {
+  } else {
+    // objective === 'Strength'
     if (effectiveAlgorithmId === 'strength_linear') {
       const maxWeek = programDuration || 8;
       const activeWeek = Math.min(weekNum, maxWeek);
@@ -1348,6 +1360,11 @@ export function deriveCanonicalPrescriptionShape(params: {
 
       anchorReps = Math.max(1, Math.round(8 - progress * 7));
       anchorRPE = Math.round((7.0 + progress * 3.0) * 2) / 2;
+      periodisationLane = {
+        algorithmId: 'strength_linear',
+        linearPhase: activeWeek,
+        maxWeeks: maxWeek,
+      };
     } else {
       // strength_undulating (Default)
       const weekProfile = getUndulatingProfileWeek(weekNum, programDuration);
@@ -1357,6 +1374,11 @@ export function deriveCanonicalPrescriptionShape(params: {
 
       anchorReps = weekProfile.reps;
       anchorRPE = weekProfile.targetRPE;
+      periodisationLane = {
+        algorithmId: 'strength_undulating',
+        anchorReps,
+        anchorRpe: anchorRPE,
+      };
     }
 
     if (anchorReps === 1 && anchorRPE >= 9.5) {
@@ -1366,7 +1388,7 @@ export function deriveCanonicalPrescriptionShape(params: {
     }
   }
 
-  return { anchorReps, anchorRPE, profileType };
+  return { anchorReps, anchorRPE, profileType, periodisationLane };
 }
 
 /**
@@ -1523,6 +1545,11 @@ export function resolveSessionDistribution(params: ResolveSessionDistributionPar
     previousLogs || []
   );
 
+  const resolvedLane: ClosedPeriodisationLaneContext =
+    algorithmId === 'none'
+      ? { algorithmId: 'none', familyToken: 'standard_baseline' }
+      : shape.periodisationLane;
+
   return {
     isBypassed: distributionResult.isBypassed,
     anchor,
@@ -1530,6 +1557,7 @@ export function resolveSessionDistribution(params: ResolveSessionDistributionPar
     roundedAnchorWeight,
     anchorReps,
     anchorRPE,
+    periodisationLane: resolvedLane,
   };
 }
 
@@ -1563,11 +1591,16 @@ export interface GenerateSessionTargetMapParams {
   algorithmPhaseOffset?: number;
 }
 
-/**
- * Pure helper to generate canonical ordinal target mappings for 1..workingSetCount.
- * Shared by calculateObjectiveSets and calculateAddedSetTarget to guarantee single-authority consistency.
- */
-export function generateSessionTargetMap(params: GenerateSessionTargetMapParams): Map<number, CanonicalTargetEntry> | null {
+interface SessionTargetGenerationResult {
+  targetsByOrdinal: Map<number, CanonicalTargetEntry> | null;
+  sessionAnchor: SessionAnchor | null;
+  periodisationLane: ClosedPeriodisationLaneContext | null;
+  distributionResult: MultiSetDistributionResult | null;
+  roundedAnchorWeight: number;
+  anchorReps: number;
+}
+
+function generateSessionTargetMapInternal(params: GenerateSessionTargetMapParams): SessionTargetGenerationResult {
   const {
     objective,
     exercise,
@@ -1591,32 +1624,41 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
     algorithmPhaseOffset,
   } = params;
 
+  const nullResult: SessionTargetGenerationResult = {
+    targetsByOrdinal: null,
+    sessionAnchor: null,
+    periodisationLane: null,
+    distributionResult: null,
+    roundedAnchorWeight: 0,
+    anchorReps: 10,
+  };
+
   // 1. Objective Off or skipped exercise returns unprescribed
   if (objective === 'Off' || exercise.isSkipped) {
-    return null;
+    return nullResult;
   }
 
   // 2. Modality support check: unsupported non-weighted and corrupted modalities are bypassed
   const mod = exercise.modality;
   const isSupported = mod === undefined || mod === 'weighted' || mod === 'assisted' || mod === 'bodyweight';
   if (!isSupported) {
-    return null;
+    return nullResult;
   }
 
   // 3. Assisted and bodyweight modalities strictly require a valid active session bodyweight snapshot
   if (mod === 'assisted' || mod === 'bodyweight') {
     if (!bodyweightSnapshot || !validateBodyweightSnapshot(bodyweightSnapshot)) {
-      return null;
+      return nullResult;
     }
   }
 
   // 4. For Strength objective, only main movements receive prescribed progression
   if (objective === 'Strength' && !exercise.isMainMovement) {
-    return null;
+    return nullResult;
   }
 
   if (workingSetCount <= 0) {
-    return null;
+    return nullResult;
   }
 
   // 5. Baseline Extraction: Contextual resolver first (with log's own snapshot), then pristine template fallback (with active snapshot)
@@ -1645,20 +1687,20 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
     // Stage 1: Zero-Baseline Algorithm Guidance
     // Only weighted modality (or undefined) is eligible
     if (mod !== undefined && mod !== 'weighted') {
-      return null;
+      return nullResult;
     }
 
     if (objective !== 'Hypertrophy' && objective !== 'Strength') {
-      return null;
+      return nullResult;
     }
 
     if (objective === 'Strength' && !exercise.isMainMovement) {
-      return null;
+      return nullResult;
     }
 
     const effectiveAlgorithmId = resolveEffectiveAlgorithm(objective, algorithmId);
     if (!effectiveAlgorithmId) {
-      return null;
+      return nullResult;
     }
 
     const shape = deriveCanonicalPrescriptionShape({
@@ -1671,7 +1713,7 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
     });
 
     if (!shape) {
-      return null;
+      return nullResult;
     }
 
     const { anchorReps, anchorRPE, profileType } = shape;
@@ -1723,7 +1765,19 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
       }
     }
 
-    return zeroMap;
+    const resolvedLane: ClosedPeriodisationLaneContext =
+      algorithmId === 'none'
+        ? { algorithmId: 'none', familyToken: 'standard_baseline' }
+        : shape.periodisationLane;
+
+    return {
+      targetsByOrdinal: zeroMap,
+      sessionAnchor: null,
+      periodisationLane: resolvedLane,
+      distributionResult: null,
+      roundedAnchorWeight: 0,
+      anchorReps: shape.anchorReps,
+    };
   }
 
   // 6. Deload Handling
@@ -1739,7 +1793,7 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
     if (mod === 'assisted') {
       const sessionBW = resolveSessionBodyweightInUnit(bodyweightSnapshot, activeUnit);
       if (!sessionBW || sessionBW <= 0) {
-        return null;
+        return nullResult;
       }
       const baseEffectiveLoad = baselineE1RM * 0.70;
       const targetEffectiveLoad = baseEffectiveLoad * 0.5;
@@ -1754,7 +1808,7 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
       });
 
       if (proj.status === 'bypassed') {
-        return null;
+        return nullResult;
       }
 
       const map = new Map<number, CanonicalTargetEntry>();
@@ -1766,13 +1820,20 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
           form: 'strict',
         });
       }
-      return map;
+      return {
+        targetsByOrdinal: map,
+        sessionAnchor: null,
+        periodisationLane: null,
+        distributionResult: null,
+        roundedAnchorWeight: proj.assistanceWeight,
+        anchorReps: proj.reps,
+      };
     }
 
     if (mod === 'bodyweight') {
       const sessionBW = resolveSessionBodyweightInUnit(bodyweightSnapshot, activeUnit);
       if (!sessionBW || sessionBW <= 0) {
-        return null;
+        return nullResult;
       }
       const baseEffectiveLoad = baselineE1RM * 0.70;
       const targetEffectiveLoad = baseEffectiveLoad * 0.5;
@@ -1799,7 +1860,7 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
       });
 
       if (solved.status === 'bypassed') {
-        return null;
+        return nullResult;
       }
 
       const map = new Map<number, CanonicalTargetEntry>();
@@ -1811,7 +1872,14 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
           form: 'strict',
         });
       }
-      return map;
+      return {
+        targetsByOrdinal: map,
+        sessionAnchor: null,
+        periodisationLane: null,
+        distributionResult: null,
+        roundedAnchorWeight: 0,
+        anchorReps: solved.reps,
+      };
     }
 
     // Weighted modality Deload
@@ -1834,10 +1902,17 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
         form: 'strict',
       });
     }
-    return map;
+    return {
+      targetsByOrdinal: map,
+      sessionAnchor: null,
+      periodisationLane: null,
+      distributionResult: null,
+      roundedAnchorWeight: workingTargetWeight,
+      anchorReps: workingTargetReps,
+    };
   }
 
-  // 7. Non-Deload resolution via resolveSessionDistribution
+  // 7. Non-Deload resolution via resolveSessionDistribution (SINGLE authoritative invocation)
   const resolution = resolveSessionDistribution({
     objective,
     exercise,
@@ -1862,7 +1937,17 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
   });
 
   if (resolution.isBypassed || !resolution.distributionResult || !resolution.anchor) {
-    return null;
+    if (resolution.anchor && resolution.distributionResult) {
+      return {
+        targetsByOrdinal: null,
+        sessionAnchor: resolution.anchor,
+        periodisationLane: resolution.periodisationLane || null,
+        distributionResult: resolution.distributionResult,
+        roundedAnchorWeight: resolution.roundedAnchorWeight || 0,
+        anchorReps: resolution.anchorReps || 10,
+      };
+    }
+    return nullResult;
   }
 
   const { distributionResult, anchor } = resolution;
@@ -1889,7 +1974,14 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
     if (mod === 'assisted') {
       const sessionBW = resolveSessionBodyweightInUnit(bodyweightSnapshot, activeUnit);
       if (!sessionBW || sessionBW <= 0) {
-        return null;
+        return {
+          targetsByOrdinal: null,
+          sessionAnchor: resolution.anchor,
+          periodisationLane: resolution.periodisationLane || null,
+          distributionResult: resolution.distributionResult,
+          roundedAnchorWeight: resolution.roundedAnchorWeight || 0,
+          anchorReps: resolution.anchorReps || 10,
+        };
       }
       const proj = projectAssistedTarget({
         targetEffectiveLoad: rawEffectiveLoad_i,
@@ -1901,7 +1993,14 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
       });
 
       if (proj.status === 'bypassed') {
-        return null;
+        return {
+          targetsByOrdinal: null,
+          sessionAnchor: resolution.anchor,
+          periodisationLane: resolution.periodisationLane || null,
+          distributionResult: resolution.distributionResult,
+          roundedAnchorWeight: resolution.roundedAnchorWeight || 0,
+          anchorReps: resolution.anchorReps || 10,
+        };
       }
 
       targetsByOrdinal.set(ord, {
@@ -1913,7 +2012,14 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
     } else if (mod === 'bodyweight') {
       const sessionBW = resolveSessionBodyweightInUnit(bodyweightSnapshot, activeUnit);
       if (!sessionBW || sessionBW <= 0) {
-        return null;
+        return {
+          targetsByOrdinal: null,
+          sessionAnchor: resolution.anchor,
+          periodisationLane: resolution.periodisationLane || null,
+          distributionResult: resolution.distributionResult,
+          roundedAnchorWeight: resolution.roundedAnchorWeight || 0,
+          anchorReps: resolution.anchorReps || 10,
+        };
       }
       const mult = rpeMathGetRTSMultiplier(targetReps, targetRPE) ?? 1;
       const targetE1RM_i = rawEffectiveLoad_i / mult;
@@ -1937,7 +2043,14 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
       });
 
       if (solved.status === 'bypassed') {
-        return null;
+        return {
+          targetsByOrdinal: null,
+          sessionAnchor: resolution.anchor,
+          periodisationLane: resolution.periodisationLane || null,
+          distributionResult: resolution.distributionResult,
+          roundedAnchorWeight: resolution.roundedAnchorWeight || 0,
+          anchorReps: resolution.anchorReps || 10,
+        };
       }
 
       targetsByOrdinal.set(ord, {
@@ -1957,7 +2070,22 @@ export function generateSessionTargetMap(params: GenerateSessionTargetMapParams)
     }
   }
 
-  return targetsByOrdinal;
+  return {
+    targetsByOrdinal,
+    sessionAnchor: resolution.anchor,
+    periodisationLane: resolution.periodisationLane || null,
+    distributionResult: resolution.distributionResult,
+    roundedAnchorWeight: resolution.roundedAnchorWeight ?? (targetsByOrdinal.get(1)?.weight || 0),
+    anchorReps: resolution.anchorReps ?? (targetsByOrdinal.get(1)?.reps || 10),
+  };
+}
+
+/**
+ * Pure helper to generate canonical ordinal target mappings for 1..workingSetCount.
+ * Shared by calculateObjectiveSets and calculateAddedSetTarget to guarantee single-authority consistency.
+ */
+export function generateSessionTargetMap(params: GenerateSessionTargetMapParams): Map<number, CanonicalTargetEntry> | null {
+  return generateSessionTargetMapInternal(params).targetsByOrdinal;
 }
 
 export interface CalculateObjectiveSetsParams {
@@ -1986,16 +2114,21 @@ export interface CalculateObjectiveSetsParams {
   algorithmPhaseOffset?: number;
 }
 
+export interface ObjectivePrescriptionBundle {
+  readonly baseSets: SetEntry[];
+  readonly sessionAnchor: SessionAnchor | null;
+  readonly periodisationLane: ClosedPeriodisationLaneContext | null;
+  readonly distributionResult: MultiSetDistributionResult | null;
+}
+
 /**
- * Applies the Strength, Hypertrophy, or Deload algorithm to an exercise's sets.
- * Baseline Precedence:
- * 1. Contextual baseline e1RM from previous completed workout logs (resolveContextualPrescriptionBaselineE1RM).
- * 2. Immutable program template default (extractTemplateBaselineE1RM).
- * 3. If neither exists, baseline capacity is 0 (targets will not fabricate arbitrary weights).
- * 
- * Note: Active draft exercise.sets is NEVER used to estimate baseline capacity.
+ * Calculates the atomic objective-prescription bundle for an exercise.
+ * Produces baseSets, authoritative ephemeral SessionAnchor, ClosedPeriodisationLaneContext,
+ * and MultiSetDistributionResult from a single canonical resolution pass.
  */
-export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): SetEntry[] {
+export function calculateObjectivePrescriptionBundle(
+  params: CalculateObjectiveSetsParams
+): ObjectivePrescriptionBundle {
   const {
     objective,
     exercise,
@@ -2022,16 +2155,26 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
   } = params;
 
   if (objective === 'Off' || exercise.isSkipped) {
-    return exercise.sets;
+    return {
+      baseSets: exercise.sets,
+      sessionAnchor: null,
+      periodisationLane: null,
+      distributionResult: null,
+    };
   }
 
   const nonWarmupSets = (exercise.sets || []).filter(s => !s.isWarmup);
   const workingSetCount = nonWarmupSets.length;
   if (workingSetCount <= 0) {
-    return exercise.sets;
+    return {
+      baseSets: exercise.sets,
+      sessionAnchor: null,
+      periodisationLane: null,
+      distributionResult: null,
+    };
   }
 
-  const targetsByOrdinal = generateSessionTargetMap({
+  const result = generateSessionTargetMapInternal({
     objective,
     exercise,
     workingSetCount,
@@ -2054,35 +2197,23 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
     algorithmPhaseOffset,
   });
 
-  if (!targetsByOrdinal) {
-    return exercise.sets;
-  }
+  const {
+    targetsByOrdinal,
+    sessionAnchor,
+    periodisationLane,
+    distributionResult,
+    roundedAnchorWeight,
+    anchorReps,
+  } = result;
 
-  // Derive anchor information for warmup calculation on weighted exercises
-  const resolution = objective !== 'Deload' ? resolveSessionDistribution({
-    objective,
-    exercise,
-    workingSetCount,
-    weekNum,
-    programDuration,
-    previousLogs,
-    algorithmId,
-    templateExercise,
-    bodyweightSnapshot,
-    activeUnit,
-    programId,
-    dayNum,
-    targetDate,
-    targetLogId,
-    targetChronology,
-    sessionStartedAt,
-    explicitTargetTimestamp,
-    occurrenceOrdinal,
-    predecessorProgramId,
-    algorithmPhaseOffset,
-  }) : null;
-  const roundedAnchorWeight = resolution?.roundedAnchorWeight || (targetsByOrdinal.get(1)?.weight || 0);
-  const anchorReps = resolution?.anchorReps || (targetsByOrdinal.get(1)?.reps || 10);
+  if (!targetsByOrdinal) {
+    return {
+      baseSets: exercise.sets,
+      sessionAnchor,
+      periodisationLane,
+      distributionResult,
+    };
+  }
 
   const warmupSets = exercise.sets.filter(s => s.isWarmup);
   const warmupCount = warmupSets.length;
@@ -2091,7 +2222,7 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
   let warmupIndexCounter = 0;
 
   // Target-only merge into exercise sets preserving all other metadata
-  return exercise.sets.map((set, setIdx) => {
+  const baseSets = exercise.sets.map((set, setIdx) => {
     const key = `${exerciseIndex}-${setIdx}`;
 
     // Protected sets: touched or checked sets or skipped sets remain completely unchanged
@@ -2159,6 +2290,21 @@ export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): Se
     // Working sets with ordinal 7+ or unmapped: preserve unchanged
     return set;
   });
+
+  return {
+    baseSets,
+    sessionAnchor,
+    periodisationLane,
+    distributionResult,
+  };
+}
+
+/**
+ * Applies the Strength, Hypertrophy, or Deload algorithm to an exercise's sets.
+ * Compatibility facade delegating directly to calculateObjectivePrescriptionBundle.
+ */
+export function calculateObjectiveSets(params: CalculateObjectiveSetsParams): SetEntry[] {
+  return calculateObjectivePrescriptionBundle(params).baseSets;
 }
 
 export interface AddedSetCommittedEvidenceEntry {

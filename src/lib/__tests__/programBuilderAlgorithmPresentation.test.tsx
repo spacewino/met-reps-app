@@ -63,42 +63,48 @@ describe('MetReps — PBW-1 Program Builder & Logger Algorithm Presentation Test
     return program;
   };
 
-  describe('1. Program Builder Hypertrophy Algorithm Cards & Mechanics Presentation', () => {
-    it('renders Wave Volume (hypertrophy_linear) button title, subtitle, and explanation accurately', () => {
+  describe('1. Program Builder Hypertrophy Algorithm Cards & Presentation', () => {
+    it('renders Wave Volume (hypertrophy_linear) button title, subtitle, and info control accurately', () => {
       setupProgram('Hypertrophy', 'hypertrophy_linear');
 
       const html = renderToString(
         <ProgramBuilder onClose={() => {}} onSave={() => {}} />
       );
 
+      // Section headings & subtitles
+      expect(html).toContain('Training Goal');
+      expect(html).toContain('Choose the main focus for this program.');
+      expect(html).toContain('Periodisation Method');
+      expect(html).toContain('Choose how reps and target effort are structured across the weeks of your program.');
+
       // Button Titles
       expect(html).toContain('Wave Volume');
       expect(html).toContain('Step Loading');
 
-      // Wave Volume Subtitle
+      // Subtitles
       expect(html).toContain('Alternates higher-rep (12–15) and lower-rep (6–12) weeks at RPE 8.0.');
-
-      // Step Loading Subtitle
       expect(html).toContain('Builds RPE through each 4-week block, finishing with a higher-rep week.');
 
-      // Wave Volume Periodisation Mechanics
-      expect(html).toContain('Wave Volume: Alternates weekly between higher-repetition waves (12–15 reps) and heavier, lower-repetition waves (6–12 reps), anchored at RPE 8.0. Rep targets adjust automatically for compound versus isolation and free-weight versus machine exercises.');
+      // Info button accessibility labels
+      expect(html).toContain('aria-label="About Wave Volume"');
+      expect(html).toContain('aria-label="About Step Loading"');
     });
 
-    it('renders Step Loading (hypertrophy_step) explanation accurately when selected', () => {
+    it('renders Step Loading (hypertrophy_step) title and subtitle accurately when selected', () => {
       setupProgram('Hypertrophy', 'hypertrophy_step');
 
       const html = renderToString(
         <ProgramBuilder onClose={() => {}} onSave={() => {}} />
       );
 
-      // Step Loading Periodisation Mechanics
-      expect(html).toContain('Step Loading: Organises training into 4-week blocks. Target RPE rises through Weeks 1–3, then holds in Week 4 while reps increase. Each new block shifts to a heavier, lower-rep range, with rep targets adjusted for exercise type and equipment.');
+      expect(html).toContain('Step Loading');
+      expect(html).toContain('Builds RPE through each 4-week block, finishing with a higher-rep week.');
+      expect(html).toContain('aria-label="About Step Loading"');
     });
   });
 
-  describe('2. Program Builder Strength Algorithm Cards & Mechanics Presentation', () => {
-    it('renders Wave Strength (strength_undulating) button title, subtitle, and explanation accurately in Title Case', () => {
+  describe('2. Program Builder Strength Algorithm Cards & Presentation', () => {
+    it('renders Wave Strength (strength_undulating) button title, subtitle, and info control accurately in Title Case', () => {
       setupProgram('Strength', 'strength_undulating');
 
       const html = renderToString(
@@ -116,25 +122,21 @@ describe('MetReps — PBW-1 Program Builder & Logger Algorithm Presentation Test
       // Linear Periodisation Subtitle
       expect(html).toContain('Tapers reps from 8 to 1 while increasing target RPE from 7.0 to 10.0.');
 
-      // Wave Strength Periodisation Mechanics
-      expect(html).toContain('Wave Strength: Progresses designated Main Movements through changing strength rep ranges across 4, 8, or 12 weeks, finishing with an RPE 10 peak single. Other exercises remain self-directed.');
-
-      // Main Movement supporting note
-      expect(html).toContain('Only mark an exercise as a Main Movement if it is suitable for low-repetition strength work and peak singles.');
+      // Info button accessibility labels
+      expect(html).toContain('aria-label="About Wave Strength"');
+      expect(html).toContain('aria-label="About Linear Periodisation"');
     });
 
-    it('renders Linear Periodisation (strength_linear) explanation accurately when selected', () => {
+    it('renders Linear Periodisation (strength_linear) title and subtitle accurately when selected', () => {
       setupProgram('Strength', 'strength_linear');
 
       const html = renderToString(
         <ProgramBuilder onClose={() => {}} onSave={() => {}} />
       );
 
-      // Linear Periodisation Periodisation Mechanics
-      expect(html).toContain('Linear Periodisation: Progresses designated Main Movements across the program by gradually reducing target reps from 8 in Week 1 to 1 in the final week while increasing target RPE from 7.0 to 10.0. Other exercises remain self-directed.');
-
-      // Main Movement supporting note
-      expect(html).toContain('Only mark an exercise as a Main Movement if it is suitable for low-repetition strength work and peak singles.');
+      expect(html).toContain('Linear Periodisation');
+      expect(html).toContain('Tapers reps from 8 to 1 while increasing target RPE from 7.0 to 10.0.');
+      expect(html).toContain('aria-label="About Linear Periodisation"');
     });
   });
 
@@ -153,40 +155,57 @@ describe('MetReps — PBW-1 Program Builder & Logger Algorithm Presentation Test
 
   describe('4. WorkoutLogger Algorithm Badge & Tooltip Description Parity', () => {
     it('renders exact updated descriptions for all algorithm badge mappings in WorkoutLogger', () => {
+      const wlPath = path.resolve(process.cwd(), 'src/components/WorkoutLogger.tsx');
+      const wlSource = fs.readFileSync(wlPath, 'utf8');
+
       // Test Wave Volume
       const p1 = setupProgram('Hypertrophy', 'hypertrophy_linear');
       const html1 = renderToString(
         <WorkoutLogger initialParams={{ programId: p1.id, day: '1', week: '1' }} onClose={() => {}} onSave={() => {}} />
       );
-      expect(html1).toContain('Alternates weekly between higher-rep (12–15) and lower-rep (6–12) sessions at RPE 8.0.');
+      expect(html1).toContain('Wave Volume');
+      expect(html1).toContain('WV');
+      expect(html1).toContain('aria-label="About Wave Volume"');
+      expect(wlSource).toContain('Alternates weekly between higher-rep (12–15) and lower-rep (6–12) sessions at RPE 8.0.');
 
       // Test Step Loading
       const p2 = setupProgram('Hypertrophy', 'hypertrophy_step');
       const html2 = renderToString(
         <WorkoutLogger initialParams={{ programId: p2.id, day: '1', week: '1' }} onClose={() => {}} onSave={() => {}} />
       );
-      expect(html2).toContain('Builds RPE through each 4-week block, finishing with a higher-rep week before the next heavier block.');
+      expect(html2).toContain('Step Loading');
+      expect(html2).toContain('SL');
+      expect(html2).toContain('aria-label="About Step Loading"');
+      expect(wlSource).toContain('Builds RPE through each 4-week block, finishing with a higher-rep week before the next heavier block.');
 
       // Test Wave Strength
       const p3 = setupProgram('Strength', 'strength_undulating');
       const html3 = renderToString(
         <WorkoutLogger initialParams={{ programId: p3.id, day: '1', week: '1' }} onClose={() => {}} onSave={() => {}} />
       );
-      expect(html3).toContain('Progresses designated Main Movements through lower-rep phases and finishes with an RPE 10 peak single.');
+      expect(html3).toContain('Wave Strength');
+      expect(html3).toContain('DUP');
+      expect(html3).toContain('aria-label="About Wave Strength"');
+      expect(wlSource).toContain('Progresses designated Main Movements through lower-rep phases and finishes with an RPE 10 peak single.');
 
       // Test Linear Periodisation
       const p4 = setupProgram('Strength', 'strength_linear');
       const html4 = renderToString(
         <WorkoutLogger initialParams={{ programId: p4.id, day: '1', week: '1' }} onClose={() => {}} onSave={() => {}} />
       );
-      expect(html4).toContain('Gradually reduces Main Movement targets from 8 reps to 1 while increasing RPE from 7.0 to 10.0.');
+      expect(html4).toContain('Linear Periodisation');
+      expect(html4).toContain('LP');
+      expect(html4).toContain('aria-label="About Linear Periodisation"');
+      expect(wlSource).toContain('Gradually reduces Main Movement targets from 8 reps to 1 while increasing RPE from 7.0 to 10.0.');
 
       // Test Self-Directed
       const p5 = setupProgram('Off', 'none');
       const html5 = renderToString(
         <WorkoutLogger initialParams={{ programId: p5.id, day: '1', week: '1' }} onClose={() => {}} onSave={() => {}} />
       );
-      expect(html5).toContain('Manual Mode: You have full control over all weights, rep ranges, and target metrics.');
+      expect(html5).toContain('Self-Directed');
+      expect(html5).toContain('SD');
+      expect(html5).toContain('aria-label="About Self-Directed"');
     });
   });
 

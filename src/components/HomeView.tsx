@@ -415,7 +415,12 @@ export function HomeView({
                 )}
                 <div className="flex justify-between items-center mt-2 pt-1.5 border-t border-slate-800/30">
                   <button
-                    onClick={() => handleStartWorkout({ redoFromLogId: log.id })}
+                    onClick={() =>
+                      handleStartWorkout({
+                        redoFromLogId: log.id,
+                        isOneOff: true,
+                      })
+                    }
                     className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-slate-800 rounded-none border border-slate-800 bg-slate-900/60 transition flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider cursor-pointer"
                     title="Redo Same Workout Today"
                   >

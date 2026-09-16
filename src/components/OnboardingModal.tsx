@@ -16,9 +16,11 @@ import {
   X,
   MoreVertical,
   Check,
+  Play,
+  ExternalLink,
 } from 'lucide-react';
 import { useModalHistory } from '../lib/useModalHistory';
-import { markOnboardingCompleted } from '../lib/onboarding';
+import { markOnboardingCompleted, METREPS_VIDEO_GUIDE_URL } from '../lib/onboarding';
 import { WarmupIcon } from './WarmupIcon';
 
 interface OnboardingModalProps {
@@ -69,7 +71,7 @@ export function OnboardingModal({ isOpen, onClose, themeId = 'slate', initialPag
 
       if (e.key === 'Tab' && modalEl) {
         const focusableElements = modalEl.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
         );
         if (focusableElements.length === 0) return;
 
@@ -133,7 +135,7 @@ export function OnboardingModal({ isOpen, onClose, themeId = 'slate', initialPag
       <div
         ref={modalContainerRef}
         tabIndex={-1}
-        className="bg-slate-900 border border-slate-800 rounded-none w-full max-w-sm sm:max-w-md overflow-hidden shadow-2xl flex flex-col relative max-h-[90vh] focus:outline-none"
+        className="bg-slate-900 border border-slate-800 rounded-none w-full max-w-sm sm:max-w-md overflow-hidden shadow-2xl flex flex-col relative h-[640px] max-h-[calc(100dvh-2rem)] focus:outline-none"
         onClick={e => e.stopPropagation()}
       >
         {/* Top Header Bar */}
@@ -165,21 +167,21 @@ export function OnboardingModal({ isOpen, onClose, themeId = 'slate', initialPag
         </div>
 
         {/* Modal Scrollable Page Content */}
-        <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1 flex flex-col justify-between">
-          {/* Page 1: BUILD YOUR TRAINING */}
+        <div className="p-4 sm:p-6 space-y-4 overflow-y-auto min-h-0 flex-1 flex flex-col justify-between">
+          {/* Page 1: SET UP A PROGRAM */}
           {currentPage === 1 && (
             <div className="space-y-4 animate-in fade-in slide-in-from-right-2 duration-150">
               {/* Visual Showcase Box */}
               <div
-                className="p-3.5 bg-slate-950 border border-slate-850 flex flex-col items-center justify-center text-center space-y-2 relative overflow-hidden"
+                className="w-full h-24 p-3 bg-slate-950 border border-slate-850 flex flex-col items-center justify-center text-center relative overflow-hidden shrink-0"
                 aria-hidden="true"
               >
-                <div className="text-[10px] font-mono font-black text-slate-400 uppercase tracking-widest">
+                <div className="text-[10px] font-mono font-black text-slate-400 uppercase tracking-widest mb-1">
                   FIND IT IN
                 </div>
-                <div className="flex flex-col items-center justify-center p-2.5 bg-slate-900 border border-slate-800 text-indigo-400 min-w-[90px]">
-                  <PlusCircle className="w-6 h-6 text-indigo-400" />
-                  <span className="text-[10px] font-black uppercase tracking-tight text-indigo-400 mt-1 font-mono">
+                <div className="flex flex-col items-center justify-center p-1.5 bg-slate-900 border border-slate-850 text-indigo-400 min-w-[80px]">
+                  <PlusCircle className="w-4 h-4 text-indigo-400" />
+                  <span className="text-[10px] font-black uppercase tracking-tight text-indigo-400 mt-0.5 font-mono">
                     PROGRAM
                   </span>
                 </div>
@@ -191,39 +193,42 @@ export function OnboardingModal({ isOpen, onClose, themeId = 'slate', initialPag
                   id="onboarding-dialog-heading"
                   className="font-black text-base sm:text-lg text-white uppercase tracking-wide font-sans"
                 >
-                  BUILD YOUR TRAINING
+                  SET UP A PROGRAM
                 </h3>
                 <p className="text-[13.5px] leading-relaxed text-slate-200">
-                  Choose a built-in template or create your own training week. Templates provide the days and exercises.
+                  Use Program to choose a template or create your own training week.
                 </p>
                 <p className="text-[13.5px] leading-relaxed text-slate-300">
-                  Your selected objective and progression algorithm control how targets are generated. Hypertrophy can guide the whole workout, Strength targets the designated Main Movement, and Off remains self-directed.
+                  Choose a Training Goal and Periodisation Method. Workout Target Mode determines whether targets follow that method alone or can be adapted by MetReps Coach.
+                </p>
+                <p className="text-[13.5px] leading-relaxed text-slate-300">
+                  Strength programs use one designated Main Movement for strength-specific targets.
                 </p>
               </div>
             </div>
           )}
 
-          {/* Page 2: LOG WHAT YOU ACTUALLY DO */}
+          {/* Page 2: RECORD A WORKOUT */}
           {currentPage === 2 && (
             <div className="space-y-4 animate-in fade-in slide-in-from-right-2 duration-150">
               {/* Visual Showcase Box */}
               <div
-                className="p-3.5 bg-slate-950 border border-slate-850 flex flex-col items-center justify-center text-center space-y-2 relative overflow-hidden"
+                className="w-full h-24 p-3 bg-slate-950 border border-slate-850 flex flex-col items-center justify-center text-center relative overflow-hidden shrink-0"
                 aria-hidden="true"
               >
-                <div className="text-[10px] font-mono font-black text-slate-400 uppercase tracking-widest">
+                <div className="text-[10px] font-mono font-black text-slate-400 uppercase tracking-widest mb-1">
                   RECORD WITH
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="flex flex-col items-center justify-center p-2.5 bg-slate-900 border border-slate-800 text-indigo-400 min-w-[85px]">
-                    <Dumbbell className="w-6 h-6 text-indigo-400" />
-                    <span className="text-[10px] font-black uppercase tracking-tight text-indigo-400 mt-1 font-mono">
+                  <div className="flex flex-col items-center justify-center p-1.5 bg-slate-900 border border-slate-850 text-indigo-400 min-w-[75px]">
+                    <Dumbbell className="w-4 h-4 text-indigo-400" />
+                    <span className="text-[10px] font-black uppercase tracking-tight text-indigo-400 mt-0.5 font-mono">
                       WORKOUT
                     </span>
                   </div>
-                  <div className="flex flex-col items-center justify-center p-2.5 bg-slate-900 border border-slate-800 text-cyan-400 min-w-[85px]">
-                    <Plus className="w-6 h-6 text-cyan-400" />
-                    <span className="text-[10px] font-black uppercase tracking-tight text-cyan-400 mt-1 font-mono">
+                  <div className="flex flex-col items-center justify-center p-1.5 bg-slate-900 border border-slate-850 text-cyan-400 min-w-[75px]">
+                    <Plus className="w-4 h-4 text-cyan-400" />
+                    <span className="text-[10px] font-black uppercase tracking-tight text-cyan-400 mt-0.5 font-mono">
                       ONE-OFF
                     </span>
                   </div>
@@ -236,27 +241,27 @@ export function OnboardingModal({ isOpen, onClose, themeId = 'slate', initialPag
                   id="onboarding-dialog-heading"
                   className="font-black text-base sm:text-lg text-white uppercase tracking-wide font-sans"
                 >
-                  LOG WHAT YOU ACTUALLY DO
+                  RECORD A WORKOUT
                 </h3>
                 <p className="text-[13.5px] leading-relaxed text-slate-200">
-                  Open Workout for your scheduled program session, or One-Off to record training outside a program.
+                  Use Workout for the scheduled session in your active program. Use One-Off for training outside a program.
                 </p>
                 <p className="text-[13.5px] leading-relaxed text-slate-300">
-                  Finishing a workout confirms every valid, unskipped set as performed. Leave a set unchanged if you completed it as shown; edit it when your actual performance differs.
+                  Leave a set unchanged when you complete it as shown. Edit its weight, repetitions or RPE when your performance differs, or skip it if it was not performed.
                 </p>
               </div>
             </div>
           )}
 
-          {/* Page 3: ADJUST ON THE GYM FLOOR */}
+          {/* Page 3: UPDATE SETS WHILE TRAINING */}
           {currentPage === 3 && (
             <div className="space-y-4 animate-in fade-in slide-in-from-right-2 duration-150">
               {/* Visual Showcase Box */}
               <div
-                className="p-3 bg-slate-950 border border-slate-850 flex flex-col items-center justify-center text-center space-y-2.5 relative overflow-hidden"
+                className="w-full h-24 p-3 bg-slate-950 border border-slate-850 flex flex-col items-center justify-center text-center relative overflow-hidden shrink-0"
                 aria-hidden="true"
               >
-                <div className="w-full flex items-center justify-between gap-2 text-[10px] font-mono text-slate-400 border-b border-slate-850 pb-2">
+                <div className="w-full flex items-center justify-between gap-2 text-[10px] font-mono text-slate-400">
                   <div className="flex flex-col items-center flex-1">
                     <span className="font-extrabold text-[9px] text-slate-400 uppercase tracking-widest mb-1 whitespace-nowrap">
                       LOCK IN WITH
@@ -269,7 +274,7 @@ export function OnboardingModal({ isOpen, onClose, themeId = 'slate', initialPag
                     <span className="font-extrabold text-[9px] text-slate-400 uppercase tracking-widest mb-1 whitespace-nowrap">
                       SET OPTIONS
                     </span>
-                    <div className="p-1.5 border border-slate-800 bg-slate-900 text-slate-300 flex items-center justify-center">
+                    <div className="p-1 border border-slate-800 bg-slate-900 text-slate-300 flex items-center justify-center">
                       <MoreVertical className="w-4 h-4 text-slate-300" />
                     </div>
                   </div>
@@ -277,7 +282,7 @@ export function OnboardingModal({ isOpen, onClose, themeId = 'slate', initialPag
                     <span className="font-extrabold text-[9px] text-slate-400 uppercase tracking-widest mb-1 whitespace-nowrap">
                       WARM-UP SETS
                     </span>
-                    <div className="p-1.5 border border-slate-800 bg-slate-900 text-amber-500 flex items-center justify-center">
+                    <div className="p-1 border border-slate-800 bg-slate-900 text-amber-500 flex items-center justify-center">
                       <WarmupIcon className="w-4 h-4 text-amber-500" />
                     </div>
                   </div>
@@ -290,27 +295,24 @@ export function OnboardingModal({ isOpen, onClose, themeId = 'slate', initialPag
                   id="onboarding-dialog-heading"
                   className="font-black text-base sm:text-lg text-white uppercase tracking-wide font-sans"
                 >
-                  ADJUST ON THE GYM FLOOR
+                  UPDATE SETS WHILE TRAINING
                 </h3>
                 <p className="text-[13.5px] leading-relaxed text-slate-200">
-                  Leave the RPE unchanged when the target felt right. If it felt different, select the RPE you actually reached.
-                </p>
-                <p className="text-[13.5px] leading-relaxed text-slate-200">
-                  This locks that completed set against automatic changes while Live Adjustments can update the remaining untouched sets.
+                  Record the weight, repetitions and RPE you actually complete. Completed or edited sets stay fixed while eligible Live Adjustments can update remaining untouched sets.
                 </p>
                 <p className="text-[13.5px] leading-relaxed text-slate-300">
-                  Auto Warm-Up creates preparation sets from a valid working target. Tap the three-dot button beside a set to open Set Options, including the Equivalent Set Calculator.
+                  Open Set Options from the three-dot button for additional tools, including Auto Warm-Up and the Equivalent Set Calculator.
                 </p>
               </div>
             </div>
           )}
 
-          {/* Page 4: REVIEW AND PROTECT YOUR PROGRESS */}
+          {/* Page 4: REVIEW AND BACK UP */}
           {currentPage === 4 && (
             <div className="space-y-4 animate-in fade-in slide-in-from-right-2 duration-150">
               {/* Visual Showcase Box */}
               <div
-                className="p-3 bg-slate-950 border border-slate-850 flex flex-col items-center justify-center text-center space-y-2 relative overflow-hidden"
+                className="w-full h-24 p-3 bg-slate-950 border border-slate-850 flex flex-col items-center justify-center text-center relative overflow-hidden shrink-0"
                 aria-hidden="true"
               >
                 <div className="w-full flex items-center justify-around gap-2 text-xs font-mono">
@@ -319,14 +321,14 @@ export function OnboardingModal({ isOpen, onClose, themeId = 'slate', initialPag
                       REVIEW IN
                     </span>
                     <div className="flex items-center gap-2">
-                      <div className="flex flex-col items-center justify-center p-1.5 bg-slate-900 border border-slate-800 text-indigo-400 min-w-[65px]">
-                        <LineChart className="w-5 h-5 text-indigo-400" />
+                      <div className="flex flex-col items-center justify-center p-1 bg-slate-900 border border-slate-850 text-indigo-400 min-w-[56px]">
+                        <LineChart className="w-4 h-4 text-indigo-400" />
                         <span className="text-[9px] font-black uppercase tracking-tight text-indigo-400 mt-0.5 font-mono">
                           TRENDS
                         </span>
                       </div>
-                      <div className="flex flex-col items-center justify-center p-1.5 bg-slate-900 border border-slate-800 text-indigo-400 min-w-[65px]">
-                        <BookOpen className="w-5 h-5 text-indigo-400" />
+                      <div className="flex flex-col items-center justify-center p-1 bg-slate-900 border border-slate-850 text-indigo-400 min-w-[56px]">
+                        <BookOpen className="w-4 h-4 text-indigo-400" />
                         <span className="text-[9px] font-black uppercase tracking-tight text-indigo-400 mt-0.5 font-mono">
                           DIARY
                         </span>
@@ -338,8 +340,8 @@ export function OnboardingModal({ isOpen, onClose, themeId = 'slate', initialPag
                     <span className="font-extrabold text-[9px] text-slate-400 uppercase tracking-widest">
                       MORE HELP
                     </span>
-                    <div className="flex flex-col items-center justify-center p-1.5 bg-slate-900 border border-slate-800 text-slate-300 min-w-[65px]">
-                      <Info className="w-5 h-5 text-slate-300" />
+                    <div className="flex flex-col items-center justify-center p-1 bg-slate-900 border border-slate-850 text-slate-300 min-w-[56px]">
+                      <Info className="w-4 h-4 text-slate-300" />
                       <span className="text-[9px] font-black uppercase tracking-tight text-slate-300 mt-0.5 font-mono">
                         ON HOME
                       </span>
@@ -354,18 +356,40 @@ export function OnboardingModal({ isOpen, onClose, themeId = 'slate', initialPag
                   id="onboarding-dialog-heading"
                   className="font-black text-base sm:text-lg text-white uppercase tracking-wide font-sans"
                 >
-                  REVIEW AND PROTECT YOUR PROGRESS
+                  REVIEW AND BACK UP
                 </h3>
                 <p className="text-[13.5px] leading-relaxed text-slate-200">
-                  Diary helps you review completed workouts, personal records, volume and muscle-group work. Trends shows your longer-term progress.
+                  Use Diary to review completed workouts and records. Use Trends to follow longer-term changes.
                 </p>
                 <p className="text-[13.5px] leading-relaxed text-slate-300">
-                  Your training data is stored locally in this browser or device. Export regular backups from Settings → App Data Management.
+                  MetReps stores your training data locally on this device. Create regular backups in Settings → App Data Management.
                 </p>
                 <p className="text-[13.5px] leading-relaxed text-slate-300">
-                  The information button on Home contains the full help guide and lets you replay this introduction.
+                  Open Information on Home to access the full help guide or replay this introduction.
                 </p>
               </div>
+
+              {/* Watch Video Guide External Link */}
+              <a
+                href={METREPS_VIDEO_GUIDE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-2.5 px-3.5 bg-slate-950 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 transition flex items-center justify-between text-left cursor-pointer group rounded-none min-h-[44px] focus:outline-none focus-visible:ring-1 focus-visible:ring-slate-400"
+                aria-label="Watch MetReps video guide on YouTube (opens in new tab)"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Play className="w-4 h-4 text-slate-400 group-hover:text-slate-200 shrink-0 transition-colors" aria-hidden="true" />
+                  <div className="flex flex-col">
+                    <span className="text-xs font-mono font-bold text-slate-200 uppercase tracking-wide">
+                      WATCH VIDEO GUIDE
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      Opens YouTube
+                    </span>
+                  </div>
+                </div>
+                <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200 shrink-0 transition-colors" aria-hidden="true" />
+              </a>
             </div>
           )}
 

@@ -4,8 +4,9 @@
  */
 
 import React from 'react';
-import { Info, Milestone, Dumbbell, ShieldCheck, Mail, ArrowLeft, BarChart3, CircleSlash } from 'lucide-react';
+import { Info, Milestone, Dumbbell, ShieldCheck, Mail, ArrowLeft, BarChart3, CircleSlash, Play, ExternalLink } from 'lucide-react';
 import { storage } from '../lib/storage';
+import { METREPS_VIDEO_GUIDE_URL } from '../lib/onboarding';
 
 interface InfoViewProps {
   onClose: () => void;
@@ -124,6 +125,28 @@ export function InfoView({ onClose, onOpenOnboarding }: InfoViewProps) {
                 </span>
               </button>
             )}
+
+            {/* Watch Video Guide External Link */}
+            <a
+              href={METREPS_VIDEO_GUIDE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full mt-2 py-3 px-4 bg-slate-900/60 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 transition flex items-center justify-between text-left cursor-pointer group rounded-none min-h-[44px] focus:outline-none focus-visible:ring-1 focus-visible:ring-slate-400"
+              aria-label="Watch MetReps video guide on YouTube (opens in new tab)"
+            >
+              <div className="flex items-center gap-2.5">
+                <Play className="w-4 h-4 text-slate-400 group-hover:text-slate-200 shrink-0 transition-colors" aria-hidden="true" />
+                <div className="flex flex-col">
+                  <span className="text-xs font-mono font-bold text-slate-200 uppercase tracking-wide">
+                    WATCH VIDEO GUIDE
+                  </span>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    Opens YouTube
+                  </span>
+                </div>
+              </div>
+              <ExternalLink className="w-4 h-4 text-slate-400 group-hover:text-slate-200 shrink-0 transition-colors" aria-hidden="true" />
+            </a>
           </div>
         </div>
 
@@ -182,7 +205,7 @@ export function InfoView({ onClose, onOpenOnboarding }: InfoViewProps) {
               MetReps by <span className="text-slate-200 font-bold">Fil Filidei</span>
             </p>
             <p className="text-[11px] font-mono text-slate-500">
-              Ver: <span className="text-slate-300 font-bold">1.0.6.0</span>
+              Ver: <span className="text-slate-300 font-bold">1.1.0.0</span>
             </p>
           </div>
           <div className="pt-1">

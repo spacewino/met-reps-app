@@ -1,7 +1,39 @@
 import { describe, it, expect } from 'vitest';
-import { roundToNearestIncrement, roundToNearest25 } from '../weightMath';
+import {
+  roundToNearestIncrement,
+  roundToNearest25,
+  TARGET_LOAD_ROUNDING_INCREMENT,
+  getTargetLoadRoundingIncrement,
+} from '../weightMath';
+import { getWeightedIncrement } from '../modalityTargetMath';
 
 describe('weightMath', () => {
+  describe('target-load rounding authority (I1-RC2)', () => {
+    it('enforces separated authorities: target-load rounding increment vs progression increment', () => {
+      // 1. kg target-load rounding increment is 2.5
+      expect(getTargetLoadRoundingIncrement('kg')).toBe(2.5);
+      // 2. lb target-load rounding increment is 2.5
+      expect(getTargetLoadRoundingIncrement('lb')).toBe(2.5);
+      expect(TARGET_LOAD_ROUNDING_INCREMENT).toBe(2.5);
+
+      // 3. getWeightedIncrement remains 2.5 kg / 5.0 lb
+      expect(getWeightedIncrement('kg')).toBe(2.5);
+      expect(getWeightedIncrement('lb')).toBe(5.0);
+
+      // 4. The two authorities are intentionally different for lb
+      expect(getTargetLoadRoundingIncrement('lb')).not.toBe(getWeightedIncrement('lb'));
+      expect(getTargetLoadRoundingIncrement('lb')).toBe(2.5);
+      expect(getWeightedIncrement('lb')).toBe(5.0);
+
+      // 5. roundToNearest25 still maps 186.3088235252898 to 187.5
+      expect(roundToNearest25(186.3088235252898)).toBe(187.5);
+
+      // 6. Valid half-grid values remain unchanged
+      expect(roundToNearest25(187.5)).toBe(187.5);
+      expect(roundToNearest25(192.5)).toBe(192.5);
+      expect(roundToNearest25(87.5)).toBe(87.5);
+    });
+  });
   describe('roundToNearest25', () => {
     it('rounds standard weights correctly', () => {
       expect(roundToNearest25(114.559)).toBe(115.0);

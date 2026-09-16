@@ -3,12 +3,38 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Dumbbell, Plus, Minus, Trash2, Check, ArrowLeft, Clock, Timer, Flame, Smile, Droplet, Coffee, Award, ChevronDown, ChevronUp, BookOpen, Pencil, History, Info, MoreVertical, Link, Lock, Unlock, ClipboardCheck, Gamepad2, Compass, Activity, X, AlertTriangle } from 'lucide-react';
 import { Program, WorkoutLog, ExerciseEntry, SetEntry, WeightUnit, DailyRecoveryMetrics, HydrationLevel, mapHydrationToLiters, mapLitersToHydration, BodyweightSnapshot, RestInterval, RestTimerStartContext } from '../types';
 import { storage, PREBUILT_TEMPLATES } from '../lib/storage';
 import { saveActiveWorkoutDraft, clearActiveWorkoutDraft } from '../lib/navigationGuard';
 import { getTodayLocalDateString, formatLocalDateDisplay, formatLocalTimeDisplay } from '../lib/dateUtils';
+import {
+  createSessionExerciseRegistry,
+  clearSessionExerciseRegistry,
+  appendSessionExerciseRegistryEntry,
+  replaceSessionExerciseRegistryEntry,
+  removeSessionExerciseRegistryEntry,
+  moveSessionExerciseRegistryEntry,
+  markSessionExerciseStructuralMutation,
+  updateSessionExerciseEvaluationState,
+  type SessionExerciseRegistry,
+} from '../lib/guidedSessionExerciseRegistry';
+import { resolveProgramProgressionMode } from '../lib/programProgressionMode';
+import {
+  orchestrateGuidedWorkoutExercises,
+  type GuidedWorkoutIntegrationInput,
+  type GuidedWorkoutIntegrationItem,
+  type GuidedWorkoutIntegrationContext,
+  type GuidedWorkoutIntegrationEntryResult,
+} from '../lib/guidedWorkoutIntegration';
+import { ExerciseStructuralMutationReason } from '../lib/guidedWorkoutOrchestrator';
+import {
+  ActivePrescriptionBoundary,
+  parseActivePrescriptionBoundary,
+  createFreshPrescriptionBoundary,
+  resolveFreshSessionTargetDate,
+} from '../lib/workoutDraftBoundary';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { WarmupIcon } from './WarmupIcon';
@@ -175,6 +201,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const programName = existingLog ? (existingLog.program || 'One Off') : (initialParams?.programName || 'One Off');
   const weekNum = existingLog ? (existingLog.week || '1') : (initialParams?.week || '1');
   const dayNum = existingLog ? (existingLog.day || '1') : (initialParams?.day || '1');
+  const redoFromLogId = initialParams?.redoFromLogId || null;
+  const targetDateParam = initialParams?.date || null;
   
   const [workoutDate, setWorkoutDate] = useState<string>(() => {
     try {
@@ -375,13 +403,18 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     return null;
   };
 
-  const handleSelectExercise = (selectedList: { name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded' }[]) => {
+  const handleSelectExercise = (selectedList: { name: string; category: string; modality?: 'weighted' | 'bodyweight' | 'assisted' | 'distance' | 'timed' | 'distance_loaded'; exerciseKey?: string }[]) => {
     if (selectedList.length === 0) return;
 
     const activeProg = programId ? storage.getPrograms().find(p => p.id === programId) : null;
     const programDuration = activeProg && activeProg.programDuration !== '∞' ? Number(activeProg.programDuration) : 8;
 
     if (selectorTargetIdx === -1) {
+      const currentRegistry = sessionExerciseRegistryRef.current;
+      if (!currentRegistry || currentRegistry.entries.length !== exercises.length) {
+        return;
+      }
+
       // Create new exercise items
       const newItems: ExerciseEntry[] = selectedList.map(item => {
         const prevSets = getPreviousSetsForExercise(item.name);
@@ -389,17 +422,173 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           name: item.name,
           muscleGroup: item.category,
           modality: item.modality || 'weighted',
+          ...(item.exerciseKey ? { exerciseKey: item.exerciseKey } : {}),
           sets: prevSets || [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' as const }],
         };
       });
 
-      // Update userRawExercises backup
-      setUserRawExercises(prev => {
-        const base = prev || [];
-        return [...base, ...newItems];
-      });
+      let stagedAppendedRegistry = currentRegistry;
+      for (let i = 0; i < newItems.length; i++) {
+        const op = appendSessionExerciseRegistryEntry(stagedAppendedRegistry, 'user_added_library');
+        if (!op.applied) return;
+        stagedAppendedRegistry = op.registry;
+      }
 
-      // Calculate calculated new items
+      const isEligibleGuidedAddition =
+        Boolean(activeProg) &&
+        resolveProgramProgressionMode(activeProg) === 'metreps_guided' &&
+        (objective === 'Hypertrophy' || objective === 'Strength') &&
+        !editLogId &&
+        !redoFromLogId &&
+        !isOneOff &&
+        Boolean(activeProg?.exercisesByDay?.[Number(dayNum)]) &&
+        currentRegistry.entries.length === exercises.length;
+
+      if (isEligibleGuidedAddition && activeProg) {
+        const templates: ExerciseEntry[] = activeProg.exercisesByDay[Number(dayNum)] || [];
+
+        const storedPrograms = storage.getPrograms();
+        const programsList = !storedPrograms.some(p => p.id === activeProg.id)
+          ? [...storedPrograms, activeProg]
+          : storedPrograms;
+
+        const guidedContext: GuidedWorkoutIntegrationContext = {
+          program: activeProg,
+          programs: programsList,
+          historicalLogs: storage.getWorkoutLogs(),
+          boundary: activePrescriptionBoundaryRef.current,
+          sessionKind: {
+            type: 'active_program_session',
+            scheduledDate: scheduledDate || undefined,
+            weekNum: Number(weekNum),
+          },
+          activeUnit: unit,
+          bodyweightSnapshot: bodyweightSnapshot ?? null,
+          objective,
+          weekNum: Number(weekNum),
+          programDuration,
+          dayNum: dayNum !== undefined && dayNum !== null ? String(dayNum) : null,
+          targetDate: activePrescriptionBoundaryRef.current?.prescriptionTargetDate ?? dateStr ?? null,
+          targetLogId: editLogId || null,
+        };
+
+        const guidedItems: GuidedWorkoutIntegrationItem[] = newItems.map((ex, i) => {
+          const globalIndex = exercises.length + i;
+          const stagedEntry = stagedAppendedRegistry.entries[globalIndex];
+          const templateEx = findMatchingTemplateExercise(ex, templates, globalIndex);
+
+          return {
+            exercise: ex,
+            exerciseIndex: globalIndex,
+            templateExercise: templateEx,
+            lifecycleEvidence: {
+              originProvenance: stagedEntry.originProvenance,
+              isHistoricalEdit: false,
+              isRedoSession: false,
+              isRestoredFromDraft: false,
+              evaluationState: stagedEntry.evaluationState,
+              userTouchedSetKeys: new Set<string>(),
+              checkedSetKeys: new Set<string>(),
+              skippedSetKeys: new Set<string>(),
+              hasCommittedLiveEvidence: false,
+              hasLiveAdjustedSets: false,
+              structuralMutationReason: stagedEntry.structuralMutationReason,
+              isStructurallyModified: false,
+            },
+          };
+        });
+
+        let guidedResults: readonly GuidedWorkoutIntegrationEntryResult[] | null = null;
+        try {
+          guidedResults = orchestrateGuidedWorkoutExercises({
+            context: guidedContext,
+            items: guidedItems,
+          });
+        } catch (_) {
+          guidedResults = null;
+        }
+
+        let validationPassed = false;
+        if (Array.isArray(guidedResults) && guidedResults.length === newItems.length) {
+          validationPassed = true;
+          const seenIndices = new Set<number>();
+          for (let i = 0; i < guidedResults.length; i++) {
+            const entry = guidedResults[i];
+            const expectedGlobalIdx = exercises.length + i;
+            if (
+              !entry ||
+              typeof entry.exerciseIndex !== 'number' ||
+              !Number.isInteger(entry.exerciseIndex) ||
+              entry.exerciseIndex < exercises.length ||
+              entry.exerciseIndex >= exercises.length + newItems.length ||
+              entry.exerciseIndex !== expectedGlobalIdx ||
+              seenIndices.has(entry.exerciseIndex) ||
+              !entry.result ||
+              !entry.result.exercise ||
+              !Array.isArray(entry.result.appliedSets)
+            ) {
+              validationPassed = false;
+              break;
+            }
+            seenIndices.add(entry.exerciseIndex);
+          }
+          if (seenIndices.size !== newItems.length) {
+            validationPassed = false;
+          }
+        }
+
+        let stagedEvaluatedRegistry: SessionExerciseRegistry = stagedAppendedRegistry;
+        let stagingSuccess = false;
+        const nextGuidedAddedExercises: ExerciseEntry[] = [];
+
+        if (validationPassed && guidedResults) {
+          stagingSuccess = true;
+          for (let i = 0; i < guidedResults.length; i++) {
+            const item = guidedResults[i];
+            const updateOp = updateSessionExerciseEvaluationState(
+              stagedEvaluatedRegistry,
+              item.exerciseIndex,
+              item.result.nextEvaluationState
+            );
+            if (!updateOp.applied) {
+              stagingSuccess = false;
+              break;
+            }
+            stagedEvaluatedRegistry = updateOp.registry;
+            nextGuidedAddedExercises.push({
+              ...newItems[i],
+              ...item.result.exercise,
+              sets: item.result.appliedSets.map((s: SetEntry) => ({ ...s })),
+            });
+          }
+        }
+
+        if (validationPassed && stagingSuccess) {
+          const nextExs = [...exercises, ...nextGuidedAddedExercises];
+          const nextSnapshots = capturePrescribedSnapshotsFromExercises(
+            nextGuidedAddedExercises,
+            prescribedTargetSnapshots,
+            {},
+            exercises.length
+          );
+
+          sessionExerciseRegistryRef.current = stagedEvaluatedRegistry;
+          setUserRawExercises(prev => {
+            const base = prev || [];
+            return [...base, ...newItems];
+          });
+          setExercises(nextExs);
+          setPrescribedTargetSnapshots(nextSnapshots);
+          setSelectorTargetIdx(null);
+          saveWorkoutDraftImmediately({
+            exercises: nextExs,
+            prescribedTargetSnapshots: nextSnapshots,
+          });
+          return;
+        }
+      }
+
+      // Fallback or performance-led calculation for the new exercises
       const calculatedNewItems = newItems.map((ex, idx) => {
         const calculatedSets = calculateObjectiveSets({
           objective,
@@ -427,7 +616,20 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       });
 
       const nextExs = [...exercises, ...calculatedNewItems];
-      const nextSnapshots = capturePrescribedSnapshotsFromExercises(calculatedNewItems, prescribedTargetSnapshots, {}, exercises.length);
+      const nextSnapshots = capturePrescribedSnapshotsFromExercises(
+        calculatedNewItems,
+        prescribedTargetSnapshots,
+        {},
+        exercises.length
+      );
+
+      sessionExerciseRegistryRef.current = stagedAppendedRegistry;
+
+      // Update userRawExercises backup
+      setUserRawExercises(prev => {
+        const base = prev || [];
+        return [...base, ...newItems];
+      });
       setExercises(nextExs);
       setPrescribedTargetSnapshots(nextSnapshots);
       setSelectorTargetIdx(null);
@@ -436,12 +638,36 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         prescribedTargetSnapshots: nextSnapshots,
       });
     } else if (selectorTargetIdx !== null) {
+      const currentRegistry = sessionExerciseRegistryRef.current;
+      if (!currentRegistry || currentRegistry.entries.length !== exercises.length) {
+        return;
+      }
+
+      if (
+        typeof selectorTargetIdx !== 'number' ||
+        !Number.isInteger(selectorTargetIdx) ||
+        selectorTargetIdx < 0 ||
+        selectorTargetIdx >= exercises.length ||
+        selectorTargetIdx >= currentRegistry.entries.length
+      ) {
+        return;
+      }
+
+      const op = replaceSessionExerciseRegistryEntry(
+        currentRegistry,
+        selectorTargetIdx,
+        'user_replaced_library'
+      );
+      if (!op.applied) return;
+      const stagedReplacedRegistry = op.registry;
+
       const first = selectedList[0];
       const prevSets = getPreviousSetsForExercise(first.name);
       const replacedItem: ExerciseEntry = {
         name: first.name,
         muscleGroup: first.category,
         modality: first.modality || 'weighted',
+        ...(first.exerciseKey ? { exerciseKey: first.exerciseKey } : {}),
         sets: prevSets || [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' as const }],
       };
 
@@ -451,20 +677,161 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       const cleanCompletionTouched = remapAfterExerciseReplace(completionTouchedSets, selectorTargetIdx);
       const cleanEvidence = remapAfterExerciseReplace(committedLiveEvidenceBySet, selectorTargetIdx);
       const cleanLiveAdjusted = remapAfterExerciseReplace(liveAdjustedSets, selectorTargetIdx);
+      const cleanedSnapshots = remapAfterExerciseReplace(prescribedTargetSnapshots, selectorTargetIdx);
 
-      setCheckedSets(cleanChecked);
-      setUserTouchedSets(cleanTouched);
-      setCompletionTouchedSets(cleanCompletionTouched);
-      setCommittedLiveEvidenceBySet(cleanEvidence);
-      setLiveAdjustedSets(cleanLiveAdjusted);
-
-      // Update userRawExercises backup
+      // Proposed userRawExercises backup
       const nextUserRaw = userRawExercises
         ? userRawExercises.map((ex, idx) => idx === selectorTargetIdx ? replacedItem : ex)
         : [replacedItem];
-      setUserRawExercises(nextUserRaw);
 
-      // Calculate the replacement sets with cleaned touched/checked states
+      const isEligibleGuidedReplacement =
+        Boolean(activeProg) &&
+        resolveProgramProgressionMode(activeProg) === 'metreps_guided' &&
+        (objective === 'Hypertrophy' || objective === 'Strength') &&
+        !editLogId &&
+        !redoFromLogId &&
+        !isOneOff &&
+        Boolean(activeProg?.exercisesByDay?.[Number(dayNum)]) &&
+        currentRegistry.entries.length === exercises.length;
+
+      if (isEligibleGuidedReplacement && activeProg) {
+        const storedPrograms = storage.getPrograms();
+        const programsList = !storedPrograms.some(p => p.id === activeProg.id)
+          ? [...storedPrograms, activeProg]
+          : storedPrograms;
+
+        const guidedContext: GuidedWorkoutIntegrationContext = {
+          program: activeProg,
+          programs: programsList,
+          historicalLogs: storage.getWorkoutLogs(),
+          boundary: activePrescriptionBoundaryRef.current,
+          sessionKind: {
+            type: 'active_program_session',
+            scheduledDate: scheduledDate || undefined,
+            weekNum: Number(weekNum),
+          },
+          activeUnit: unit,
+          bodyweightSnapshot: bodyweightSnapshot ?? null,
+          objective,
+          weekNum: Number(weekNum),
+          programDuration,
+          dayNum: dayNum !== undefined && dayNum !== null ? String(dayNum) : null,
+          targetDate: activePrescriptionBoundaryRef.current?.prescriptionTargetDate ?? dateStr ?? null,
+          targetLogId: editLogId || null,
+        };
+
+        const stagedEntry = stagedReplacedRegistry.entries[selectorTargetIdx];
+
+        const guidedItems: GuidedWorkoutIntegrationItem[] = [
+          {
+            exercise: replacedItem,
+            exerciseIndex: selectorTargetIdx,
+            templateExercise: replacedItem,
+            lifecycleEvidence: {
+              originProvenance: stagedEntry.originProvenance,
+              isHistoricalEdit: false,
+              isRedoSession: false,
+              isRestoredFromDraft: false,
+              evaluationState: stagedEntry.evaluationState,
+              userTouchedSetKeys: new Set<string>(),
+              checkedSetKeys: new Set<string>(),
+              skippedSetKeys: new Set<string>(),
+              hasCommittedLiveEvidence: false,
+              hasLiveAdjustedSets: false,
+              structuralMutationReason: stagedEntry.structuralMutationReason,
+              isStructurallyModified: false,
+            },
+          },
+        ];
+
+        let guidedResults: readonly GuidedWorkoutIntegrationEntryResult[] | null = null;
+        try {
+          guidedResults = orchestrateGuidedWorkoutExercises({
+            context: guidedContext,
+            items: guidedItems,
+          });
+        } catch (_) {
+          guidedResults = null;
+        }
+
+        let validationPassed = false;
+        if (Array.isArray(guidedResults) && guidedResults.length === 1) {
+          const entry = guidedResults[0];
+          if (
+            entry &&
+            entry.exerciseIndex === selectorTargetIdx &&
+            entry.result &&
+            entry.result.exercise &&
+            Array.isArray(entry.result.appliedSets)
+          ) {
+            validationPassed = true;
+          }
+        }
+
+        let stagedEvaluatedRegistry: SessionExerciseRegistry = stagedReplacedRegistry;
+        let stagingSuccess = false;
+        let guidedFinalReplaced: ExerciseEntry | null = null;
+
+        if (validationPassed && guidedResults) {
+          const resultItem = guidedResults[0];
+          const updateOp = updateSessionExerciseEvaluationState(
+            stagedReplacedRegistry,
+            selectorTargetIdx,
+            resultItem.result.nextEvaluationState
+          );
+          if (updateOp.applied) {
+            stagingSuccess = true;
+            stagedEvaluatedRegistry = updateOp.registry;
+            guidedFinalReplaced = {
+              ...replacedItem,
+              ...resultItem.result.exercise,
+              sets: resultItem.result.appliedSets.map((s: SetEntry) => ({ ...s })),
+            };
+          }
+        }
+
+        if (validationPassed && stagingSuccess && guidedFinalReplaced) {
+          const nextSnapshots = capturePrescribedSnapshotsFromExercises(
+            [guidedFinalReplaced],
+            cleanedSnapshots,
+            {},
+            selectorTargetIdx
+          );
+
+          sessionExerciseRegistryRef.current = stagedEvaluatedRegistry;
+          setCheckedSets(cleanChecked);
+          setUserTouchedSets(cleanTouched);
+          setCompletionTouchedSets(cleanCompletionTouched);
+          setCommittedLiveEvidenceBySet(cleanEvidence);
+          setLiveAdjustedSets(cleanLiveAdjusted);
+          setUserRawExercises(nextUserRaw);
+          setPrescribedTargetSnapshots(nextSnapshots);
+
+          const nextExs = exercises.map((ex, idx) => (idx === selectorTargetIdx ? guidedFinalReplaced! : ex));
+          const nextGuideKey = highlightCurrentSet
+            ? reconcileGuideAfterExerciseReplace(currentSetGuideKey, selectorTargetIdx, nextExs)
+            : null;
+
+          setExercises(nextExs);
+          setCurrentSetGuideKey(nextGuideKey);
+          setSelectorTargetIdx(null);
+
+          saveWorkoutDraftImmediately({
+            exercises: nextExs,
+            userRawExercises: nextUserRaw,
+            checkedSets: cleanChecked,
+            userTouchedSets: cleanTouched,
+            completionTouchedSets: cleanCompletionTouched,
+            committedLiveEvidenceBySet: cleanEvidence,
+            liveAdjustedSets: cleanLiveAdjusted,
+            prescribedTargetSnapshots: nextSnapshots,
+            currentSetGuideKey: nextGuideKey,
+          });
+          return;
+        }
+      }
+
+      // Fallback or performance-led calculation for the replacement
       const calculatedSets = calculateObjectiveSets({
         objective,
         exercise: replacedItem,
@@ -489,8 +856,16 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       });
       const finalReplaced = { ...replacedItem, sets: calculatedSets };
 
-      const cleanedSnapshots = remapAfterExerciseReplace(prescribedTargetSnapshots, selectorTargetIdx);
       const nextSnapshots = capturePrescribedSnapshotsFromExercises([finalReplaced], cleanedSnapshots, {}, selectorTargetIdx);
+
+      sessionExerciseRegistryRef.current = stagedReplacedRegistry;
+
+      setCheckedSets(cleanChecked);
+      setUserTouchedSets(cleanTouched);
+      setCompletionTouchedSets(cleanCompletionTouched);
+      setCommittedLiveEvidenceBySet(cleanEvidence);
+      setLiveAdjustedSets(cleanLiveAdjusted);
+      setUserRawExercises(nextUserRaw);
       setPrescribedTargetSnapshots(nextSnapshots);
 
       const nextExs = exercises.map((ex, idx) => (idx === selectorTargetIdx ? finalReplaced : ex));
@@ -583,6 +958,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     return `${hours}:${minutes}`;
   });
 
+  const activePrescriptionBoundaryRef = React.useRef<ActivePrescriptionBoundary>(null);
   const sessionStartedAtRef = React.useRef<number>(Date.now());
 
   const targetChronology = React.useMemo<PrescriptionTargetChronology>(() => {
@@ -1088,7 +1464,118 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const { dismiss: dismissSorenessInfo } = useModalHistory(showSorenessInfo, () => setShowSorenessInfo(false), 'soreness-info');
   const { dismiss: dismissQualityInfo } = useModalHistory(showQualityInfo, () => setShowQualityInfo(false), 'quality-info');
 
+  interface HeaderInfoModalState {
+    title: string;
+    secondaryHeading?: string;
+    body: React.ReactNode;
+    note?: React.ReactNode;
+  }
+  const [headerInfoModal, setHeaderInfoModal] = useState<HeaderInfoModalState | null>(null);
+  const headerInfoTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const headerInfoCloseBtnRef = useRef<HTMLButtonElement | null>(null);
+  const headerInfoContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const closeHeaderInfoModal = useCallback(() => {
+    setHeaderInfoModal(null);
+    headerInfoTriggerRef.current?.focus();
+  }, []);
+
+  useModalHistory(headerInfoModal !== null, () => closeHeaderInfoModal(), 'header-guidance-info');
+
+  useEffect(() => {
+    if (!headerInfoModal) return undefined;
+    headerInfoCloseBtnRef.current?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeHeaderInfoModal();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [headerInfoModal, closeHeaderInfoModal]);
+
+  const isTargetModeApplicable = Boolean(
+    activeProg &&
+    !isOneOff &&
+    !editLogId &&
+    !redoFromLogId &&
+    (objective === 'Hypertrophy' || objective === 'Strength') &&
+    Boolean(activeProg.exercisesByDay?.[Number(dayNum)])
+  );
+
+  const targetMode = activeProg ? resolveProgramProgressionMode(activeProg) : 'performance_led';
+  const isCoached = targetMode === 'metreps_guided';
+
+  const openPeriodisationInfo = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    headerInfoTriggerRef.current = e.currentTarget;
+
+    let bodyText = '';
+    if (objective === 'Off') {
+      bodyText = 'Manual Mode: You have full control over all weights, rep ranges, and target metrics.';
+    } else if (objective === 'Strength') {
+      bodyText = `Strength focus [${algoDetails.short}]: ${algoDetails.desc}`;
+    } else if (objective === 'Hypertrophy') {
+      bodyText = `Hypertrophy focus [${algoDetails.short}]: ${algoDetails.desc}`;
+    } else if (objective === 'Deload') {
+      bodyText = 'Deload focus: Automatically reduces loads to 50% of peak capacity and targets strict control to promote total physical recovery.';
+    }
+
+    const hasWarning =
+      objective === 'Strength' &&
+      (activeProg?.algorithmId === 'strength_undulating' || !activeProg?.algorithmId) &&
+      typeof totalWeeks === 'number' &&
+      ![4, 8, 12].includes(totalWeeks);
+
+    setHeaderInfoModal({
+      title: algoDetails.name,
+      secondaryHeading: 'How this method works',
+      body: <p>{bodyText}</p>,
+      note: hasWarning ? (
+        <div className="flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          <span>Strength Undulating supports 4, 8 or 12 weeks. Update the program duration to resume automatic targets.</span>
+        </div>
+      ) : undefined,
+    });
+  };
+
+  const openTargetModeInfo = (e: React.MouseEvent<HTMLButtonElement>, mode: 'metreps_guided' | 'performance_led') => {
+    e.preventDefault();
+    e.stopPropagation();
+    headerInfoTriggerRef.current = e.currentTarget;
+
+    if (mode === 'metreps_guided') {
+      setHeaderInfoModal({
+        title: 'MetReps Coach',
+        secondaryHeading: 'How this mode works',
+        body: (
+          <p>
+            MetReps Coach starts with the same periodisation-based targets, then compares completed workouts with previous prescribed targets. When the available evidence supports a decision, it can progress, hold, retry or adjust future weight and repetition targets.
+          </p>
+        ),
+      });
+    } else {
+      setHeaderInfoModal({
+        title: 'Periodisation Targets',
+        secondaryHeading: 'How this mode works',
+        body: (
+          <p>
+            MetReps uses your recorded performance as the baseline, then applies your selected periodisation method to calculate the session’s targets. It does not use Coach rules to decide whether you have earned a progression, should hold, or should retry a target.
+          </p>
+        ),
+      });
+    }
+  };
+
   // Draft persistence states
+  const sessionExerciseRegistryRef = useRef<SessionExerciseRegistry | null>(null);
   const [isDraftLoaded, setIsDraftLoaded] = useState(false);
   const isDraftLoadedRef = useRef<boolean>(false);
   const latestDraftPayloadRef = useRef<Record<string, any> | null>((() => {
@@ -1150,14 +1637,22 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     try {
       const draftStr = localStorage.getItem('metreps_workout_draft');
       if (draftStr) {
-        const draft = JSON.parse(draftStr);
-        const matches = editLogId
-          ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
-          : (!draft.editLogId && (isOneOff
-              ? draft.isOneOff === true
-              : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
+        const rawJson: unknown = JSON.parse(draftStr);
+        if (rawJson && typeof rawJson === 'object' && !Array.isArray(rawJson)) {
+          const draft = rawJson as Record<string, any>;
+          const matches = editLogId
+            ? (draft.editLogId ? String(draft.editLogId) === String(editLogId) : false)
+            : (!draft.editLogId && (isOneOff
+                ? draft.isOneOff === true
+                : (draft.programId === programId && String(draft.weekNum) === String(weekNum) && String(draft.dayNum) === String(dayNum))));
 
-        if (matches) {
+          if (matches) {
+            const rawBoundary: unknown = draft.prescriptionBoundary;
+            const parsedBoundary = parseActivePrescriptionBoundary(rawBoundary);
+            activePrescriptionBoundaryRef.current = parsedBoundary;
+            if (parsedBoundary) {
+              sessionStartedAtRef.current = parsedBoundary.sessionStartedAt;
+            }
           const loadedExercises = draft.exercises || [];
           setExercises(loadedExercises);
           setDuration(draft.duration || 60);
@@ -1203,6 +1698,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             chronology: targetChronology,
           });
           setBodyweightSnapshot(reconciled);
+          sessionExerciseRegistryRef.current = createSessionExerciseRegistry(
+            loadedExercises.map(() => 'restored_from_draft' as const)
+          );
           setHasExistingDraft(true);
           latestDraftPayloadRef.current = draft;
           setIsDraftLoaded(true);
@@ -1210,12 +1708,14 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           return;
         }
       }
-    } catch (e) {
+    }
+  } catch (e) {
       console.error('Failed to parse or apply workout draft:', e);
     }
 
     // 2. Fallback to existingLog if this is a historical edit and no matching draft was found
     if (editLogId && existingLog) {
+      activePrescriptionBoundaryRef.current = null;
       setExercises(existingLog.exercises || []);
       setDuration(existingLog.durationMinutes || 60);
       setNotes(existingLog.notes || '');
@@ -1255,12 +1755,16 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       setLiveAdjustedSets({});
       setCurrentSetGuideKey(null);
       setRestIntervals(existingLog.restIntervals || []);
+      sessionExerciseRegistryRef.current = createSessionExerciseRegistry(
+        (existingLog.exercises || []).map(() => 'historical_log_entry' as const)
+      );
       setIsDraftLoaded(true);
       isDraftLoadedRef.current = true;
       return;
     }
 
     if (initialParams?.redoFromLogId) {
+      activePrescriptionBoundaryRef.current = null;
       try {
         const sourceLog = storage.getWorkoutLogs().find(l => l.id === initialParams.redoFromLogId);
         if (sourceLog) {
@@ -1327,6 +1831,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(null, finalPre) : null);
           const settingsBw = storage.getBodyweightWithUnit();
           setBodyweightSnapshot(settingsBw ? validateBodyweightSnapshot(settingsBw) : null);
+          sessionExerciseRegistryRef.current = createSessionExerciseRegistry(
+            finalPre.map(() => 'session_template_init' as const)
+          );
           setIsDraftLoaded(true);
           isDraftLoadedRef.current = true;
           return;
@@ -1334,6 +1841,19 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       } catch (err) {
         console.error('Error handling redoFromLogId in WorkoutLogger:', err);
       }
+    }
+
+    if (activePrescriptionBoundaryRef.current === null) {
+      const freshTargetDate = resolveFreshSessionTargetDate({
+        scheduledDate,
+        date: initialParams?.date,
+        isOneOff,
+        programId,
+        todayDateStr: getTodayLocalDateString(),
+      });
+      const freshBoundary = createFreshPrescriptionBoundary(freshTargetDate, Date.now());
+      activePrescriptionBoundaryRef.current = freshBoundary;
+      sessionStartedAtRef.current = freshBoundary.sessionStartedAt;
     }
 
     // Dynamic duration lookup on load / change
@@ -1409,6 +1929,191 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
         // Apply objective calculations if defaultObjective is not 'Off'
         const programDuration = activeProgLocal.programDuration !== '∞' ? Number(activeProgLocal.programDuration) : 8;
+
+        const progressionMode = resolveProgramProgressionMode(activeProgLocal);
+        const isEligibleGuidedSession =
+          progressionMode === 'metreps_guided' &&
+          (defaultObjective === 'Hypertrophy' || defaultObjective === 'Strength');
+
+        if (isEligibleGuidedSession) {
+          const initialRegistry = createSessionExerciseRegistry(
+            prefilled.map(() => 'session_template_init' as const)
+          );
+
+          const storedPrograms = storage.getPrograms();
+          const programsList = activeProgLocal && !storedPrograms.some(p => p.id === activeProgLocal.id)
+            ? [...storedPrograms, activeProgLocal]
+            : storedPrograms;
+
+          const guidedContext: GuidedWorkoutIntegrationContext = {
+            program: activeProgLocal,
+            programs: programsList,
+            historicalLogs: storage.getWorkoutLogs(),
+            boundary: activePrescriptionBoundaryRef.current,
+            sessionKind: {
+              type: 'active_program_session',
+              scheduledDate: scheduledDate || undefined,
+              weekNum: Number(weekNum),
+            },
+            activeUnit: unit,
+            bodyweightSnapshot: bodyweightSnapshot ?? null,
+            objective: defaultObjective,
+            weekNum: Number(weekNum),
+            programDuration,
+            dayNum: dayNum !== undefined && dayNum !== null ? String(dayNum) : null,
+            targetDate: activePrescriptionBoundaryRef.current?.prescriptionTargetDate ?? dateStr ?? null,
+            targetLogId: editLogId || null,
+          };
+
+          const guidedItems: GuidedWorkoutIntegrationItem[] = prefilled.map((ex, exIdx) => {
+            const templateEx = findMatchingTemplateExercise(ex, templates, exIdx);
+            const initialEntry = initialRegistry.entries[exIdx];
+            return {
+              exercise: ex,
+              exerciseIndex: exIdx,
+              templateExercise: templateEx,
+              lifecycleEvidence: {
+                originProvenance: initialEntry.originProvenance,
+                isHistoricalEdit: false,
+                isRedoSession: false,
+                isRestoredFromDraft: false,
+                evaluationState: initialEntry.evaluationState,
+                userTouchedSetKeys: new Set<string>(),
+                checkedSetKeys: new Set<string>(),
+                skippedSetKeys: new Set<string>(),
+                hasCommittedLiveEvidence: false,
+                hasLiveAdjustedSets: false,
+                structuralMutationReason: initialEntry.structuralMutationReason,
+                isStructurallyModified: false,
+              },
+            };
+          });
+
+          let guidedResults: readonly GuidedWorkoutIntegrationEntryResult[] | null = null;
+          try {
+            guidedResults = orchestrateGuidedWorkoutExercises({
+              context: guidedContext,
+              items: guidedItems,
+            });
+          } catch (_) {
+            guidedResults = null;
+          }
+
+          let validationPassed = false;
+          if (Array.isArray(guidedResults) && guidedResults.length === prefilled.length) {
+            validationPassed = true;
+            const seenIndices = new Set<number>();
+            for (let i = 0; i < guidedResults.length; i++) {
+              const entry = guidedResults[i];
+              if (
+                !entry ||
+                typeof entry.exerciseIndex !== 'number' ||
+                !Number.isInteger(entry.exerciseIndex) ||
+                entry.exerciseIndex < 0 ||
+                entry.exerciseIndex >= prefilled.length ||
+                entry.exerciseIndex !== i ||
+                seenIndices.has(entry.exerciseIndex) ||
+                !entry.result ||
+                !entry.result.exercise ||
+                !Array.isArray(entry.result.appliedSets)
+              ) {
+                validationPassed = false;
+                break;
+              }
+              seenIndices.add(entry.exerciseIndex);
+            }
+            if (seenIndices.size !== prefilled.length) {
+              validationPassed = false;
+            }
+          }
+
+          let stagedRegistry: SessionExerciseRegistry = initialRegistry;
+          let stagingSuccess = false;
+          const nextGuidedExercises: ExerciseEntry[] = [];
+
+          if (validationPassed && guidedResults) {
+            stagingSuccess = true;
+            for (let i = 0; i < guidedResults.length; i++) {
+              const item = guidedResults[i];
+              const updateOp = updateSessionExerciseEvaluationState(
+                stagedRegistry,
+                item.exerciseIndex,
+                item.result.nextEvaluationState
+              );
+              if (!updateOp.applied) {
+                stagingSuccess = false;
+                break;
+              }
+              stagedRegistry = updateOp.registry;
+              nextGuidedExercises.push({
+                ...prefilled[i],
+                ...item.result.exercise,
+                sets: item.result.appliedSets.map((s: SetEntry) => ({ ...s })),
+              });
+            }
+          }
+
+          if (validationPassed && stagingSuccess) {
+            const nextSnapshots = capturePrescribedSnapshotsFromExercises(nextGuidedExercises, {}, {});
+            sessionExerciseRegistryRef.current = stagedRegistry;
+            setExercises(nextGuidedExercises);
+            setUserRawExercises(JSON.parse(JSON.stringify(prefilled)));
+            setUserTouchedSets({});
+            setPrescribedTargetSnapshots(nextSnapshots);
+            setCommittedLiveEvidenceBySet({});
+            setLiveAdjustedSets({});
+            setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(null, nextGuidedExercises) : null);
+            setObjective(defaultObjective);
+            setIsDraftLoaded(true);
+            isDraftLoadedRef.current = true;
+            return;
+          }
+
+          // Fail closed to base performance-led target result without partial updates
+          const finalPre = prefilled.map((ex, exIdx) => {
+            const templateEx = findMatchingTemplateExercise(ex, templates, exIdx);
+            const occurrenceOrdinal = getExerciseOccurrenceOrdinal(prefilled, exIdx);
+            const calculated = calculateObjectiveSets({
+              objective: defaultObjective,
+              exercise: ex,
+              exerciseIndex: exIdx,
+              totalExercises: prefilled.length,
+              weekNum: Number(weekNum),
+              programDuration,
+              previousLogs: storage.getWorkoutLogs(),
+              userTouchedSets: {},
+              checkedSets: {},
+              algorithmId: activeProgLocal.algorithmId,
+              predecessorProgramId: activeProgLocal.parentProgramId ?? null,
+              algorithmPhaseOffset: activeProgLocal.algorithmPhaseOffset ?? 0,
+              templateExercise: templateEx,
+              bodyweightSnapshot,
+              activeUnit: unit,
+              programId: programId ? String(programId) : null,
+              dayNum: dayNum !== undefined && dayNum !== null ? String(dayNum) : null,
+              targetDate: dateStr || null,
+              targetLogId: editLogId || null,
+              targetChronology,
+              sessionStartedAt: sessionStartedAtRef.current,
+              occurrenceOrdinal,
+            });
+            return { ...ex, sets: calculated };
+          });
+
+          setExercises(finalPre);
+          setUserRawExercises(JSON.parse(JSON.stringify(prefilled)));
+          setUserTouchedSets({});
+          setPrescribedTargetSnapshots(capturePrescribedSnapshotsFromExercises(finalPre, {}, {}));
+          setCommittedLiveEvidenceBySet({});
+          setLiveAdjustedSets({});
+          setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(null, finalPre) : null);
+          setObjective(defaultObjective);
+          sessionExerciseRegistryRef.current = initialRegistry;
+          setIsDraftLoaded(true);
+          isDraftLoadedRef.current = true;
+          return;
+        }
+
         const finalPre = prefilled.map((ex, exIdx) => {
           const templateEx = findMatchingTemplateExercise(ex, templates, exIdx);
           const occurrenceOrdinal = getExerciseOccurrenceOrdinal(prefilled, exIdx);
@@ -1447,6 +2152,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         setLiveAdjustedSets({});
         setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(null, finalPre) : null);
         setObjective(defaultObjective);
+        sessionExerciseRegistryRef.current = createSessionExerciseRegistry(
+          finalPre.map(() => 'session_template_init' as const)
+        );
         setIsDraftLoaded(true);
         isDraftLoadedRef.current = true;
         return;
@@ -1463,6 +2171,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       setLiveAdjustedSets({});
       setCurrentSetGuideKey(null);
       setObjective(defaultObjective);
+      sessionExerciseRegistryRef.current = createSessionExerciseRegistry([]);
     } else {
       const defaultName = 'Barbell Bench Press (flat)';
       const prevSets = getPreviousSetsForExercise(defaultName);
@@ -1506,10 +2215,13 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       setLiveAdjustedSets({});
       setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(null, finalPre) : null);
       setObjective(defaultObjective);
+      sessionExerciseRegistryRef.current = createSessionExerciseRegistry(
+        finalPre.map(() => 'session_template_init' as const)
+      );
     }
     setIsDraftLoaded(true);
     isDraftLoadedRef.current = true;
-  }, [editLogId, programId, dayNum, isOneOff, weekNum, initialParams]);
+  }, [editLogId, programId, dayNum, isOneOff, weekNum, redoFromLogId, targetDateParam]);
 
   const serializeWorkoutDraftPayload = (overrides?: {
     editLogId?: string | null;
@@ -1543,6 +2255,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     currentSetGuideKey?: string | null;
     bodyweightSnapshot?: BodyweightSnapshot | null;
     restIntervals?: RestInterval[];
+    prescriptionBoundary?: {
+      sessionStartedAt: number;
+      prescriptionTargetDate: string;
+    } | null;
   }): Record<string, any> => {
     const effectiveDate = overrides?.dateStr !== undefined ? overrides.dateStr : (overrides?.workoutDate !== undefined ? overrides.workoutDate : (workoutDate || dateStr));
     const draftData: Record<string, any> = {
@@ -1554,6 +2270,19 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       dateStr: effectiveDate,
       isOneOff: overrides?.isOneOff !== undefined ? overrides.isOneOff : isOneOff,
       scheduledDate: overrides?.scheduledDate !== undefined ? overrides.scheduledDate : scheduledDate,
+      prescriptionBoundary: overrides?.prescriptionBoundary !== undefined
+        ? (overrides.prescriptionBoundary
+            ? {
+                sessionStartedAt: overrides.prescriptionBoundary.sessionStartedAt,
+                prescriptionTargetDate: overrides.prescriptionBoundary.prescriptionTargetDate,
+              }
+            : null)
+        : (activePrescriptionBoundaryRef.current
+            ? {
+                sessionStartedAt: activePrescriptionBoundaryRef.current.sessionStartedAt,
+                prescriptionTargetDate: activePrescriptionBoundaryRef.current.prescriptionTargetDate,
+              }
+            : null),
       exercises: overrides?.exercises !== undefined ? overrides.exercises : exercises,
       duration: overrides?.duration !== undefined ? overrides.duration : duration,
       notes: overrides?.notes !== undefined ? overrides.notes : notes,
@@ -1766,167 +2495,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     setHasExistingDraft(false);
     setIsDraftLoaded(false);
     isDraftLoadedRef.current = false;
+    activePrescriptionBoundaryRef.current = null;
     setRestIntervals([]);
     clearActiveRestTimer();
-
-    let defaultObjective: 'Off' | 'Hypertrophy' | 'Strength' | 'Deload' = 'Off';
-    const activeProgLocal = programId
-      ? (storage.getPrograms().find(p => p.id === programId) || PREBUILT_TEMPLATES.find(p => p.id === programId))
-      : null;
-
-    if (activeProgLocal) {
-      defaultObjective = activeProgLocal.objective || 'Hypertrophy';
-    }
-
-    if (programId && activeProgLocal) {
-      if (activeProgLocal.exercisesByDay[Number(dayNum)]) {
-        const templates: ExerciseEntry[] = JSON.parse(
-          JSON.stringify(activeProgLocal.exercisesByDay[Number(dayNum)])
-        );
-        const prefilled = templates.map(ex => {
-          const prevSets = getPreviousSetsForExercise(ex.name);
-          if (prevSets) {
-            return {
-              ...ex,
-              isMainMovement: !!ex.isMainMovement, // Restore designated main movement state
-              sets: prevSets
-            };
-          }
-          return {
-            ...ex,
-            isMainMovement: !!ex.isMainMovement, // Restore designated main movement state
-            sets: ex.sets.map(s => ({
-              ...s,
-              weight: 0,
-              reps: 0,
-              rpe: 0,
-              form: 'standard' as const,
-              comment: '',
-              isDropSet: false
-            }))
-          };
-        });
-
-        // Apply objective calculations if defaultObjective is not 'Off'
-        const programDuration = activeProgLocal.programDuration !== '∞' ? Number(activeProgLocal.programDuration) : 8;
-        const finalPre = prefilled.map((ex, exIdx) => {
-          const templateEx = templates[exIdx];
-          const calculated = calculateObjectiveSets({
-            objective: defaultObjective,
-            exercise: ex,
-            exerciseIndex: exIdx,
-            totalExercises: prefilled.length,
-            weekNum: Number(weekNum),
-            programDuration,
-            previousLogs: storage.getWorkoutLogs(),
-            userTouchedSets: {},
-            checkedSets: {},
-            algorithmId: activeProgLocal.algorithmId,
-            predecessorProgramId: activeProgLocal.parentProgramId ?? null,
-            algorithmPhaseOffset: activeProgLocal.algorithmPhaseOffset ?? 0,
-            templateExercise: templateEx,
-            bodyweightSnapshot,
-            activeUnit: unit,
-            programId: programId ? String(programId) : null,
-            dayNum: dayNum !== undefined && dayNum !== null ? String(dayNum) : null,
-            targetDate: dateStr || null,
-            targetLogId: editLogId || null,
-            targetChronology,
-            sessionStartedAt: sessionStartedAtRef.current,
-          });
-          return { ...ex, sets: calculated };
-        });
-
-        setExercises(finalPre);
-        setUserRawExercises(JSON.parse(JSON.stringify(prefilled)));
-        setUserTouchedSets({});
-        setPrescribedTargetSnapshots(capturePrescribedSnapshotsFromExercises(finalPre, {}, {}));
-        setCommittedLiveEvidenceBySet({});
-        setLiveAdjustedSets({});
-        setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(null, finalPre) : null);
-        setObjective(defaultObjective);
-      } else {
-        setExercises([]);
-        setUserRawExercises([]);
-        setUserTouchedSets({});
-        setPrescribedTargetSnapshots({});
-        setCommittedLiveEvidenceBySet({});
-        setLiveAdjustedSets({});
-        setCurrentSetGuideKey(null);
-        setObjective(defaultObjective);
-      }
-    } else if (isOneOff) {
-      setExercises([]);
-      setUserRawExercises([]);
-      setUserTouchedSets({});
-      setPrescribedTargetSnapshots({});
-      setCommittedLiveEvidenceBySet({});
-      setLiveAdjustedSets({});
-      setCurrentSetGuideKey(null);
-      setObjective(defaultObjective);
-    } else {
-      const defaultName = 'Barbell Bench Press (flat)';
-      const prevSets = getPreviousSetsForExercise(defaultName);
-      const prefilled = [
-        {
-          name: defaultName,
-          muscleGroup: 'Pecs',
-          modality: 'weighted' as const,
-          sets: prevSets || [{ setNumber: 1, weight: 0, reps: 0, rpe: 0, form: 'standard' as const }],
-        },
-      ];
-
-      const finalPre = prefilled.map((ex, exIdx) => {
-        const calculated = calculateObjectiveSets({
-          objective: defaultObjective,
-          exercise: ex,
-          exerciseIndex: exIdx,
-          totalExercises: prefilled.length,
-          weekNum: Number(weekNum),
-          programDuration: 8,
-          previousLogs: storage.getWorkoutLogs(),
-          userTouchedSets: {},
-          checkedSets: {},
-          predecessorProgramId: activeProgLocal?.parentProgramId ?? null,
-          algorithmPhaseOffset: activeProgLocal?.algorithmPhaseOffset ?? 0,
-          bodyweightSnapshot,
-          activeUnit: unit,
-          targetDate: dateStr || null,
-          targetLogId: editLogId || null,
-          targetChronology,
-          sessionStartedAt: sessionStartedAtRef.current,
-        });
-        return { ...ex, sets: calculated };
-      });
-
-      setExercises(finalPre);
-      setUserRawExercises(JSON.parse(JSON.stringify(prefilled)));
-      setUserTouchedSets({});
-      setPrescribedTargetSnapshots(capturePrescribedSnapshotsFromExercises(finalPre, {}, {}));
-      setCommittedLiveEvidenceBySet({});
-      setLiveAdjustedSets({});
-      setCurrentSetGuideKey(highlightCurrentSet ? resolveInitialGuideKey(null, finalPre) : null);
-      setObjective(defaultObjective);
-    }
-
-    setDuration(60);
-    setNotes('');
-    setSleep(7.5);
-    setHydration('Adequate');
-    setCalories(2500);
-    setProtein(140);
-    setSoreness(3);
-    setMotivation(5);
-    setCheckedSets({});
-    setCompletionTouchedSets({});
-    setCollapsed({});
-    const settingsBw = storage.getBodyweightWithUnit();
-    setBodyweightSnapshot(settingsBw ? validateBodyweightSnapshot(settingsBw) : null);
-
-    setTimeout(() => {
-      setIsDraftLoaded(true);
-    }, 50);
-
+    sessionExerciseRegistryRef.current = clearSessionExerciseRegistry();
     onClose();
   };
 
@@ -2022,7 +2594,42 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     }
   };
 
+  const recordSessionExerciseStructuralMutation = (
+    indexOrIndices: number | readonly number[],
+    reason: ExerciseStructuralMutationReason
+  ): boolean => {
+    const currentRegistry = sessionExerciseRegistryRef.current;
+    if (!currentRegistry || currentRegistry.entries.length !== exercises.length) {
+      return false;
+    }
+    const rawIndices = Array.isArray(indexOrIndices) ? indexOrIndices : [indexOrIndices];
+    const dedupedIndices = Array.from(new Set(rawIndices));
+    if (dedupedIndices.length === 0) {
+      return false;
+    }
+    for (const idx of dedupedIndices) {
+      if (!Number.isInteger(idx) || idx < 0 || idx >= exercises.length) {
+        return false;
+      }
+    }
+
+    let workingRegistry = currentRegistry;
+    for (const idx of dedupedIndices) {
+      const result = markSessionExerciseStructuralMutation(workingRegistry, idx, reason);
+      if (!result.applied) {
+        return false;
+      }
+      workingRegistry = result.registry;
+    }
+
+    sessionExerciseRegistryRef.current = workingRegistry;
+    return true;
+  };
+
   const toggleMainMovement = (targetIdx: number) => {
+    if (!Number.isInteger(targetIdx) || targetIdx < 0 || targetIdx >= exercises.length) {
+      return;
+    }
     const eligibleCount = getEligibleMainMovementCount(exercises);
     if (!isOneOff && Number(weekNum) > 1 && eligibleCount === 1) {
       setAlertMsg("The Main Movement is locked after Week 1 to prevent disrupting your periodised loading progression and weight recommendations.");
@@ -2033,6 +2640,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const isCurrentlyMain = !!targetEx.isMainMovement;
 
     if (isCurrentlyMain) {
+      if (!recordSessionExerciseStructuralMutation(targetIdx, 'other_exercise_structure_changed')) {
+        return;
+      }
       const baseUpdated = exercises.map((ex, idx) => {
         if (idx === targetIdx) {
           return { ...ex, isMainMovement: false };
@@ -2054,6 +2664,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       if (currentMainIdx !== -1 && eligibleCount === 1) {
         setSwapMainTargetIdx(targetIdx);
       } else {
+        if (!recordSessionExerciseStructuralMutation(targetIdx, 'other_exercise_structure_changed')) {
+          return;
+        }
         const baseUpdated = exercises.map((ex, idx) => {
           return { ...ex, isMainMovement: idx === targetIdx };
         });
@@ -2073,8 +2686,33 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
   const handleConfirmSwapMainMovement = () => {
     if (swapMainTargetIdx === null) return;
+    if (!Number.isInteger(swapMainTargetIdx) || swapMainTargetIdx < 0 || swapMainTargetIdx >= exercises.length) {
+      setSwapMainTargetIdx(null);
+      return;
+    }
     const targetEx = exercises[swapMainTargetIdx];
-    const targetName = targetEx ? targetEx.name : undefined;
+    if (!targetEx) {
+      setSwapMainTargetIdx(null);
+      return;
+    }
+    const targetName = targetEx.name;
+
+    const affectedIndices: number[] = [];
+    exercises.forEach((ex, idx) => {
+      const proposed = idx === swapMainTargetIdx;
+      if (Boolean(ex.isMainMovement) !== proposed) {
+        affectedIndices.push(idx);
+      }
+    });
+
+    if (affectedIndices.length === 0) {
+      setSwapMainTargetIdx(null);
+      return;
+    }
+
+    if (!recordSessionExerciseStructuralMutation(affectedIndices, 'other_exercise_structure_changed')) {
+      return;
+    }
 
     const baseUpdated = exercises.map((ex, idx) => {
       return { ...ex, isMainMovement: idx === swapMainTargetIdx };
@@ -2094,6 +2732,11 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleAddExercise = () => {
+    const currentRegistry = sessionExerciseRegistryRef.current;
+    if (!currentRegistry || currentRegistry.entries.length !== exercises.length) {
+      return;
+    }
+
     const newItem: ExerciseEntry = {
       name: 'New Exercise',
       muscleGroup: 'Chest',
@@ -2134,6 +2777,13 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const nextSnapshots = capturePrescribedSnapshotsFromExercises([finalNew], prescribedTargetSnapshots, {}, exercises.length);
     const nextExercises = [...exercises, finalNew];
 
+    const op = appendSessionExerciseRegistryEntry(
+      currentRegistry,
+      'user_added_blank'
+    );
+    if (!op.applied) return;
+    sessionExerciseRegistryRef.current = op.registry;
+
     setUserRawExercises(nextUserRaw);
     setPrescribedTargetSnapshots(nextSnapshots);
     setExercises(nextExercises);
@@ -2146,6 +2796,18 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleDeleteExercise = (idx: number) => {
+    const currentRegistry = sessionExerciseRegistryRef.current;
+    if (!currentRegistry || currentRegistry.entries.length !== exercises.length) {
+      return;
+    }
+
+    const op = removeSessionExerciseRegistryEntry(
+      currentRegistry,
+      idx
+    );
+    if (!op.applied) return;
+    sessionExerciseRegistryRef.current = op.registry;
+
     const nextUserRaw = userRawExercises ? userRawExercises.filter((_, i) => i !== idx) : null;
     const nextExercises = exercises.filter((_, i) => i !== idx);
     const nextGuideKey = reconcileGuideAfterExerciseDelete(currentSetGuideKey, idx, nextExercises);
@@ -2208,6 +2870,16 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleToggleDropSet = (exIdx: number, setIdx: number) => {
+    if (!Number.isInteger(exIdx) || exIdx < 0 || exIdx >= exercises.length) {
+      return;
+    }
+    const currentEx = exercises[exIdx];
+    if (!currentEx || !currentEx.sets || !Number.isInteger(setIdx) || setIdx < 0 || setIdx >= currentEx.sets.length) {
+      return;
+    }
+    if (!recordSessionExerciseStructuralMutation(exIdx, 'drop_set_structure_changed')) {
+      return;
+    }
     const nextExercises = exercises.map((ex, i) => {
       if (i === exIdx) {
         const sets = ex.sets.map((s, sIdx) => {
@@ -2268,6 +2940,19 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleAddDropSubSet = (exIdx: number, setIdx: number) => {
+    if (
+      !Number.isInteger(exIdx) || exIdx < 0 || exIdx >= exercises.length ||
+      !Number.isInteger(setIdx) || setIdx < 0
+    ) {
+      return;
+    }
+    const currentEx = exercises[exIdx];
+    if (!currentEx || !currentEx.sets || setIdx >= currentEx.sets.length) {
+      return;
+    }
+    if (!recordSessionExerciseStructuralMutation(exIdx, 'drop_subsets_changed')) {
+      return;
+    }
     const nextExercises = exercises.map((ex, i) => {
       if (i === exIdx) {
         const sets = ex.sets.map((s, sIdx) => {
@@ -2303,6 +2988,29 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleUpdateDropSubSet = (exIdx: number, setIdx: number, subIdx: number, field: 'weight' | 'reps', value: number | null) => {
+    if (
+      !Number.isInteger(exIdx) || exIdx < 0 || exIdx >= exercises.length ||
+      !Number.isInteger(setIdx) || setIdx < 0 ||
+      !Number.isInteger(subIdx) || subIdx < 0 ||
+      (field !== 'weight' && field !== 'reps')
+    ) {
+      return;
+    }
+    const targetEx = exercises[exIdx];
+    if (!targetEx || !targetEx.sets || setIdx >= targetEx.sets.length) {
+      return;
+    }
+    const targetSet = targetEx.sets[setIdx];
+    if (!targetSet || !targetSet.dropSubSets || subIdx >= targetSet.dropSubSets.length) {
+      return;
+    }
+    const targetSub = targetSet.dropSubSets[subIdx];
+    if (!targetSub || targetSub[field] === value) {
+      return;
+    }
+    if (!recordSessionExerciseStructuralMutation(exIdx, 'drop_subsets_changed')) {
+      return;
+    }
     const nextExercises = exercises.map((ex, i) => {
       if (i === exIdx) {
         const sets = ex.sets.map((s, sIdx) => {
@@ -2326,6 +3034,24 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleRemoveDropSubSet = (exIdx: number, setIdx: number, subIdx: number) => {
+    if (
+      !Number.isInteger(exIdx) || exIdx < 0 || exIdx >= exercises.length ||
+      !Number.isInteger(setIdx) || setIdx < 0 ||
+      !Number.isInteger(subIdx) || subIdx < 0
+    ) {
+      return;
+    }
+    const currentEx = exercises[exIdx];
+    if (!currentEx || !currentEx.sets || setIdx >= currentEx.sets.length) {
+      return;
+    }
+    const targetSet = currentEx.sets[setIdx];
+    if (!targetSet || !targetSet.dropSubSets || subIdx >= targetSet.dropSubSets.length) {
+      return;
+    }
+    if (!recordSessionExerciseStructuralMutation(exIdx, 'drop_subsets_changed')) {
+      return;
+    }
     const nextExercises = exercises.map((ex, i) => {
       if (i === exIdx) {
         const sets = ex.sets.map((s, sIdx) => {
@@ -2348,10 +3074,19 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleToggleWarmup = (exIdx: number, setIdx: number) => {
+    if (!Number.isInteger(exIdx) || exIdx < 0 || exIdx >= exercises.length) {
+      return;
+    }
     const currentEx = exercises[exIdx];
-    if (!currentEx) return;
+    if (!currentEx || !currentEx.sets || !Number.isInteger(setIdx) || setIdx < 0 || setIdx >= currentEx.sets.length) {
+      return;
+    }
     const targetSet = currentEx.sets[setIdx];
     if (targetSet?.isSkipped) return;
+
+    if (!recordSessionExerciseStructuralMutation(exIdx, 'warmup_structure_changed')) {
+      return;
+    }
 
     const nextExercises = exercises.map((ex, i) => {
       if (i === exIdx) {
@@ -2430,8 +3165,15 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     exIdx: number,
     warmupTargets: Array<{ weight: number | null; reps: number; rpe?: number }>
   ) => {
+    if (!Number.isInteger(exIdx) || exIdx < 0 || exIdx >= exercises.length) {
+      return;
+    }
     const currentEx = exercises[exIdx];
     if (!currentEx) return;
+
+    if (!recordSessionExerciseStructuralMutation(exIdx, 'warmup_structure_changed')) {
+      return;
+    }
 
     const priorWarmupCount = currentEx.sets.filter(s => s.isWarmup).length;
     const newWarmupCount = warmupTargets.length;
@@ -2602,6 +3344,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       return;
     }
 
+    if (!recordSessionExerciseStructuralMutation(exIdx, 'set_reordered')) {
+      return;
+    }
+
     const nextUserRaw = userRawExercises
       ? userRawExercises.map((ex, i) => {
           if (i === exIdx) {
@@ -2664,6 +3410,19 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     const targetIdx = direction === 'up' ? exIdx - 1 : exIdx + 1;
     if (targetIdx < 0 || targetIdx >= exercises.length) return;
 
+    const currentRegistry = sessionExerciseRegistryRef.current;
+    if (!currentRegistry || currentRegistry.entries.length !== exercises.length) {
+      return;
+    }
+
+    const op = moveSessionExerciseRegistryEntry(
+      currentRegistry,
+      exIdx,
+      targetIdx
+    );
+    if (!op.applied) return;
+    sessionExerciseRegistryRef.current = op.registry;
+
     // 1. Swap in exercises state
     const nextExercises = [...exercises];
     const tempEx = nextExercises[exIdx];
@@ -2724,12 +3483,28 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleToggleSuperset = (exIdx: number) => {
+    if (!Number.isInteger(exIdx) || exIdx < 0 || exIdx >= exercises.length) {
+      return;
+    }
+    if (!recordSessionExerciseStructuralMutation(exIdx, 'other_exercise_structure_changed')) {
+      return;
+    }
     const nextExs = exercises.map((ex, i) => (i === exIdx ? { ...ex, isSuperset: !ex.isSuperset } : ex));
     setExercises(nextExs);
     saveWorkoutDraftImmediately({ exercises: nextExs });
   };
 
   const handleUpdateExerciseName = (idx: number, name: string) => {
+    if (!Number.isInteger(idx) || idx < 0 || idx >= exercises.length) {
+      return;
+    }
+    const currentEx = exercises[idx];
+    if (!currentEx || currentEx.name === name) {
+      return;
+    }
+    if (!recordSessionExerciseStructuralMutation(idx, 'other_exercise_structure_changed')) {
+      return;
+    }
     const nextUserRaw = userRawExercises ? userRawExercises.map((ex, i) => (i === idx ? { ...ex, name } : ex)) : null;
     const nextExs = exercises.map((ex, i) => (i === idx ? { ...ex, name } : ex));
     setUserRawExercises(nextUserRaw);
@@ -2738,6 +3513,16 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleUpdateMuscleGroup = (idx: number, muscleGroup: string) => {
+    if (!Number.isInteger(idx) || idx < 0 || idx >= exercises.length) {
+      return;
+    }
+    const currentEx = exercises[idx];
+    if (!currentEx || currentEx.muscleGroup === muscleGroup) {
+      return;
+    }
+    if (!recordSessionExerciseStructuralMutation(idx, 'other_exercise_structure_changed')) {
+      return;
+    }
     const nextUserRaw = userRawExercises ? userRawExercises.map((ex, i) => (i === idx ? { ...ex, muscleGroup } : ex)) : null;
     const nextExs = exercises.map((ex, i) => (i === idx ? { ...ex, muscleGroup } : ex));
     setUserRawExercises(nextUserRaw);
@@ -2757,6 +3542,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
     const currentEx = exercises[exIdx];
     if (!currentEx) return;
+
+    if (!recordSessionExerciseStructuralMutation(exIdx, 'set_added')) {
+      return;
+    }
 
     const nextSetNum = (currentEx.sets?.length || 0) + 1;
 
@@ -2864,6 +3653,17 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleDeleteSet = (exIdx: number, setIdx: number) => {
+    if (!Number.isInteger(exIdx) || exIdx < 0 || exIdx >= exercises.length) {
+      return;
+    }
+    const currentEx = exercises[exIdx];
+    if (!currentEx || !currentEx.sets || !Number.isInteger(setIdx) || setIdx < 0 || setIdx >= currentEx.sets.length) {
+      return;
+    }
+    if (!recordSessionExerciseStructuralMutation(exIdx, 'set_deleted')) {
+      return;
+    }
+
     const nextUserRaw = userRawExercises
       ? userRawExercises.map((ex, i) => {
           if (i === exIdx) {
@@ -3389,6 +4189,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     latestDraftPayloadRef.current = null;
     clearActiveWorkoutDraft();
     setHasExistingDraft(false);
+    activePrescriptionBoundaryRef.current = null;
+    sessionExerciseRegistryRef.current = clearSessionExerciseRegistry();
     if (isFinalWorkout) {
       // Unenrol the user from the current program automatically at the conclusion of the program
       storage.setCurrentProgramId(null);
@@ -3656,13 +4458,15 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           </div>
         </div>
 
-        {/* Row 2: Workout Objective */}
+        {/* Row 2: Workout Objective & Method */}
         <div className="p-4 bg-slate-950/20">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-[11.5px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-mono">
-                Program Objective
-              </label>
+              <div className="flex items-center justify-between mb-1.5 min-h-[20px]">
+                <label className="block text-[11.5px] font-black text-slate-400 uppercase tracking-widest font-mono">
+                  Training Goal
+                </label>
+              </div>
               <div className="bg-slate-950 border border-slate-850 px-3.5 h-10 flex items-center justify-between text-xs font-black text-white uppercase tracking-wider select-none">
                 <span>{objective}</span>
                 <span className="text-[9px] font-mono font-extrabold text-slate-500 uppercase tracking-wider">
@@ -3672,37 +4476,71 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             </div>
 
             <div>
-              <label className="block text-[11.5px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-mono">
-                Progression Engine
-              </label>
-              <div className="bg-slate-950 border border-slate-850 px-3.5 h-10 flex items-center gap-2 select-none">
-                <span className="inline-flex items-center justify-center px-1.5 py-0.5 text-[9.5px] font-mono font-black bg-indigo-950 text-indigo-400 border border-indigo-500/25 uppercase tracking-widest leading-none">
+              <div className="flex items-center justify-between mb-1.5 min-h-[20px]">
+                <label className="block text-[11.5px] font-black text-slate-400 uppercase tracking-widest font-mono">
+                  Periodisation Method
+                </label>
+              </div>
+              <div className="bg-slate-950 border border-slate-850 px-3.5 h-10 flex items-center gap-2 select-none min-w-0">
+                <span className="inline-flex items-center justify-center px-1.5 py-0.5 text-[9.5px] font-mono font-black bg-indigo-950 text-indigo-400 border border-indigo-500/25 uppercase tracking-widest leading-none shrink-0">
                   {algoDetails.short}
                 </span>
-                <span className="text-[11px] font-extrabold text-slate-300 uppercase tracking-wide truncate">
-                  {algoDetails.name}
-                </span>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-[11px] font-extrabold text-slate-300 uppercase tracking-wide truncate">
+                    {algoDetails.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={openPeriodisationInfo}
+                    aria-label={`About ${algoDetails.name}`}
+                    className="p-1 text-slate-400 hover:text-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition cursor-pointer shrink-0"
+                  >
+                    <Info className="w-3.5 h-3.5" aria-hidden="true" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="mt-3 bg-slate-950/45 border border-slate-850/50 p-3">
-            <p className="text-xs text-slate-400 leading-normal font-sans">
-              <span className="font-mono text-[9px] font-black text-indigo-400 uppercase tracking-widest block mb-1">
-                Periodisation algorithm
-              </span>
-              {objective === 'Off' && "Manual Mode: You have full control over all weights, rep ranges, and target metrics."}
-              {objective === 'Strength' && `Strength focus [${algoDetails.short}]: ${algoDetails.desc}`}
-              {objective === 'Hypertrophy' && `Hypertrophy focus [${algoDetails.short}]: ${algoDetails.desc}`}
-              {objective === 'Deload' && "Deload focus: Automatically reduces loads to 50% of peak capacity and targets strict control to promote total physical recovery."}
-            </p>
-            {objective === 'Strength' && (activeProg?.algorithmId === 'strength_undulating' || !activeProg?.algorithmId) && typeof totalWeeks === 'number' && ![4, 8, 12].includes(totalWeeks) && (
-              <div className="mt-2.5 bg-amber-950/40 border border-amber-500/50 p-2.5 flex items-start gap-2 text-amber-300 text-xs">
-                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                <span>Strength Undulating supports 4, 8 or 12 weeks. Update the program duration to resume automatic targets.</span>
+          {isTargetModeApplicable && (
+            <div className="mt-3">
+              <div className="flex items-center justify-between mb-1.5 min-h-[20px]">
+                <label className="block text-[11.5px] font-black text-slate-400 uppercase tracking-widest font-mono">
+                  Workout Target Mode
+                </label>
               </div>
-            )}
-          </div>
+              <div
+                className={`border px-3.5 h-10 flex items-center justify-between gap-2 select-none ${
+                  isCoached
+                    ? 'bg-indigo-950/20 border-indigo-500/40 text-indigo-300'
+                    : 'bg-slate-950 border-slate-850 text-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs font-black uppercase tracking-wider font-mono truncate">
+                    {isCoached ? 'METREPS COACH' : 'PERIODISATION TARGETS'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => openTargetModeInfo(e, targetMode)}
+                    aria-label={isCoached ? 'About MetReps Coach' : 'About Periodisation Targets'}
+                    className="p-1 text-slate-400 hover:text-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition cursor-pointer shrink-0"
+                  >
+                    <Info className="w-3.5 h-3.5" aria-hidden="true" />
+                  </button>
+                </div>
+                <span
+                  className={`text-[9px] font-mono font-extrabold uppercase tracking-wider px-1.5 py-0.5 border shrink-0 ${
+                    isCoached
+                      ? 'text-indigo-400 bg-indigo-950/60 border-indigo-500/30'
+                      : 'text-slate-500 bg-slate-900 border-slate-800'
+                  }`}
+                >
+                  {isCoached ? 'COACH' : 'TARGETS'}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -4579,9 +5417,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         cancelLabel="Keep Workout"
         confirmVariant="danger"
         onConfirm={() => {
-          handleDiscardDraft();
           setShowDiscardConfirm(false);
-          onClose();
+          handleDiscardDraft();
         }}
         onCancel={() => setShowDiscardConfirm(false)}
       />
@@ -4644,6 +5481,30 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                 <button onClick={dismissExAction} className="text-slate-400 hover:text-white text-xs font-bold font-mono">CLOSE</button>
               </div>
               <div className="p-4 space-y-3">
+                <div className="space-y-2">
+                  <div>
+                    <label htmlFor="modal-exercise-name-input" className="block text-[10px] font-bold text-slate-400 uppercase font-mono mb-1">Exercise Name</label>
+                    <input
+                      id="modal-exercise-name-input"
+                      type="text"
+                      value={ex.name}
+                      onChange={(e) => handleUpdateExerciseName(activeExAction, e.target.value)}
+                      aria-label="Rename Exercise"
+                      className="w-full bg-slate-950 border border-slate-850 rounded-none px-2.5 py-1.5 text-xs font-semibold text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="modal-muscle-group-input" className="block text-[10px] font-bold text-slate-400 uppercase font-mono mb-1">Muscle Group</label>
+                    <input
+                      id="modal-muscle-group-input"
+                      type="text"
+                      value={ex.muscleGroup || ''}
+                      onChange={(e) => handleUpdateMuscleGroup(activeExAction, e.target.value)}
+                      aria-label="Update Muscle Group"
+                      className="w-full bg-slate-950 border border-slate-850 rounded-none px-2.5 py-1.5 text-xs font-semibold text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
+                    />
+                  </div>
+                </div>
                 
                 <div className="grid grid-cols-2 gap-2">
                   <button
@@ -5856,6 +6717,68 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
       {/* Floating Rest Timer Widget */}
       {renderFloatingRestTimer()}
+
+      {/* Header Guidance Info Modal */}
+      {headerInfoModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150 font-sans"
+          onClick={closeHeaderInfoModal}
+        >
+          <div
+            ref={headerInfoContainerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="header-guidance-dialog-title"
+            aria-describedby="header-guidance-dialog-desc"
+            tabIndex={-1}
+            className="bg-slate-900 border border-slate-800 rounded-none w-full max-w-md max-h-[90vh] overflow-y-auto p-5 text-slate-300 shadow-2xl flex flex-col gap-4 focus:outline-none"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <h3
+                  id="header-guidance-dialog-title"
+                  className="text-base font-black text-white uppercase tracking-wider font-mono flex items-center gap-2"
+                >
+                  <Info className="w-4 h-4 text-indigo-400 shrink-0" aria-hidden="true" />
+                  {headerInfoModal.title}
+                </h3>
+                {headerInfoModal.secondaryHeading && (
+                  <p className="text-[11px] font-mono text-indigo-400/90 uppercase tracking-widest mt-1">
+                    {headerInfoModal.secondaryHeading}
+                  </p>
+                )}
+              </div>
+              <button
+                ref={headerInfoCloseBtnRef}
+                type="button"
+                onClick={closeHeaderInfoModal}
+                aria-label="Close dialog"
+                className="p-1.5 bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div id="header-guidance-dialog-desc" className="text-xs leading-relaxed text-slate-300 space-y-3">
+              {headerInfoModal.body}
+              {headerInfoModal.note && (
+                <div className="mt-2">{headerInfoModal.note}</div>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={closeHeaderInfoModal}
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white uppercase tracking-wider border border-slate-700 transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

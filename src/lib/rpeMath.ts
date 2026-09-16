@@ -20,14 +20,20 @@ export const DEFAULT_RTS_STYLE_PERCENT_1RM: Record<number, Record<number, number
   12: { 10.0: 0.680, 9.5: 0.664, 9.0: 0.649, 8.5: 0.633, 8.0: 0.618, 7.5: 0.602, 7.0: 0.587, 6.5: 0.571, 6.0: 0.556 },
 };
 
+const VALID_RPES: ReadonlySet<number> = new Set([
+  6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0,
+]);
+
 /**
- * Checks whether an RPE value is a valid finite number within the supported range [6.0, 10.0].
- * Rejects values outside 6.0 to 10.0 before any rounding occurs.
+ * Checks whether an RPE value is an exact valid canonical half-step number within the supported range [6.0, 10.0].
+ * Returns true only for exact half-step values: 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0.
+ * Rejects all non-finite, out-of-range, fractional, or non-half-step values without rounding or tolerance.
  */
 export function isValidRPE(rpe: number | null | undefined): boolean {
-  if (rpe === null || rpe === undefined) return false;
-  if (typeof rpe !== 'number' || !Number.isFinite(rpe)) return false;
-  return rpe >= 6.0 && rpe <= 10.0;
+  if (rpe === null || rpe === undefined || typeof rpe !== 'number' || !Number.isFinite(rpe)) {
+    return false;
+  }
+  return VALID_RPES.has(rpe);
 }
 
 /**
@@ -74,6 +80,16 @@ export function getRTSMultiplier(reps: number, rpe: number): number | null {
   const rir = Math.max(0, 10.0 - roundedRPE);
   const multiplier = m12 * ((30 + 12 + rir) / (30 + reps + rir));
   return multiplier;
+}
+
+/**
+ * Canonical RPE percentage authority.
+ * Resolves the percentage of 1RM multiplier for a given RPE and rep count: getRpePercentage(rpe, reps).
+ * Validates exact canonical RPE via isValidRPE and integer reps >= 1.
+ * Delegates directly to the canonical getRTSMultiplier authority.
+ */
+export function getRpePercentage(rpe: number, reps: number): number | null {
+  return getRTSMultiplier(reps, rpe);
 }
 
 /**

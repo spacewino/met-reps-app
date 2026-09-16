@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { WeightUnit } from '../types';
+import { WeightUnit, ExerciseModality } from '../types';
 import { isValidRPE, roundRPEToHalfStep, getRTSMultiplier } from './rpeMath';
 import { roundToNearestIncrement } from './weightMath';
 
@@ -44,6 +44,121 @@ export interface ProjectAssistedTargetParams {
  */
 export function getAssistedIncrement(unit: WeightUnit): number {
   return unit === 'lb' ? 5.0 : 2.5;
+}
+
+/**
+ * Resolves the canonical load increment for weighted exercises for a given unit.
+ * - kg: exactly 2.5 kg
+ * - lb: exactly 5.0 lb
+ * - invalid: null
+ */
+export function getWeightedIncrement(unit: WeightUnit): number | null {
+  if (unit === 'lb') return 5.0;
+  if (unit === 'kg') return 2.5;
+  return null;
+}
+
+export type GuidedCanonicalIncrementResult =
+  | {
+      readonly status: 'resolved';
+      readonly increment: number;
+      readonly unit: WeightUnit;
+      readonly modality: 'weighted' | 'assisted' | 'bodyweight';
+    }
+  | {
+      readonly status: 'unsupported_modality';
+      readonly modality: ExerciseModality;
+    }
+  | {
+      readonly status: 'unavailable';
+      readonly reason: 'missing_modality' | 'unrecognized_modality' | 'invalid_unit';
+    };
+
+/**
+ * Resolves the unit-equivalent canonical increment for Guided progression.
+ *
+ * Required behaviour:
+ * - weighted:
+ *   - kg returns 2.5
+ *   - lb returns 5.0
+ * - assisted:
+ *   - delegates to getAssistedIncrement(activeUnit)
+ *   - kg returns 2.5
+ *   - lb returns 5.0
+ * - bodyweight:
+ *   - returns the same unit-equivalent contract/snapshot increment:
+ *     - kg returns 2.5
+ *     - lb returns 5.0
+ *   - pure bodyweight candidate generation remains repetition-only and does not use this value to increase external load
+ * - timed, distance, distance_loaded:
+ *   - returns null rather than inventing an increment
+ * - missing or unrecognized modality:
+ *   - returns null / fails closed (never defaults to weighted)
+ * - invalid runtime unit:
+ *   - returns null / fails closed (does not fall through to kg)
+ */
+export function getGuidedCanonicalIncrement(
+  modality?: ExerciseModality | string | null,
+  activeUnit?: WeightUnit | string | null
+): number | null {
+  if (activeUnit !== 'kg' && activeUnit !== 'lb') {
+    return null;
+  }
+  if (!modality || typeof modality !== 'string' || modality.trim() === '') {
+    return null;
+  }
+  if (modality === 'weighted') {
+    return getWeightedIncrement(activeUnit);
+  }
+  if (modality === 'assisted') {
+    return getAssistedIncrement(activeUnit);
+  }
+  if (modality === 'bodyweight') {
+    return getWeightedIncrement(activeUnit);
+  }
+  return null;
+}
+
+/**
+ * Detailed resolver returning a discriminated union result for Guided increment authority.
+ */
+export function resolveGuidedCanonicalIncrement(
+  modality?: ExerciseModality | string | null,
+  activeUnit?: WeightUnit | string | null
+): GuidedCanonicalIncrementResult {
+  if (activeUnit !== 'kg' && activeUnit !== 'lb') {
+    return { status: 'unavailable', reason: 'invalid_unit' };
+  }
+  if (!modality || typeof modality !== 'string' || modality.trim() === '') {
+    return { status: 'unavailable', reason: 'missing_modality' };
+  }
+  if (modality === 'weighted') {
+    const inc = getWeightedIncrement(activeUnit);
+    return inc !== null
+      ? { status: 'resolved', increment: inc, unit: activeUnit, modality: 'weighted' }
+      : { status: 'unavailable', reason: 'invalid_unit' };
+  }
+  if (modality === 'assisted') {
+    return {
+      status: 'resolved',
+      increment: getAssistedIncrement(activeUnit),
+      unit: activeUnit,
+      modality: 'assisted',
+    };
+  }
+  if (modality === 'bodyweight') {
+    const inc = getWeightedIncrement(activeUnit);
+    return inc !== null
+      ? { status: 'resolved', increment: inc, unit: activeUnit, modality: 'bodyweight' }
+      : { status: 'unavailable', reason: 'invalid_unit' };
+  }
+  if (modality === 'timed' || modality === 'distance' || modality === 'distance_loaded') {
+    return {
+      status: 'unsupported_modality',
+      modality: modality as ExerciseModality,
+    };
+  }
+  return { status: 'unavailable', reason: 'unrecognized_modality' };
 }
 
 /**
