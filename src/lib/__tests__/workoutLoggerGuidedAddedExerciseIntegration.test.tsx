@@ -118,6 +118,27 @@ describe('APC-3B2C2B2C-D2C-3B2A: WorkoutLogger Guided User-Added Exercise Integr
     ],
   });
 
+  const addOverheadPressFromLibrary = async (): Promise<void> => {
+    fireEvent.click(screen.getByRole('button', { name: /Add Custom Exercise/i }));
+    fireEvent.click(await screen.findByText(/^Overhead Press \(Barbell\)$/i));
+    fireEvent.click(screen.getByRole('button', { name: /Add to Workout/i }));
+  };
+
+  const createExclusionHistoricalLog = (programId: string): WorkoutLog => ({
+    id: 'log-edit-1',
+    date: '2026-08-01',
+    unit: 'lb',
+    programId,
+    exercises: [
+      {
+        name: 'Barbell Bench Press',
+        muscleGroup: 'Chest',
+        modality: 'weighted',
+        sets: [{ setNumber: 1, weight: 135, reps: 10, rpe: 8, isCompleted: true }],
+      },
+    ],
+  });
+
   // 1. performance_led library addition preserves existing behaviour and makes zero Guided calls
   it('1. performance_led library addition preserves existing behaviour and makes zero Guided calls', async () => {
     const orchestrateSpy = vi.spyOn(integrationModule, 'orchestrateGuidedWorkoutExercises');
@@ -595,93 +616,66 @@ describe('APC-3B2C2B2C-D2C-3B2A: WorkoutLogger Guided User-Added Exercise Integr
     expect(draftStr).not.toBeNull();
   });
 
-  // 10. historical edit, redo, one-off, Off, Deload, missing program, and fallback sessions make zero addition-time Guided calls
-  it('10. historical edit, redo, one-off, Off, Deload, missing program, and fallback sessions make zero addition-time Guided calls', async () => {
+  it('10a. historical edit makes zero addition-time Guided calls', async () => {
     const orchestrateSpy = vi.spyOn(integrationModule, 'orchestrateGuidedWorkoutExercises');
-
     const prog = createTestProgram('prog-guided-exclusions-1', 'metreps_guided');
     storage.saveProgram(prog);
     storage.setCurrentProgramId(prog.id);
-
-    const histLog: WorkoutLog = {
-      id: 'log-edit-1',
-      date: '2026-08-01',
-      unit: 'lb',
-      programId: prog.id,
-      exercises: [
-        {
-          name: 'Barbell Bench Press',
-          muscleGroup: 'Chest',
-          modality: 'weighted',
-          sets: [{ setNumber: 1, weight: 135, reps: 10, rpe: 8, isCompleted: true }],
-        },
-      ],
-    };
+    const histLog = createExclusionHistoricalLog(prog.id);
     storage.saveWorkoutLog(histLog);
 
-    // Sub-case A: historical edit
-    const { unmount: unmountA } = render(
+    render(
       <WorkoutLogger
-        initialParams={{
-          programId: prog.id,
-          editLogId: histLog.id,
-        }}
+        initialParams={{ programId: prog.id, editLogId: histLog.id }}
         onClose={() => {}}
         onSave={() => {}}
       />
     );
     orchestrateSpy.mockClear();
-    const btnA = screen.getByRole('button', { name: /Add Custom Exercise/i });
-    fireEvent.click(btnA);
-    const exA = await screen.findByText(/^Overhead Press \(Barbell\)$/i);
-    fireEvent.click(exA);
-    fireEvent.click(screen.getByRole('button', { name: /Add to Workout/i }));
+    await addOverheadPressFromLibrary();
     expect(orchestrateSpy).not.toHaveBeenCalled();
-    unmountA();
+  });
 
-    // Sub-case B: redo
-    const { unmount: unmountB } = render(
+  it('10b. redo makes zero addition-time Guided calls', async () => {
+    const orchestrateSpy = vi.spyOn(integrationModule, 'orchestrateGuidedWorkoutExercises');
+    const prog = createTestProgram('prog-guided-exclusions-1', 'metreps_guided');
+    storage.saveProgram(prog);
+    storage.setCurrentProgramId(prog.id);
+    const histLog = createExclusionHistoricalLog(prog.id);
+    storage.saveWorkoutLog(histLog);
+
+    render(
       <WorkoutLogger
-        initialParams={{
-          programId: prog.id,
-          redoFromLogId: histLog.id,
-        }}
+        initialParams={{ programId: prog.id, redoFromLogId: histLog.id }}
         onClose={() => {}}
         onSave={() => {}}
       />
     );
     orchestrateSpy.mockClear();
-    const btnB = screen.getByRole('button', { name: /Add Custom Exercise/i });
-    fireEvent.click(btnB);
-    const exB = await screen.findByText(/^Overhead Press \(Barbell\)$/i);
-    fireEvent.click(exB);
-    fireEvent.click(screen.getByRole('button', { name: /Add to Workout/i }));
+    await addOverheadPressFromLibrary();
     expect(orchestrateSpy).not.toHaveBeenCalled();
-    unmountB();
+  });
 
-    // Sub-case C: one-off
-    const { unmount: unmountC } = render(
+  it('10c. one-off workout makes zero addition-time Guided calls', async () => {
+    const orchestrateSpy = vi.spyOn(integrationModule, 'orchestrateGuidedWorkoutExercises');
+
+    render(
       <WorkoutLogger
-        initialParams={{
-          isOneOff: true,
-        }}
+        initialParams={{ isOneOff: true }}
         onClose={() => {}}
         onSave={() => {}}
       />
     );
     orchestrateSpy.mockClear();
-    const btnC = screen.getByRole('button', { name: /Add Custom Exercise/i });
-    fireEvent.click(btnC);
-    const exC = await screen.findByText(/^Overhead Press \(Barbell\)$/i);
-    fireEvent.click(exC);
-    fireEvent.click(screen.getByRole('button', { name: /Add to Workout/i }));
+    await addOverheadPressFromLibrary();
     expect(orchestrateSpy).not.toHaveBeenCalled();
-    unmountC();
+  });
 
-    // Sub-case D: Off objective
+  it('10d. Off objective makes zero addition-time Guided calls', async () => {
+    const orchestrateSpy = vi.spyOn(integrationModule, 'orchestrateGuidedWorkoutExercises');
     const progOff = createTestProgram('prog-off-1', 'metreps_guided', 'Off');
     storage.saveProgram(progOff);
-    const { unmount: unmountD } = render(
+    render(
       <WorkoutLogger
         initialParams={{
           programId: progOff.id,
@@ -696,15 +690,15 @@ describe('APC-3B2C2B2C-D2C-3B2A: WorkoutLogger Guided User-Added Exercise Integr
       />
     );
     orchestrateSpy.mockClear();
-    const btnD = screen.getByRole('button', { name: /Add Custom Exercise/i });
-    fireEvent.click(btnD);
-    const exD = await screen.findByText(/^Overhead Press \(Barbell\)$/i);
-    fireEvent.click(exD);
-    fireEvent.click(screen.getByRole('button', { name: /Add to Workout/i }));
+    await addOverheadPressFromLibrary();
     expect(orchestrateSpy).not.toHaveBeenCalled();
-    unmountD();
+  });
 
-    // Sub-case E: Deload objective via saved draft
+  it('10e. Deload objective makes zero addition-time Guided calls', async () => {
+    const orchestrateSpy = vi.spyOn(integrationModule, 'orchestrateGuidedWorkoutExercises');
+    const prog = createTestProgram('prog-guided-exclusions-1', 'metreps_guided');
+    storage.saveProgram(prog);
+    storage.setCurrentProgramId(prog.id);
     mockStorage.setItem(
       'metreps_workout_draft',
       JSON.stringify({
@@ -715,7 +709,7 @@ describe('APC-3B2C2B2C-D2C-3B2A: WorkoutLogger Guided User-Added Exercise Integr
         exercises: prog.exercisesByDay[1],
       })
     );
-    const { unmount: unmountE } = render(
+    render(
       <WorkoutLogger
         initialParams={{
           programId: prog.id,
@@ -730,37 +724,32 @@ describe('APC-3B2C2B2C-D2C-3B2A: WorkoutLogger Guided User-Added Exercise Integr
       />
     );
     orchestrateSpy.mockClear();
-    const btnE = screen.getByRole('button', { name: /Add Custom Exercise/i });
-    fireEvent.click(btnE);
-    const exE = await screen.findByText(/^Overhead Press \(Barbell\)$/i);
-    fireEvent.click(exE);
-    fireEvent.click(screen.getByRole('button', { name: /Add to Workout/i }));
+    await addOverheadPressFromLibrary();
     expect(orchestrateSpy).not.toHaveBeenCalled();
-    unmountE();
+  });
 
-    // Sub-case F: Missing program
-    mockStorage.clear();
-    const { unmount: unmountF } = render(
+  it('10f. missing program makes zero addition-time Guided calls', async () => {
+    const orchestrateSpy = vi.spyOn(integrationModule, 'orchestrateGuidedWorkoutExercises');
+
+    render(
       <WorkoutLogger
-        initialParams={{
-          programId: undefined,
-          isOneOff: true,
-        }}
+        initialParams={{ programId: undefined, isOneOff: true }}
         onClose={() => {}}
         onSave={() => {}}
       />
     );
     orchestrateSpy.mockClear();
-    const btnF = screen.getByRole('button', { name: /Add Custom Exercise/i });
-    fireEvent.click(btnF);
-    const exF = await screen.findByText(/^Overhead Press \(Barbell\)$/i);
-    fireEvent.click(exF);
-    fireEvent.click(screen.getByRole('button', { name: /Add to Workout/i }));
+    await addOverheadPressFromLibrary();
     expect(orchestrateSpy).not.toHaveBeenCalled();
-    unmountF();
+  });
 
-    // Sub-case G: Fallback session (day without program exercises)
-    const { unmount: unmountG } = render(
+  it('10g. fallback session makes zero addition-time Guided calls', async () => {
+    const orchestrateSpy = vi.spyOn(integrationModule, 'orchestrateGuidedWorkoutExercises');
+    const prog = createTestProgram('prog-guided-exclusions-1', 'metreps_guided');
+    storage.saveProgram(prog);
+    storage.setCurrentProgramId(prog.id);
+
+    render(
       <WorkoutLogger
         initialParams={{
           programId: prog.id,
@@ -775,13 +764,8 @@ describe('APC-3B2C2B2C-D2C-3B2A: WorkoutLogger Guided User-Added Exercise Integr
       />
     );
     orchestrateSpy.mockClear();
-    const btnG = screen.getByRole('button', { name: /Add Custom Exercise/i });
-    fireEvent.click(btnG);
-    const exG = await screen.findByText(/^Overhead Press \(Barbell\)$/i);
-    fireEvent.click(exG);
-    fireEvent.click(screen.getByRole('button', { name: /Add to Workout/i }));
+    await addOverheadPressFromLibrary();
     expect(orchestrateSpy).not.toHaveBeenCalled();
-    unmountG();
   });
 
   // 11. inputs and prior state are not mutated
