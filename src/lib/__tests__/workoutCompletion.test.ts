@@ -669,6 +669,19 @@ describe('Pure Index-Remapping Helper Suite', () => {
     const resultSetMove = remapAfterSetMove({ '0-0': true, '0-1': false }, 0, 0, 1);
     expect(resultSetMove).toEqual({ '0-1': true, '0-0': false });
 
+    const arbitrarySetMove = remapAfterSetMove(
+      { '0-0': 'moved', '0-1': 'first-shift', '0-2': 'second-shift', '1-0': 'other-exercise' },
+      0,
+      0,
+      2
+    );
+    expect(arbitrarySetMove).toEqual({
+      '0-2': 'moved',
+      '0-0': 'first-shift',
+      '0-1': 'second-shift',
+      '1-0': 'other-exercise',
+    });
+
     const resultInsert = remapAfterSetInsert({ '0-0': true, '0-1': false }, 0, 0, 3);
     expect(resultInsert).toEqual({ '0-3': true, '0-4': false });
   });

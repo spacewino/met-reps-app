@@ -200,7 +200,10 @@ export function remapAfterExerciseMove<T>(
 }
 
 /**
- * Remap `${exerciseIndex}-${setIndex}` keyed records after two sets within an exercise swap positions.
+ * Remap `${exerciseIndex}-${setIndex}` keyed records after moving one set to a
+ * destination position.  The intervening rows shift by one, matching an
+ * array splice.  (For adjacent positions this is identical to the original
+ * swap behaviour used by the Set Options controls.)
  */
 export function remapAfterSetMove<T>(
   record: Record<string, T>,
@@ -218,8 +221,10 @@ export function remapAfterSetMove<T>(
         nextRecord[key] = val;
       } else if (sIdx === setIdx1) {
         nextRecord[`${exIdx}-${setIdx2}`] = val;
-      } else if (sIdx === setIdx2) {
-        nextRecord[`${exIdx}-${setIdx1}`] = val;
+      } else if (setIdx1 < setIdx2 && sIdx > setIdx1 && sIdx <= setIdx2) {
+        nextRecord[`${exIdx}-${sIdx - 1}`] = val;
+      } else if (setIdx1 > setIdx2 && sIdx >= setIdx2 && sIdx < setIdx1) {
+        nextRecord[`${exIdx}-${sIdx + 1}`] = val;
       } else {
         nextRecord[key] = val;
       }
@@ -336,5 +341,4 @@ export function remapAfterWarmupChange<T>(
   }
   return nextRecord;
 }
-
 
