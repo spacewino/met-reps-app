@@ -89,7 +89,11 @@ describe('Workout Logger set-options long-press reordering', () => {
     pointer(button, 'down', 10);
     await act(waitForHold);
     pointer(button, 'move', 80);
-    expect(view.container.querySelector('[data-set-drop-slot="1"]')?.textContent).toContain('Drop set here');
+    const destinationSlot = view.container.querySelector('[data-set-drop-slot="1"]');
+    expect(destinationSlot).toBeTruthy();
+    expect(destinationSlot?.querySelector('.border-dotted')).toBeTruthy();
+    expect(destinationSlot?.querySelector('.sr-only')?.textContent).toBe('Set will be inserted here');
+    expect(destinationSlot?.textContent).not.toContain('Drop set here');
     pointer(button, 'up', 80);
     fireEvent.click(button);
 

@@ -4855,10 +4855,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                           {showsDropSlot && (
                             <div
                               data-set-drop-slot={setDrag.destinationIdx}
-                              className={`absolute ${gapIsAfterAnchor ? '-bottom-3' : '-top-3'} left-2 right-2 z-40 h-6 bg-slate-950 border-2 border-dashed border-indigo-300 shadow-xl flex items-center justify-center pointer-events-none`}
-                              aria-hidden="true"
+                              className={`absolute ${gapIsAfterAnchor ? '-bottom-2' : '-top-2'} inset-x-0 z-40 h-4 flex items-center pointer-events-none`}
+                              role="status"
+                              aria-live="polite"
                             >
-                              <span className="bg-slate-950 px-2 text-[8px] font-black uppercase tracking-widest text-white">Drop set here</span>
+                              <span className="w-full border-t-2 border-dotted border-indigo-300 shadow-[0_0_6px_rgba(129,140,248,0.8)]" aria-hidden="true" />
+                              <span className="sr-only">Set will be inserted here</span>
                             </div>
                           )}
                           <div
