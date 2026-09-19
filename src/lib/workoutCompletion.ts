@@ -200,7 +200,10 @@ export function remapAfterExerciseMove<T>(
 }
 
 /**
- * Remap `${exerciseIndex}-${setIndex}` keyed records after two sets within an exercise swap positions.
+ * Remap `${exerciseIndex}-${setIndex}` keyed records after moving one set to a
+ * destination position.  The intervening rows shift by one, matching an
+ * array splice.  (For adjacent positions this is identical to the original
+ * swap behaviour used by the Set Options controls.)
  */
 export function remapAfterSetMove<T>(
   record: Record<string, T>,
@@ -218,8 +221,10 @@ export function remapAfterSetMove<T>(
         nextRecord[key] = val;
       } else if (sIdx === setIdx1) {
         nextRecord[`${exIdx}-${setIdx2}`] = val;
-      } else if (sIdx === setIdx2) {
-        nextRecord[`${exIdx}-${setIdx1}`] = val;
+      } else if (setIdx1 < setIdx2 && sIdx > setIdx1 && sIdx <= setIdx2) {
+        nextRecord[`${exIdx}-${sIdx - 1}`] = val;
+      } else if (setIdx1 > setIdx2 && sIdx >= setIdx2 && sIdx < setIdx1) {
+        nextRecord[`${exIdx}-${sIdx + 1}`] = val;
       } else {
         nextRecord[key] = val;
       }
@@ -228,6 +233,45 @@ export function remapAfterSetMove<T>(
     }
   }
   return nextRecord;
+}
+
+export interface SetReorderRowBounds {
+  index: number;
+  top: number;
+  bottom: number;
+}
+
+/**
+ * Resolve the insertion index represented by a pointer position. The source
+ * row is removed before slots are constructed, which makes the returned index
+ * directly usable as the destination of an array splice in either direction.
+ */
+export function getSetReorderDestination(
+  sourceIndex: number,
+  pointerY: number,
+  rowBounds: SetReorderRowBounds[]
+): number {
+  const remaining = rowBounds
+    .filter(row => row.index !== sourceIndex)
+    .sort((a, b) => a.top - b.top);
+  if (remaining.length === 0) return sourceIndex;
+
+  const slots = [
+    remaining[0].top,
+    ...remaining.slice(1).map((row, index) => (remaining[index].bottom + row.top) / 2),
+    remaining[remaining.length - 1].bottom,
+  ];
+
+  let closestSlot = 0;
+  let closestDistance = Math.abs(pointerY - slots[0]);
+  for (let slot = 1; slot < slots.length; slot += 1) {
+    const distance = Math.abs(pointerY - slots[slot]);
+    if (distance < closestDistance) {
+      closestSlot = slot;
+      closestDistance = distance;
+    }
+  }
+  return closestSlot;
 }
 
 /**
@@ -336,5 +380,3 @@ export function remapAfterWarmupChange<T>(
   }
   return nextRecord;
 }
-
-

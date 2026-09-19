@@ -6,6 +6,7 @@ import {
   remapAfterExerciseReplace,
   remapAfterExerciseMove,
   remapAfterSetMove,
+  getSetReorderDestination,
   remapAfterSetInsert,
 } from '../workoutCompletion';
 import { ExerciseEntry, WorkoutLog } from '../../types';
@@ -668,6 +669,33 @@ describe('Pure Index-Remapping Helper Suite', () => {
 
     const resultSetMove = remapAfterSetMove({ '0-0': true, '0-1': false }, 0, 0, 1);
     expect(resultSetMove).toEqual({ '0-1': true, '0-0': false });
+
+    const arbitrarySetMove = remapAfterSetMove(
+      { '0-0': 'moved', '0-1': 'first-shift', '0-2': 'second-shift', '1-0': 'other-exercise' },
+      0,
+      0,
+      2
+    );
+    expect(arbitrarySetMove).toEqual({
+      '0-2': 'moved',
+      '0-0': 'first-shift',
+      '0-1': 'second-shift',
+      '1-0': 'other-exercise',
+    });
+
+    const rowBounds = [
+      { index: 0, top: 0, bottom: 40 },
+      { index: 1, top: 40, bottom: 80 },
+      { index: 2, top: 80, bottom: 120 },
+      { index: 3, top: 120, bottom: 160 },
+    ];
+    // Source row is excluded before slots are numbered: these destination
+    // indices are directly consumable by splice, with no downward correction.
+    expect(getSetReorderDestination(2, -10, rowBounds)).toBe(0);
+    expect(getSetReorderDestination(2, 45, rowBounds)).toBe(1);
+    expect(getSetReorderDestination(0, 95, rowBounds)).toBe(1);
+    expect(getSetReorderDestination(0, 130, rowBounds)).toBe(2);
+    expect(getSetReorderDestination(0, 200, rowBounds)).toBe(3);
 
     const resultInsert = remapAfterSetInsert({ '0-0': true, '0-1': false }, 0, 0, 3);
     expect(resultInsert).toEqual({ '0-3': true, '0-4': false });
