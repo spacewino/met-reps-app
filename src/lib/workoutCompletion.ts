@@ -235,6 +235,45 @@ export function remapAfterSetMove<T>(
   return nextRecord;
 }
 
+export interface SetReorderRowBounds {
+  index: number;
+  top: number;
+  bottom: number;
+}
+
+/**
+ * Resolve the insertion index represented by a pointer position. The source
+ * row is removed before slots are constructed, which makes the returned index
+ * directly usable as the destination of an array splice in either direction.
+ */
+export function getSetReorderDestination(
+  sourceIndex: number,
+  pointerY: number,
+  rowBounds: SetReorderRowBounds[]
+): number {
+  const remaining = rowBounds
+    .filter(row => row.index !== sourceIndex)
+    .sort((a, b) => a.top - b.top);
+  if (remaining.length === 0) return sourceIndex;
+
+  const slots = [
+    remaining[0].top,
+    ...remaining.slice(1).map((row, index) => (remaining[index].bottom + row.top) / 2),
+    remaining[remaining.length - 1].bottom,
+  ];
+
+  let closestSlot = 0;
+  let closestDistance = Math.abs(pointerY - slots[0]);
+  for (let slot = 1; slot < slots.length; slot += 1) {
+    const distance = Math.abs(pointerY - slots[slot]);
+    if (distance < closestDistance) {
+      closestSlot = slot;
+      closestDistance = distance;
+    }
+  }
+  return closestSlot;
+}
+
 /**
  * Remap `${exerciseIndex}-${setIndex}` keyed records after sets are inserted at `insertedAtSetIdx`
  * inside exercise `targetExIdx`.
@@ -341,4 +380,3 @@ export function remapAfterWarmupChange<T>(
   }
   return nextRecord;
 }
-

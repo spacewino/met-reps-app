@@ -72,6 +72,7 @@ import {
   remapAfterExerciseReplace,
   remapAfterExerciseMove,
   remapAfterSetMove,
+  getSetReorderDestination,
   remapAfterSetInsert,
   remapAfterWarmupChange,
 } from '../lib/workoutCompletion';
@@ -1406,7 +1407,6 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const setHoldRef = useRef<{ timer: ReturnType<typeof setTimeout>; pointerId: number; exIdx: number; setIdx: number; startX: number; startY: number; button: HTMLButtonElement } | null>(null);
   const suppressSetOptionsClickRef = useRef(false);
   const dropHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const bodyOverflowBeforeDragRef = useRef<string>('');
   const [commentDraft, setCommentDraft] = useState<string>('');
   const [calcModalState, setCalcModalState] = useState<{ exIdx: number; setIdx: number } | null>(null);
   const [calcMode, setCalcMode] = useState<'find_weight' | 'find_reps'>('find_weight');
@@ -1428,9 +1428,13 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const [activeSelector, setActiveSelector] = useState<{ exIdx: number; setIdx: number; type: 'rpe' | 'form'; direction?: 'up' | 'down' } | null>(null);
 
   useEffect(() => () => {
-    if (setHoldRef.current) clearTimeout(setHoldRef.current.timer);
+    if (setHoldRef.current) {
+      clearTimeout(setHoldRef.current.timer);
+      if (setHoldRef.current.button.hasPointerCapture?.(setHoldRef.current.pointerId)) {
+        setHoldRef.current.button.releasePointerCapture(setHoldRef.current.pointerId);
+      }
+    }
     if (dropHighlightTimerRef.current) clearTimeout(dropHighlightTimerRef.current);
-    if (setDragRef.current) document.body.style.overflow = bodyOverflowBeforeDragRef.current;
   }, []);
 
   const toggleSelector = (e: React.MouseEvent<HTMLButtonElement>, exIdx: number, setIdx: number, type: 'rpe' | 'form') => {
@@ -3423,13 +3427,16 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
   const endSetDrag = (commit: boolean) => {
     const drag = setDragRef.current;
+    const hold = setHoldRef.current;
     if (setHoldRef.current) {
       clearTimeout(setHoldRef.current.timer);
       setHoldRef.current = null;
     }
+    if (hold?.button.hasPointerCapture?.(hold.pointerId)) {
+      hold.button.releasePointerCapture(hold.pointerId);
+    }
     setPressedSetOptions(null);
     if (!drag) return;
-    document.body.style.overflow = bodyOverflowBeforeDragRef.current;
     setDragRef.current = null;
     setSetDrag(null);
     if (commit && drag.destinationIdx !== drag.setIdx) {
@@ -3445,18 +3452,16 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     if (!event.isPrimary || event.button !== 0 || exercises[exIdx]?.sets[setIdx]?.isSkipped) return;
     if (setHoldRef.current) clearTimeout(setHoldRef.current.timer);
     const button = event.currentTarget;
+    button.setPointerCapture?.(event.pointerId);
     const hold = {
       pointerId: event.pointerId, exIdx, setIdx,
       startX: event.clientX, startY: event.clientY, button,
       timer: setTimeout(() => {
         suppressSetOptionsClickRef.current = true;
-        bodyOverflowBeforeDragRef.current = document.body.style.overflow;
-        document.body.style.overflow = 'hidden';
         const drag = { exIdx, setIdx, destinationIdx: setIdx, offsetY: 0 };
         setDragRef.current = drag;
         setSetDrag(drag);
         setPressedSetOptions(null);
-        try { button.setPointerCapture(event.pointerId); } catch { /* pointer may already have ended */ }
       }, 450),
     };
     setHoldRef.current = hold;
@@ -3474,19 +3479,22 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         clearTimeout(hold.timer);
         setHoldRef.current = null;
         setPressedSetOptions(null);
+        suppressSetOptionsClickRef.current = true;
+        if (hold.button.hasPointerCapture?.(hold.pointerId)) {
+          hold.button.releasePointerCapture(hold.pointerId);
+        }
       }
       return;
     }
     event.preventDefault();
     const rows = Array.from(document.querySelectorAll<HTMLElement>(`[data-set-row-exercise="${drag.exIdx}"]`));
-    const firstDraggableRow = rows.find(row => !exercises[drag.exIdx]?.sets[Number(row.dataset.setRowIndex)]?.isSkipped);
-    let destinationIdx = firstDraggableRow ? Number(firstDraggableRow.dataset.setRowIndex) : drag.setIdx;
-    for (const row of rows) {
+    const bounds = rows.flatMap(row => {
       const index = Number(row.dataset.setRowIndex);
-      if (exercises[drag.exIdx]?.sets[index]?.isSkipped) continue;
+      if (exercises[drag.exIdx]?.sets[index]?.isSkipped) return [];
       const rect = row.getBoundingClientRect();
-      if (event.clientY >= rect.top + rect.height / 2) destinationIdx = index;
-    }
+      return [{ index, top: rect.top, bottom: rect.bottom }];
+    });
+    const destinationIdx = getSetReorderDestination(drag.setIdx, event.clientY, bounds);
     const next = { ...drag, destinationIdx, offsetY: dy };
     setDragRef.current = next;
     setSetDrag(next);
@@ -3495,6 +3503,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const handleSetOptionsPointerEnd = (event: React.PointerEvent<HTMLButtonElement>, cancelled: boolean) => {
     if (setHoldRef.current?.pointerId !== event.pointerId && setDragRef.current === null) return;
     endSetDrag(!cancelled);
+    if (cancelled) suppressSetOptionsClickRef.current = false;
   };
 
   const handleMoveExercise = (exIdx: number, direction: 'up' | 'down') => {
@@ -4825,7 +4834,14 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                             : 'bg-indigo-950/50 border-l-2 border-l-indigo-500')
                         : 'bg-slate-950/25 border-l-2 border-l-transparent';
                       const isDraggedSet = setDrag?.exIdx === exIdx && setDrag.setIdx === setIdx;
-                      const isDragDestination = setDrag?.exIdx === exIdx && setDrag.destinationIdx === setIdx && setDrag.setIdx !== setIdx;
+                      const dragRemainingIndices = setDrag?.exIdx === exIdx
+                        ? ex.sets.flatMap((candidate, index) => index !== setDrag.setIdx && !candidate.isSkipped ? [index] : [])
+                        : [];
+                      const gapAnchorIdx = setDrag?.exIdx === exIdx
+                        ? (dragRemainingIndices[setDrag.destinationIdx] ?? dragRemainingIndices[dragRemainingIndices.length - 1])
+                        : undefined;
+                      const gapIsAfterAnchor = setDrag?.exIdx === exIdx && setDrag.destinationIdx === dragRemainingIndices.length;
+                      const showsDropSlot = setDrag?.exIdx === exIdx && setDrag.setIdx !== setIdx && gapAnchorIdx === setIdx;
                       const wasRecentlyDropped = recentlyDroppedSet === `${exIdx}-${setIdx}`;
 
                       return (
@@ -4834,11 +4850,15 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                           data-set-row-exercise={exIdx}
                           data-set-row-index={setIdx}
                           className={`relative space-y-0 border-b border-slate-850 ${isSetSkipped ? 'opacity-50' : ''} ${isDraggedSet ? 'z-30 shadow-2xl ring-2 ring-indigo-400 bg-slate-900' : ''} ${wasRecentlyDropped ? 'animate-pulse ring-2 ring-emerald-400' : ''}`}
-                          style={isDraggedSet ? { transform: `translateY(${setDrag.offsetY}px)`, transition: 'box-shadow 150ms ease', touchAction: 'none' } : undefined}
+                          style={isDraggedSet ? { transform: `translateY(${setDrag.offsetY}px)`, transition: 'box-shadow 150ms ease' } : undefined}
                         >
-                          {isDragDestination && (
-                            <div className="absolute -top-1 left-2 right-2 z-40 h-1 bg-indigo-400 border-y border-white shadow-lg" aria-hidden="true">
-                              <span className="absolute -left-1 -top-1 w-3 h-3 rotate-45 bg-indigo-400 border border-white" />
+                          {showsDropSlot && (
+                            <div
+                              data-set-drop-slot={setDrag.destinationIdx}
+                              className={`absolute ${gapIsAfterAnchor ? '-bottom-3' : '-top-3'} left-2 right-2 z-40 h-6 bg-slate-950 border-2 border-dashed border-indigo-300 shadow-xl flex items-center justify-center pointer-events-none`}
+                              aria-hidden="true"
+                            >
+                              <span className="bg-slate-950 px-2 text-[8px] font-black uppercase tracking-widest text-white">Drop set here</span>
                             </div>
                           )}
                           <div
@@ -5063,6 +5083,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                   setActiveSetAction({ exIdx, setIdx });
                                 }}
                                 className={`p-2 hover:bg-slate-800 text-slate-400 hover:text-indigo-400 rounded-none border bg-slate-950/40 transition ${pressedSetOptions === `${exIdx}-${setIdx}` ? 'scale-95 border-indigo-400 bg-indigo-950/50' : 'border-slate-800'}`}
+                                style={{ touchAction: 'none' }}
                                 title="Set Options"
                                 aria-label="Set options; press and hold to reorder"
                               >

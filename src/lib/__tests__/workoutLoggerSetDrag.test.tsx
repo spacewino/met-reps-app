@@ -48,6 +48,7 @@ describe('Workout Logger set-options long-press reordering', () => {
   it('keeps a short tap as Set Options and does not start a drag', async () => {
     const view = await renderLogger();
     const button = screen.getAllByLabelText('Set options; press and hold to reorder')[0];
+    expect((button as HTMLButtonElement).style.touchAction).toBe('none');
     pointer(button, 'down');
     pointer(button, 'up');
     fireEvent.click(button);
@@ -59,6 +60,9 @@ describe('Workout Logger set-options long-press reordering', () => {
   it('cancels a pre-activation move and pointer cancellation without saving a reorder', async () => {
     const view = await renderLogger();
     const button = screen.getAllByLabelText('Set options; press and hold to reorder')[0];
+    const setPointerCapture = vi.fn();
+    const releasePointerCapture = vi.fn();
+    Object.assign(button, { setPointerCapture, releasePointerCapture, hasPointerCapture: () => true });
     pointer(button, 'down', 10);
     pointer(button, 'move', 25);
     await act(waitForHold);
@@ -68,6 +72,9 @@ describe('Workout Logger set-options long-press reordering', () => {
     await act(waitForHold);
     expect(view.container.querySelector('.ring-indigo-400')).toBeTruthy();
     pointer(button, 'cancel', 10);
+    expect(view.container.querySelector('.ring-indigo-400')).toBeNull();
+    expect(setPointerCapture).toHaveBeenCalledWith(7);
+    expect(releasePointerCapture).toHaveBeenCalledWith(7);
     expect(getActiveWorkoutDraft()?.rawDraft.exercises[0].sets.map((set: { weight: number }) => set.weight)).toEqual([11, 22, 33]);
     view.unmount();
   });
@@ -82,6 +89,7 @@ describe('Workout Logger set-options long-press reordering', () => {
     pointer(button, 'down', 10);
     await act(waitForHold);
     pointer(button, 'move', 80);
+    expect(view.container.querySelector('[data-set-drop-slot="1"]')?.textContent).toContain('Drop set here');
     pointer(button, 'up', 80);
     fireEvent.click(button);
 
