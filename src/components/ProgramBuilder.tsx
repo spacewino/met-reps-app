@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Dumbbell, Plus, Trash2, ArrowLeft, Clipboard, HelpCircle, Save, Info, Pencil, Check, TrendingUp, CalendarX, User, X } from 'lucide-react';
+import { Dumbbell, Plus, Trash2, ArrowLeft, ArrowUp, ArrowDown, Clipboard, HelpCircle, Save, Info, Pencil, Check, TrendingUp, CalendarX, User, X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Program, ExerciseEntry, WeightUnit, TargetProgressionMode } from '../types';
 import { storage, PREBUILT_TEMPLATES } from '../lib/storage';
@@ -672,6 +672,18 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
         ...prev,
         [dayIdx]: currentList.filter((_, idx) => idx !== exIdx),
       };
+    });
+  };
+
+  const handleMoveExercise = (dayIdx: number, exIdx: number, direction: -1 | 1) => {
+    setExercisesByDay(prev => {
+      const currentList = prev[dayIdx] || [];
+      const targetIdx = exIdx + direction;
+      if (targetIdx < 0 || targetIdx >= currentList.length) return prev;
+
+      const reordered = [...currentList];
+      [reordered[exIdx], reordered[targetIdx]] = [reordered[targetIdx], reordered[exIdx]];
+      return { ...prev, [dayIdx]: reordered };
     });
   };
 
@@ -1439,7 +1451,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                   key={exIdx}
                   className="bg-slate-950/70 border border-slate-850 rounded-none p-3.5 flex items-center gap-3"
                 >
-                  <div className="grid grid-cols-12 gap-2 flex-1">
+                  <div className="grid grid-cols-12 gap-2 flex-1 min-w-0">
                     {/* Exercise Name */}
                     <button
                       type="button"
@@ -1464,19 +1476,43 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                     </button>
                   </div>
 
-                  {/* Actions: Edit & Remove */}
-                  <div className="flex items-center gap-1 shrink-0 self-end pb-2">
+                  {/* Actions: Reorder, edit & remove */}
+                  <div className="flex items-center gap-0.5 shrink-0 self-end pb-2">
                     <button
+                      type="button"
+                      onClick={() => handleMoveExercise(activeTabDay, exIdx, -1)}
+                      disabled={exIdx === 0}
+                      className="p-1 text-indigo-400 hover:text-indigo-300 transition cursor-pointer disabled:text-slate-700 disabled:cursor-not-allowed disabled:hover:text-slate-700"
+                      title={`Move ${ex.name} up`}
+                      aria-label={`Move ${ex.name} up`}
+                    >
+                      <ArrowUp className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleMoveExercise(activeTabDay, exIdx, 1)}
+                      disabled={exIdx === (exercisesByDay[activeTabDay] || []).length - 1}
+                      className="p-1 text-indigo-400 hover:text-indigo-300 transition cursor-pointer disabled:text-slate-700 disabled:cursor-not-allowed disabled:hover:text-slate-700"
+                      title={`Move ${ex.name} down`}
+                      aria-label={`Move ${ex.name} down`}
+                    >
+                      <ArrowDown className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => openSelectorFor(activeTabDay, exIdx)}
-                      className="p-1.5 text-indigo-400 hover:text-indigo-300 transition cursor-pointer"
+                      className="p-1 text-indigo-400 hover:text-indigo-300 transition cursor-pointer"
                       title="Browse Library"
+                      aria-label={`Edit ${ex.name}`}
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
                     <button
+                      type="button"
                       onClick={() => handleDeleteExerciseFromDay(activeTabDay, exIdx)}
-                      className="p-1.5 text-slate-500 hover:text-rose-400 transition cursor-pointer"
+                      className="p-1 text-slate-500 hover:text-rose-400 transition cursor-pointer"
                       title="Delete exercise template"
+                      aria-label={`Delete ${ex.name}`}
                     >
                       <Trash2 className="w-4.5 h-4.5" />
                     </button>
