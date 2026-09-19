@@ -45,10 +45,21 @@ describe('Workout Logger set-options long-press reordering', () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
 
-  it('keeps a short tap as Set Options and does not start a drag', async () => {
+  it('keeps native vertical scrolling in the outer padding while an outer tap still opens Set Options', async () => {
     const view = await renderLogger();
     const button = screen.getAllByLabelText('Set options; press and hold to reorder')[0];
-    expect((button as HTMLButtonElement).style.touchAction).toBe('none');
+    const setPointerCapture = vi.fn();
+    Object.assign(button, { setPointerCapture });
+    expect((button as HTMLButtonElement).style.touchAction).toBe('pan-y');
+    pointer(button, 'down');
+    pointer(button, 'move', 30);
+    await act(waitForHold);
+    expect(view.container.querySelector('.ring-indigo-400')).toBeNull();
+    expect(setPointerCapture).not.toHaveBeenCalled();
+    pointer(button, 'up');
+    fireEvent.click(button);
+    expect(screen.queryByText('Set 1 Options')).toBeNull();
+
     pointer(button, 'down');
     pointer(button, 'up');
     fireEvent.click(button);
@@ -60,15 +71,17 @@ describe('Workout Logger set-options long-press reordering', () => {
   it('cancels a pre-activation move and pointer cancellation without saving a reorder', async () => {
     const view = await renderLogger();
     const button = screen.getAllByLabelText('Set options; press and hold to reorder')[0];
+    const dragZone = button.querySelector<HTMLElement>('[data-set-drag-zone]')!;
+    expect(dragZone.style.touchAction).toBe('none');
     const setPointerCapture = vi.fn();
     const releasePointerCapture = vi.fn();
     Object.assign(button, { setPointerCapture, releasePointerCapture, hasPointerCapture: () => true });
-    pointer(button, 'down', 10);
+    pointer(dragZone, 'down', 10);
     pointer(button, 'move', 25);
     await act(waitForHold);
     expect(view.container.querySelector('.ring-indigo-400')).toBeNull();
 
-    pointer(button, 'down', 10);
+    pointer(dragZone, 'down', 10);
     await act(waitForHold);
     expect(view.container.querySelector('.ring-indigo-400')).toBeTruthy();
     pointer(button, 'cancel', 10);
@@ -86,7 +99,8 @@ describe('Workout Logger set-options long-press reordering', () => {
       top: index * 50, bottom: index * 50 + 50, left: 0, right: 300, width: 300, height: 50, x: 0, y: index * 50, toJSON: () => ({}),
     }));
     const button = screen.getAllByLabelText('Set options; press and hold to reorder')[0];
-    pointer(button, 'down', 10);
+    const dragZone = button.querySelector<HTMLElement>('[data-set-drag-zone]')!;
+    pointer(dragZone, 'down', 10);
     await act(waitForHold);
     pointer(button, 'move', 80);
     const destinationSlot = view.container.querySelector('[data-set-drop-slot="1"]');

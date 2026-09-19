@@ -1405,6 +1405,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const [recentlyDroppedSet, setRecentlyDroppedSet] = useState<string | null>(null);
   const setDragRef = useRef<typeof setDrag>(null);
   const setHoldRef = useRef<{ timer: ReturnType<typeof setTimeout>; pointerId: number; exIdx: number; setIdx: number; startX: number; startY: number; button: HTMLButtonElement } | null>(null);
+  const setOptionsOuterPointerRef = useRef<{ pointerId: number; startX: number; startY: number } | null>(null);
   const suppressSetOptionsClickRef = useRef(false);
   const dropHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [commentDraft, setCommentDraft] = useState<string>('');
@@ -3450,6 +3451,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
   const handleSetOptionsPointerDown = (event: React.PointerEvent<HTMLButtonElement>, exIdx: number, setIdx: number) => {
     if (!event.isPrimary || event.button !== 0 || exercises[exIdx]?.sets[setIdx]?.isSkipped) return;
+    const pointerTarget = event.target as Element;
+    if (!pointerTarget.closest('[data-set-drag-zone]')) {
+      setOptionsOuterPointerRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
+      return;
+    }
+    setOptionsOuterPointerRef.current = null;
     if (setHoldRef.current) clearTimeout(setHoldRef.current.timer);
     const button = event.currentTarget;
     button.setPointerCapture?.(event.pointerId);
@@ -3470,7 +3477,13 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
   const handleSetOptionsPointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
     const hold = setHoldRef.current;
-    if (!hold || hold.pointerId !== event.pointerId) return;
+    if (!hold || hold.pointerId !== event.pointerId) {
+      const outerPointer = setOptionsOuterPointerRef.current;
+      if (outerPointer?.pointerId === event.pointerId && Math.hypot(event.clientX - outerPointer.startX, event.clientY - outerPointer.startY) > 9) {
+        suppressSetOptionsClickRef.current = true;
+      }
+      return;
+    }
     const dx = event.clientX - hold.startX;
     const dy = event.clientY - hold.startY;
     const drag = setDragRef.current;
@@ -3501,6 +3514,11 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleSetOptionsPointerEnd = (event: React.PointerEvent<HTMLButtonElement>, cancelled: boolean) => {
+    if (setOptionsOuterPointerRef.current?.pointerId === event.pointerId) {
+      setOptionsOuterPointerRef.current = null;
+      if (cancelled) suppressSetOptionsClickRef.current = false;
+      return;
+    }
     if (setHoldRef.current?.pointerId !== event.pointerId && setDragRef.current === null) return;
     endSetDrag(!cancelled);
     if (cancelled) suppressSetOptionsClickRef.current = false;
@@ -5085,11 +5103,18 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                   setActiveSetAction({ exIdx, setIdx });
                                 }}
                                 className={`p-2 hover:bg-slate-800 text-slate-400 hover:text-indigo-400 rounded-none border bg-slate-950/40 transition ${pressedSetOptions === `${exIdx}-${setIdx}` ? 'scale-95 border-indigo-400 bg-indigo-950/50' : 'border-slate-800'}`}
-                                style={{ touchAction: 'none' }}
+                                style={{ touchAction: 'pan-y' }}
                                 title="Set Options"
                                 aria-label="Set options; press and hold to reorder"
                               >
-                                <MoreVertical className="w-4 h-4" />
+                                <span
+                                  data-set-drag-zone
+                                  className="w-8 h-8 -m-2 flex items-center justify-center"
+                                  style={{ touchAction: 'none' }}
+                                  aria-hidden="true"
+                                >
+                                  <MoreVertical className="w-4 h-4" />
+                                </span>
                               </button>
                             </div>
                           </div>
