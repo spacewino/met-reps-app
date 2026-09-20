@@ -602,7 +602,7 @@ export function HomeView({
                 }`}
               >
                 <Plus className="w-4 h-4" />
-                {isOngoingOneOffDraft ? 'Resume one-off workout' : '+ One-off workout'}
+                {isOngoingOneOffDraft ? 'Resume one-off workout' : 'Log one-off workout today'}
               </button>
           );
         })()}

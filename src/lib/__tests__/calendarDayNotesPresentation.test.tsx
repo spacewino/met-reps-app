@@ -24,10 +24,15 @@ describe('calendar day notes presentation and interaction', () => {
 
   it('renders today actions side-by-side and non-today only as a full-width note action', () => {
     const today = renderHome();
-    const oneOff = screen.getByRole('button', { name: /one-off workout/i });
+    const oneOff = screen.getByRole('button', { name: 'Log one-off workout today' });
     const add = screen.getByRole('button', { name: /add note/i });
+    expect(oneOff.querySelectorAll('svg.lucide-plus')).toHaveLength(1);
+    expect(oneOff.textContent).toBe('Log one-off workout today');
+    expect(oneOff.textContent).not.toContain('+');
     expect(oneOff.parentElement).toBe(add.parentElement);
     expect(add.parentElement?.className).toContain('grid-cols-2');
+    fireEvent.click(add);
+    expect(screen.getByRole('dialog', { name: 'Add Calendar Day Note' })).toBeTruthy();
     today.unmount();
 
     renderHome('2026-09-19');
