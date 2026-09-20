@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Program, WorkoutLog, PlannedSession, AppSettings, WeightUnit } from '../types';
+import { Program, WorkoutLog, PlannedSession, AppSettings, WeightUnit, CalendarDayNote, CalendarDayNoteMap, CalendarNoteType } from '../types';
 import { getLocalDateString, calculateSessionDate } from './dateUtils';
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -737,8 +737,72 @@ function getDateStringOffset(daysOffset: number): string {
 // Seed workout logs
 const SEED_WORKOUT_LOGS: WorkoutLog[] = [];
 
+const CALENDAR_NOTE_TYPES: CalendarNoteType[] = ['general', 'sick', 'travel'];
+const isValidCalendarDate = (date: string): boolean => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  const [year, month, day] = date.split('-').map(Number);
+  const parsed = new Date(year, month - 1, day);
+  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
+};
+export const isValidCalendarDayNote = (value: unknown): value is CalendarDayNote => {
+  if (!value || typeof value !== 'object') return false;
+  const note = value as Partial<CalendarDayNote>;
+  return CALENDAR_NOTE_TYPES.includes(note.type as CalendarNoteType)
+    && typeof note.text === 'string' && note.text.trim().length > 0 && note.text.length <= 300
+    && typeof note.createdAt === 'string' && !Number.isNaN(Date.parse(note.createdAt))
+    && typeof note.updatedAt === 'string' && !Number.isNaN(Date.parse(note.updatedAt));
+};
+
 // Initialize storage helper
 export const storage = {
+  getCalendarDayNotes: (): CalendarDayNoteMap => {
+    try {
+      const parsed: unknown = JSON.parse(localStorage.getItem('metreps_calendar_day_notes') || '{}');
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+      const valid: CalendarDayNoteMap = {};
+      for (const [date, note] of Object.entries(parsed)) {
+        if (isValidCalendarDate(date) && isValidCalendarDayNote(note)) valid[date] = note;
+      }
+      return valid;
+    } catch { return {}; }
+  },
+
+  getCalendarDayNote: (date: string): CalendarDayNote | null =>
+    storage.getCalendarDayNotes()[date] || null,
+
+  saveCalendarDayNote: (date: string, type: CalendarNoteType, text: string): CalendarDayNote | null => {
+    if (!isValidCalendarDate(date) || !CALENDAR_NOTE_TYPES.includes(type) || typeof text !== 'string') return null;
+    const trimmed = text.trim();
+    if (!trimmed || trimmed.length > 300) return null;
+    const notes = storage.getCalendarDayNotes();
+    const now = new Date().toISOString();
+    const note = { type, text: trimmed, createdAt: notes[date]?.createdAt || now, updatedAt: now };
+    notes[date] = note;
+    localStorage.setItem('metreps_calendar_day_notes', JSON.stringify(notes));
+    return note;
+  },
+
+  deleteCalendarDayNote: (date: string): boolean => {
+    if (!isValidCalendarDate(date)) return false;
+    const notes = storage.getCalendarDayNotes();
+    if (!notes[date]) return false;
+    delete notes[date];
+    localStorage.setItem('metreps_calendar_day_notes', JSON.stringify(notes));
+    return true;
+  },
+
+  importCalendarDayNotes: (value: unknown): number => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return 0;
+    const notes = storage.getCalendarDayNotes();
+    let imported = 0;
+    for (const [date, note] of Object.entries(value)) {
+      if (!isValidCalendarDate(date) || !isValidCalendarDayNote(note)) continue;
+      notes[date] = { ...note, text: note.text.trim() };
+      imported++;
+    }
+    localStorage.setItem('metreps_calendar_day_notes', JSON.stringify(notes));
+    return imported;
+  },
   getPrograms: (): Program[] => {
     const data = localStorage.getItem(KEYS.PROGRAM_LIST);
     if (!data) {

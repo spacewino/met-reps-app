@@ -5,6 +5,17 @@
 
 export type WeightUnit = 'kg' | 'lb';
 
+export type CalendarNoteType = 'general' | 'sick' | 'travel';
+
+export interface CalendarDayNote {
+  type: CalendarNoteType;
+  text: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CalendarDayNoteMap = Record<string, CalendarDayNote>;
+
 export type TargetProgressionMode =
   | 'performance_led'
   | 'metreps_guided';

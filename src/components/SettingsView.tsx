@@ -398,6 +398,7 @@ export function SettingsView({
         programList: storage.getPrograms(),
         currentProgramId: storage.getCurrentProgramId(),
         workoutLogs: storage.getWorkoutLogs(),
+        calendarDayNotes: storage.getCalendarDayNotes(),
         customExercises: (() => {
           try {
             const raw = localStorage.getItem('metreps_custom_exercises');
@@ -447,8 +448,9 @@ export function SettingsView({
         const parsed = JSON.parse(content);
         let logsAdded = 0;
         let programsAdded = 0;
+        let notesAdded = 0;
 
-        if (parsed.programList || parsed.workoutLogs || parsed.customExercises) {
+        if (parsed.programList || parsed.workoutLogs || parsed.customExercises || parsed.calendarDayNotes) {
           if (parsed.programList && Array.isArray(parsed.programList)) {
             parsed.programList.forEach((p: Program) => {
               if (p.id) storage.saveProgram(p);
@@ -485,6 +487,7 @@ export function SettingsView({
           if (parsed.hiddenDefaults) {
             localStorage.setItem('metreps_hidden_defaults', JSON.stringify(parsed.hiddenDefaults));
           }
+          if (parsed.calendarDayNotes) notesAdded = storage.importCalendarDayNotes(parsed.calendarDayNotes);
         } else if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].exercisesByDay) {
           parsed.forEach((p: Program) => {
             if (!p.id) p.id = `imported-${Date.now()}-${Math.random()}`;
@@ -516,7 +519,7 @@ export function SettingsView({
         setActiveProgId(currentId);
         setAlertMsg({
           title: 'Data Imported Successfully',
-          message: `Successfully imported ${programsAdded} programs and ${logsAdded} workout logs! App state updated.`,
+          message: `Successfully imported ${programsAdded} programs, ${logsAdded} workout logs, and ${notesAdded} calendar day notes! App state updated.`,
         });
       } catch (err: any) {
         setAlertMsg({
@@ -542,6 +545,7 @@ export function SettingsView({
     const checkedEx = localStorage.getItem('metreps_checked_exercises');
     const hiddenDefs = localStorage.getItem('metreps_hidden_defaults');
     const customEx = localStorage.getItem('metreps_custom_exercises');
+    const calendarDayNotes = localStorage.getItem('metreps_calendar_day_notes');
 
     localStorage.clear();
 
@@ -553,6 +557,7 @@ export function SettingsView({
     if (checkedEx) localStorage.setItem('metreps_checked_exercises', checkedEx);
     if (hiddenDefs) localStorage.setItem('metreps_hidden_defaults', hiddenDefs);
     if (customEx) localStorage.setItem('metreps_custom_exercises', customEx);
+    if (calendarDayNotes) localStorage.setItem('metreps_calendar_day_notes', calendarDayNotes);
     
     // Seed programList to empty array to ensure clean template reload state
     localStorage.setItem('programList', '[]');
