@@ -64,7 +64,41 @@ describe('active workout discard during program enrolment', () => {
     fireEvent.click(screen.getByRole('button', { name: 'DISCARD WORKOUT & SWITCH PROGRAM' }));
     expect(storage.getCurrentProgramId()).toBe('a');
     expect(getActiveWorkoutDraft()?.rawDraft).toEqual(draft);
+    expect(storage.getPrograms().find(item => item.id === 'b')?.enrolledAt).toBeUndefined();
     expect(screen.getByText(/saved for later.*remains current/i)).toBeTruthy();
+    expect(screen.queryByText('Program saved and enrolled')).toBeNull();
+  });
+
+  it('restores Program B previous enrolledAt when discard fails', () => {
+    const previousEnrolledAt = '2025-05-01T00:00:00.000Z';
+    storage.saveProgram({ ...program('b', 'Program B'), enrolledAt: previousEnrolledAt });
+    const original = localStorage.removeItem.bind(localStorage);
+    vi.spyOn(localStorage, 'removeItem').mockImplementation(key => {
+      if (key === 'metreps_workout_draft') throw new Error('blocked');
+      original(key);
+    });
+    render(<ProgramBuilder onClose={() => {}} onSave={() => {}} />);
+    reachConflict();
+    fireEvent.click(screen.getByRole('button', { name: 'DISCARD WORKOUT & SWITCH PROGRAM' }));
+    expect(storage.getPrograms().find(item => item.id === 'b')?.enrolledAt).toBe(previousEnrolledAt);
+    expect(storage.getCurrentProgramId()).toBe('a');
+    expect(getActiveWorkoutDraft()?.rawDraft).toEqual(draft);
+  });
+
+  it('keeps the pointer consistent and restores target metadata when activation fails after discard', () => {
+    vi.restoreAllMocks();
+    (localStorage.removeItem as unknown as { mockRestore?: () => void }).mockRestore?.();
+    const previousEnrolledAt = '2025-05-01T00:00:00.000Z';
+    storage.saveProgram({ ...program('b', 'Program B'), enrolledAt: previousEnrolledAt });
+    render(<ProgramBuilder onClose={() => {}} onSave={() => {}} />);
+    reachConflict();
+    vi.spyOn(storage, 'setCurrentProgramId').mockImplementation(() => { throw new Error('pointer blocked'); });
+    fireEvent.click(screen.getByRole('button', { name: 'DISCARD WORKOUT & SWITCH PROGRAM' }));
+    expect(localStorage.getItem('currentProgramId')).toBe('a');
+    expect(getActiveWorkoutDraft()).toBeNull();
+    expect(storage.getPrograms().find(item => item.id === 'b')?.enrolledAt).toBe(previousEnrolledAt);
+    expect(screen.getByText(/workout was discarded.*could not be made current/i)).toBeTruthy();
+    expect(screen.queryByText('Program saved and enrolled')).toBeNull();
   });
 
   it('canonical discard targets exact identities and supports one-off sessions', () => {

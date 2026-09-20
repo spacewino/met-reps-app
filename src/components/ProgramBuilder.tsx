@@ -313,6 +313,14 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
 
   const performDirectSaveProgram = (updatedProgram: Program, clearMatchingDraft = false, enrol = false) => {
     let savedProgram: Program;
+    const preAttemptProgram = storage.getPrograms().find(program => program.id === updatedProgram.id);
+    const restorePreAttemptEnrolment = (program: Program) => {
+      const restored = { ...program };
+      if (preAttemptProgram?.enrolledAt !== undefined) restored.enrolledAt = preAttemptProgram.enrolledAt;
+      else delete restored.enrolledAt;
+      storage.saveProgram(restored);
+      return restored;
+    };
     try {
       savedProgram = clearMatchingDraft && enrol
         ? storage.saveProgramDesign({ ...updatedProgram, enrolledAt: new Date().toISOString() })
@@ -325,12 +333,22 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
 
     if (clearMatchingDraft) {
       if (!pendingDraftIdentity || !discardActiveWorkoutSession(pendingDraftIdentity)) {
+        savedProgram = restorePreAttemptEnrolment(savedProgram);
+        setSavedPrograms(storage.getPrograms());
         setAlertMsg(`Failed to discard the active workout. ${savedProgram.name} was saved for later, but ${enrolledProgramName || 'the original program'} remains current.`);
         return;
       }
     }
     if (enrol) {
-      storage.setCurrentProgramId(savedProgram.id);
+      try {
+        storage.setCurrentProgramId(savedProgram.id);
+      } catch (error) {
+        savedProgram = restorePreAttemptEnrolment(savedProgram);
+        setSavedPrograms(storage.getPrograms());
+        console.error('Failed to activate enrolled program:', error);
+        setAlertMsg(`The workout was discarded, but ${savedProgram.name} could not be made current. It remains saved for later; please try enrolling again.`);
+        return;
+      }
       setCurrentProgramId(savedProgram.id);
     }
     setEditingProgramId(savedProgram.id);
