@@ -207,6 +207,34 @@ export function clearActiveWorkoutDraft(): void {
   }
 }
 
+export const ACTIVE_WORKOUT_DISCARDED_EVENT = 'metreps:active-workout-discarded';
+
+/** Atomically discards the exact recoverable active workout and its timer sidecars. */
+export function discardActiveWorkoutSession(expectedIdentity: ActiveWorkoutIdentity): boolean {
+  const active = getActiveWorkoutDraft();
+  if (!active?.identity || resolveWorkoutNavigation(active.identity, expectedIdentity) !== 'allow') return false;
+  const rawDraft = localStorage.getItem('metreps_workout_draft');
+  const timerKeys = ['isResting', 'restStartTime', 'restStartContext'] as const;
+  const timerValues = timerKeys.map(key => localStorage.getItem(key));
+  try {
+    localStorage.removeItem('metreps_workout_draft');
+    timerKeys.forEach(key => localStorage.removeItem(key));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(ACTIVE_WORKOUT_DISCARDED_EVENT, { detail: { identity: expectedIdentity } }));
+    }
+    return true;
+  } catch (error) {
+    try {
+      if (rawDraft !== null) localStorage.setItem('metreps_workout_draft', rawDraft);
+      timerKeys.forEach((key, index) => {
+        if (timerValues[index] !== null) localStorage.setItem(key, timerValues[index]!);
+      });
+    } catch (_) {}
+    console.error('Failed to discard active workout session:', error);
+    return false;
+  }
+}
+
 /**
  * Checks whether an active workout draft belongs to a specific program.
  * Strictly checks that the draft is a programmed session for this program ID,

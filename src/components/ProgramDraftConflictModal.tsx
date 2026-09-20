@@ -13,6 +13,8 @@ interface ProgramDraftConflictModalProps {
   onKeepWorkout: () => void;
   onDiscardAndSave: () => void;
   isProcessing?: boolean;
+  sourceProgramName?: string;
+  targetProgramName?: string;
 }
 
 export function ProgramDraftConflictModal({
@@ -21,6 +23,8 @@ export function ProgramDraftConflictModal({
   onKeepWorkout,
   onDiscardAndSave,
   isProcessing = false,
+  sourceProgramName = 'your current program',
+  targetProgramName = 'the selected program',
 }: ProgramDraftConflictModalProps) {
   const isAmber = themeId === 'amber';
 
@@ -76,7 +80,7 @@ export function ProgramDraftConflictModal({
         {/* Content */}
         <div className="p-5 space-y-4 text-xs sm:text-sm leading-relaxed">
           <p className={`${isAmber ? 'text-slate-700' : 'text-slate-300'} font-semibold leading-relaxed`}>
-            You have an unfinished workout for this program. Saving these program changes will discard that workout draft.
+            You have an unfinished workout for {sourceProgramName}. Enrolling in {targetProgramName} will discard that workout draft.
           </p>
         </div>
 
@@ -106,7 +110,7 @@ export function ProgramDraftConflictModal({
                 : 'bg-rose-600 hover:bg-rose-500 border-rose-700 shadow-rose-950/30'
             }`}
           >
-            DISCARD WORKOUT & SAVE PROGRAM
+            DISCARD WORKOUT & SWITCH PROGRAM
           </button>
         </div>
       </div>

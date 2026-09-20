@@ -516,9 +516,10 @@ describe('ADP-2A: Active Workout Draft Protection & Historical Edit Identity', (
       );
 
       expect(html).toContain('ACTIVE WORKOUT IN PROGRESS');
-      expect(html).toContain('You have an unfinished workout for this program. Saving these program changes will discard that workout draft.');
+      expect(html).toContain('You have an unfinished workout for');
+      expect(html).toContain('Enrolling in');
       expect(html).toContain('KEEP WORKOUT');
-      expect(html).toContain('DISCARD WORKOUT &amp; SAVE PROGRAM');
+      expect(html).toContain('DISCARD WORKOUT &amp; SWITCH PROGRAM');
     });
 
     it('does not render when isOpen is false', () => {

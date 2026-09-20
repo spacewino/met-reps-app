@@ -9,7 +9,7 @@ import { motion } from 'motion/react';
 import { Program, ExerciseEntry, WeightUnit, TargetProgressionMode } from '../types';
 import { storage, PREBUILT_TEMPLATES } from '../lib/storage';
 import { resolveProgramProgressionMode } from '../lib/programProgressionMode';
-import { getActiveWorkoutDraft, doesDraftMatchProgram, clearActiveWorkoutDraft } from '../lib/navigationGuard';
+import { getActiveWorkoutDraft, doesDraftMatchProgram, discardActiveWorkoutSession, ActiveWorkoutIdentity } from '../lib/navigationGuard';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { ProgramDraftConflictModal } from './ProgramDraftConflictModal';
@@ -230,6 +230,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
   // Active workout draft conflict state
   const [showDraftConflictModal, setShowDraftConflictModal] = useState(false);
   const [pendingDraftConflictProgram, setPendingDraftConflictProgram] = useState<Program | null>(null);
+  const [pendingDraftIdentity, setPendingDraftIdentity] = useState<ActiveWorkoutIdentity | null>(null);
+  const [pendingDraftProgramName, setPendingDraftProgramName] = useState('your current program');
 
   // Progression & Periodisation Information Dialog State
   const [activeInfoModal, setActiveInfoModal] = useState<InfoModalKey | null>(null);
@@ -296,6 +298,12 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       || (enrol && currentProgramId !== updatedProgram.id)
     )) {
       setPendingDraftConflictProgram(updatedProgram);
+      setPendingDraftIdentity(activeDraftInfo.identity);
+      setPendingDraftProgramName(
+        typeof activeDraftInfo.rawDraft.programName === 'string'
+          ? activeDraftInfo.rawDraft.programName
+          : enrolledProgramName || 'your current program'
+      );
       setPendingEnrolment(enrol);
       setShowDraftConflictModal(true);
       return;
@@ -306,14 +314,25 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
   const performDirectSaveProgram = (updatedProgram: Program, clearMatchingDraft = false, enrol = false) => {
     let savedProgram: Program;
     try {
-      savedProgram = enrol ? storage.enrolProgram(updatedProgram) : storage.saveProgramDesign(updatedProgram);
+      savedProgram = clearMatchingDraft && enrol
+        ? storage.saveProgramDesign({ ...updatedProgram, enrolledAt: new Date().toISOString() })
+        : enrol ? storage.enrolProgram(updatedProgram) : storage.saveProgramDesign(updatedProgram);
     } catch (err) {
       console.error('Failed to save program:', err);
       setAlertMsg(err instanceof Error ? err.message : 'Failed to save program. Please try again.');
       return;
     }
 
-    if (enrol) setCurrentProgramId(savedProgram.id);
+    if (clearMatchingDraft) {
+      if (!pendingDraftIdentity || !discardActiveWorkoutSession(pendingDraftIdentity)) {
+        setAlertMsg(`Failed to discard the active workout. ${savedProgram.name} was saved for later, but ${enrolledProgramName || 'the original program'} remains current.`);
+        return;
+      }
+    }
+    if (enrol) {
+      storage.setCurrentProgramId(savedProgram.id);
+      setCurrentProgramId(savedProgram.id);
+    }
     setEditingProgramId(savedProgram.id);
     setDraftSource(null);
     setOriginalName(savedProgram.name);
@@ -355,14 +374,6 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       updatedAt: savedProgram.updatedAt,
       enrolledAt: savedProgram.enrolledAt,
     });
-
-    // Clear matching draft only when explicitly confirmed via draft conflict modal
-    if (clearMatchingDraft) {
-      const activeDraftInfo = getActiveWorkoutDraft();
-      if (activeDraftInfo && doesDraftMatchProgram(activeDraftInfo.rawDraft, updatedProgram.id)) {
-        clearActiveWorkoutDraft();
-      }
-    }
 
     if (onDirtyChange) {
       onDirtyChange(false);
@@ -1753,6 +1764,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
         onKeepWorkout={() => {
           setShowDraftConflictModal(false);
           setPendingDraftConflictProgram(null);
+          setPendingDraftIdentity(null);
         }}
         onDiscardAndSave={() => {
           const prog = pendingDraftConflictProgram;
@@ -1763,6 +1775,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
             setPendingEnrolment(false);
           }
         }}
+        sourceProgramName={pendingDraftProgramName}
+        targetProgramName={pendingDraftConflictProgram?.name}
       />
 
       {/* Information Dialog */}
