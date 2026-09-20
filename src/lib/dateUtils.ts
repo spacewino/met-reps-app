@@ -35,6 +35,20 @@ export function getTodayLocalDateString(): string {
 }
 
 /**
+ * Returns the schedule anchor for a program run. Legacy programs only used
+ * createdAt, so that value remains the anchor while such a program is active.
+ * Inactive legacy designs deliberately have no run until they are enrolled.
+ */
+export function getEffectiveEnrolmentDate(
+  program: { createdAt: string; enrolledAt?: string } | null | undefined,
+  isActive = true,
+): string | null {
+  if (!program) return null;
+  if (program.enrolledAt) return program.enrolledAt;
+  return isActive ? program.createdAt : null;
+}
+
+/**
  * Calculates the exact session date for a given program's starting date, 
  * day of the week assignments, target week, and day index of the program.
  */
@@ -139,4 +153,3 @@ export function formatLocalTimeDisplay(timeStr: string, locale?: string): string
     return timeStr;
   }
 }
-

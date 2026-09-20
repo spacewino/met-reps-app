@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Dumbbell, Calendar, LineChart, PlusCircle, BookOpen, Settings, HelpCircle, ArrowRight, ArrowLeft, Info, Shield, HeartPulse, Check, FileJson, Plus, QrCode } from 'lucide-react';
 import { Program, WorkoutLog } from './types';
 import { storage } from './lib/storage';
-import { getLocalDateString, getTodayLocalDateString, calculateSessionDate } from './lib/dateUtils';
+import { getLocalDateString, getTodayLocalDateString, calculateSessionDate, getEffectiveEnrolmentDate } from './lib/dateUtils';
 
 // Screens
 import { HomeView } from './components/HomeView';
@@ -254,7 +254,8 @@ export default function App() {
       .filter(d => d <= currentProgram.daysPerWeek)
       .sort((a, b) => a - b);
       
-    const progTime = new Date(currentProgram.createdAt).getTime();
+    const runStart = getEffectiveEnrolmentDate(currentProgram)!;
+    const progTime = new Date(runStart).getTime();
 
     // Loop up to a high limit (e.g., 1000 weeks) to support infinite progression beyond the standard duration.
     const searchWeeksLimit = Math.max(totalWeeks + 100, 1000);
@@ -275,7 +276,7 @@ export default function App() {
           }
         );
         if (!hasCompletedLog) {
-          const sessionDate = calculateSessionDate(currentProgram.createdAt, currentProgram.assignedWeekdays, w, d);
+          const sessionDate = calculateSessionDate(runStart, currentProgram.assignedWeekdays, w, d);
           const schedDateStr = getLocalDateString(sessionDate);
 
           return {
@@ -291,7 +292,7 @@ export default function App() {
     }
     
     const defaultD = dayIndexes[0] || 1;
-    const sessionDate = calculateSessionDate(currentProgram.createdAt, currentProgram.assignedWeekdays, 1, defaultD);
+    const sessionDate = calculateSessionDate(runStart, currentProgram.assignedWeekdays, 1, defaultD);
     const schedDateStr = getLocalDateString(sessionDate);
 
     return {

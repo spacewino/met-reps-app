@@ -544,16 +544,13 @@ describe('METREPS — RPC-2A Real Component Behavioural Presentation Suite', () 
     await act(async () => {
       fireEvent.click(saveButton!);
     });
-
-    // If Overwrite confirmation modal appears, confirm overwrite
-    const overwriteButton = Array.from(rendered!.container.querySelectorAll('button')).find(
-      btn => btn.textContent?.includes('Yes, Overwrite')
-    );
-    if (overwriteButton) {
-      await act(async () => {
-        fireEvent.click(overwriteButton);
-      });
-    }
+    await act(async () => {
+      const saveChanges = Array.from(rendered!.container.querySelectorAll('button')).find(
+        btn => btn.textContent?.trim() === 'Save Changes'
+      );
+      expect(saveChanges).toBeDefined();
+      fireEvent.click(saveChanges!);
+    });
 
     // 5. Read back saved program from storage authority
     const savedContinuation = storage.getPrograms().find(p => p.id === continuationProgram.id);

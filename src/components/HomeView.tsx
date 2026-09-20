@@ -7,7 +7,7 @@ import React, { useState, useMemo } from 'react';
 import { Settings, ChevronLeft, ChevronRight, CheckCircle2, Play, Calendar as CalendarIcon, Info, Pencil, Repeat, Check, Plus, Minus } from 'lucide-react';
 import { Program, WorkoutLog, CalendarDayNoteMap } from '../types';
 import { storage } from '../lib/storage';
-import { getLocalDateString, getTodayLocalDateString, parseLocalDate } from '../lib/dateUtils';
+import { getLocalDateString, getTodayLocalDateString, parseLocalDate, getEffectiveEnrolmentDate } from '../lib/dateUtils';
 import { MetRepsLogo } from './MetRepsLogo';
 import { CalendarDayNoteModal, NOTE_TYPE_DETAILS } from './CalendarDayNoteModal';
 
@@ -89,7 +89,7 @@ export function HomeView({
   const currentProgramInfo = useMemo(() => {
     if (!currentProgram) return null;
     const now = new Date();
-    const start = new Date(currentProgram.createdAt);
+    const start = new Date(getEffectiveEnrolmentDate(currentProgram)!);
     const startMon = mondayOf(start);
     const nowMon = mondayOf(now);
     const weeksSinceStart = Math.floor((nowMon.getTime() - startMon.getTime()) / (7 * 24 * 60 * 60 * 1000));
@@ -170,7 +170,7 @@ export function HomeView({
       };
     }
 
-    const start = new Date(currentProgram.createdAt);
+    const start = new Date(getEffectiveEnrolmentDate(currentProgram)!);
     const target = parseLocalDate(dateKey);
     const weeksSinceStart = Math.floor((mondayOf(target).getTime() - mondayOf(start).getTime()) / (7 * 24 * 60 * 60 * 1000));
     const week = Math.max(1, weeksSinceStart + 1);

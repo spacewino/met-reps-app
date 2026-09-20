@@ -618,6 +618,7 @@ describe('APC-3A2B: Custom Exercise Identity Invariant Suite', () => {
       // Click Save Program
       const saveBtn = screen.getByRole('button', { name: /Save Program/i });
       fireEvent.click(saveBtn);
+      fireEvent.click(screen.getByRole('button', { name: /Save for Later/i }));
 
       // Read saved program from storage
       const programs: Program[] = storage.getPrograms();
