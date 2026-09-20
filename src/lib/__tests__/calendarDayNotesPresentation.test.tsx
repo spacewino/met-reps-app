@@ -27,8 +27,14 @@ describe('calendar day notes presentation and interaction', () => {
     const oneOff = screen.getByRole('button', { name: 'Log one-off workout today' });
     const add = screen.getByRole('button', { name: /add note/i });
     expect(oneOff.querySelectorAll('svg.lucide-plus')).toHaveLength(1);
-    expect(oneOff.textContent).toBe('Log one-off workout today');
+    const oneOffLabel = within(oneOff).getByText('One-off workout');
+    expect(oneOffLabel.textContent).toBe('One-off workout');
+    expect(oneOffLabel.className).toContain('whitespace-nowrap');
     expect(oneOff.textContent).not.toContain('+');
+    expect(oneOff.className).toContain('min-h-11');
+    expect(add.className).toContain('min-h-11');
+    expect(oneOff.className).toContain('items-center');
+    expect(add.className).toContain('items-center');
     expect(oneOff.parentElement).toBe(add.parentElement);
     expect(add.parentElement?.className).toContain('grid-cols-2');
     fireEvent.click(add);
