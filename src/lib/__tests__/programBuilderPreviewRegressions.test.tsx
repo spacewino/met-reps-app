@@ -42,9 +42,9 @@ describe('Program Builder preview regressions', () => {
     storage.saveProgram(program('active', 'Active Plan'));
     storage.setCurrentProgramId('active');
     render(<ProgramBuilder onClose={() => {}} onSave={() => {}} />);
-    fireEvent.click(screen.getByRole('button', { name: 'New Custom' }));
+    fireEvent.click(screen.getByRole('button', { name: /New Custom Program/i }));
     expect(screen.getByText('New unsaved program')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'New Custom' }).className).not.toContain('border-emerald-500');
+    expect(screen.getByRole('button', { name: /New Custom Program/i }).className).not.toContain('border-emerald-500');
     expect(screen.getByRole('button', { name: /Active Plan Active/i }).className).toContain('border-emerald-500');
   });
 
@@ -82,7 +82,7 @@ describe('Program Builder preview regressions', () => {
     ['Back', (onClose: ReturnType<typeof vi.fn>) => fireEvent.click(screen.getAllByRole('button')[0]), (onClose: ReturnType<typeof vi.fn>) => expect(onClose).toHaveBeenCalled()],
     ['saved program', () => fireEvent.click(screen.getByRole('button', { name: /Other Plan Saved/i })), () => expect(input().value).toBe('Other Plan')],
     ['template', () => fireEvent.click(screen.getByRole('button', { name: /Upper\/Lower Foundations Template/i })), () => expect(input().value).toBe('Upper/Lower Foundations')],
-    ['New Custom', () => fireEvent.click(screen.getByRole('button', { name: 'New Custom' })), () => expect(input().value).toBe('My Custom Strength Program')],
+    ['New Custom', () => fireEvent.click(screen.getByRole('button', { name: /New Custom Program/i })), () => expect(input().value).toBe('My Custom Strength Program')],
   ])('Save for Later establishes a clean baseline before immediate %s navigation', (_label, navigate, verify) => {
     storage.saveProgram(program('other', 'Other Plan'));
     const onClose = vi.fn();
@@ -102,7 +102,7 @@ describe('Program Builder preview regressions', () => {
     save(/^Save for Later$/i);
     dismissNotice();
     fireEvent.change(input(), { target: { value: 'Changed again' } });
-    fireEvent.click(screen.getByRole('button', { name: 'New Custom' }));
+    fireEvent.click(screen.getByRole('button', { name: /New Custom Program/i }));
     expect(screen.getByText('Discard unsaved changes?')).toBeTruthy();
   });
 
@@ -134,7 +134,7 @@ describe('Program Builder preview regressions', () => {
     expect(screen.getByText('quota')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     expect(input().value).toBe('Unsaved after failure');
-    fireEvent.click(screen.getByRole('button', { name: 'New Custom' }));
+    fireEvent.click(screen.getByRole('button', { name: /New Custom Program/i }));
     expect(screen.getByText('Discard unsaved changes?')).toBeTruthy();
   });
 });

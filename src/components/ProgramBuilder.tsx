@@ -132,6 +132,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
   const activeProg = useState(() => storage.getCurrentProgram())[0];
   const [currentProgramId, setCurrentProgramId] = useState<string | null>(() => activeProg?.id || null);
   const [editingProgramId, setEditingProgramId] = useState<string | null>(() => activeProg?.id || null);
+  const [draftSource, setDraftSource] = useState<'new' | string | null>(() => activeProg ? null : 'new');
 
   const [snapshot, setSnapshot] = useState<BuilderSnapshot>(() => {
     if (!activeProg) {
@@ -312,6 +313,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
 
     if (enrol) setCurrentProgramId(savedProgram.id);
     setEditingProgramId(savedProgram.id);
+    setDraftSource(null);
     setOriginalName(savedProgram.name);
     setSavedPrograms(storage.getPrograms());
 
@@ -507,6 +509,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     const tplProgressionMode = resolveProgramProgressionMode(tpl);
 
     setEditingProgramId(null);
+    setDraftSource(tpl.id);
     setName(tpl.name);
     setOriginalName('');
     setDaysPerWeek(tpl.daysPerWeek);
@@ -540,6 +543,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     const progProgressionMode = resolveProgramProgressionMode(prog);
 
     setEditingProgramId(prog.id);
+    setDraftSource(null);
     setName(prog.name);
     setOriginalName(prog.name);
     setDaysPerWeek(prog.daysPerWeek);
@@ -571,6 +575,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     storage.setCurrentProgramId(swapTarget.id);
     setCurrentProgramId(swapTarget.id);
     setEditingProgramId(swapTarget.id);
+    setDraftSource(null);
     
     setName(swapTarget.name);
     setOriginalName(swapTarget.name);
@@ -609,7 +614,6 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
   const handleConfirmUnenroll = () => {
     storage.setCurrentProgramId(null);
     setCurrentProgramId(null);
-    setEditingProgramId(null);
     setShowUnenrollConfirm(false);
     onSave();
   };
@@ -670,6 +674,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
 
   const handleCreateNewCustom = () => {
     setEditingProgramId(null);
+    setDraftSource('new');
     setName('My Custom Strength Program');
     setOriginalName('');
     setDaysPerWeek(3);
@@ -869,40 +874,53 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
         <h3 className="text-lg font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2">
           <Clipboard className="w-[18px] h-[18px]" /> My Programs
         </h3>
-        <p className="text-xs text-slate-400 leading-relaxed font-sans">
-          Select a <span className="font-bold text-slate-200">template</span> or one of your <span className="font-bold text-slate-200">saved custom programs</span> to quickly load its settings and exercises:
-        </p>
-        <div className="flex flex-wrap gap-2 pt-1">
-          <button
-            type="button"
-            onClick={() => protectBuilderChanges(handleCreateNewCustom)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-none text-xs font-bold transition border cursor-pointer bg-indigo-600/20 hover:bg-indigo-600/30 border-indigo-500/50 text-indigo-300"
-          >
-            <Plus className="w-3.5 h-3.5" /> New Custom
-          </button>
+        <section aria-labelledby="program-templates-heading" className="space-y-2">
+          <h4 id="program-templates-heading" className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Templates</h4>
+          <p className="text-[11px] text-slate-400 leading-relaxed">Start a new program using a pre-built template.</p>
+          <div className="flex flex-wrap gap-2">
           {PREBUILT_TEMPLATES.map((tpl) => {
-            const isActive = currentProgramId === tpl.id;
-            const isEditing = editingProgramId === tpl.id;
+            const isSelected = draftSource === tpl.id;
             return (
               <button
                 key={`prebuilt-${tpl.id}`}
+                type="button"
+                aria-pressed={isSelected}
                 onClick={() => protectBuilderChanges(() => handleSelectPrebuiltTemplate(tpl))}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-none text-xs font-bold transition border cursor-pointer ${
-                  isActive
-                    ? 'bg-slate-950 border-emerald-500 text-emerald-400 font-extrabold shadow-[0_0_8px_rgba(16,185,129,0.15)]'
-                    : isEditing
+                className={`max-w-full flex items-center gap-1.5 px-3 py-2 rounded-none text-xs font-bold transition border cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                  isSelected
                     ? 'bg-indigo-950/40 border-indigo-500/70 text-indigo-300'
                     : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-200 hover:text-white'
                 }`}
               >
-                {isActive ? <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : isEditing ? <Pencil className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> : <span className="text-slate-500 font-bold text-xs">+</span>}
-                {tpl.name}
-                <span className="text-[9px] uppercase tracking-wide opacity-75">
-                  {isActive ? 'Active' : isEditing ? 'Template · Editing' : 'Template'}
+                {isSelected ? <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> : <Clipboard className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
+                <span className="min-w-0 text-left break-words">{tpl.name}</span>
+                <span className="text-[9px] uppercase tracking-wide opacity-75 shrink-0">
+                  {isSelected ? 'Template · Selected' : 'Template'}
                 </span>
               </button>
             );
           })}
+          </div>
+        </section>
+
+        <section aria-labelledby="saved-programs-heading" className="space-y-2 border-t border-slate-800/70 pt-3">
+          <h4 id="saved-programs-heading" className="text-[10px] font-black text-slate-300 uppercase tracking-widest">My Saved Programs</h4>
+          <p className="text-[11px] text-slate-400 leading-relaxed">Create a new program or continue editing one you have saved.</p>
+          <button
+            type="button"
+            aria-pressed={draftSource === 'new'}
+            aria-label={draftSource === 'new' ? 'New Custom Program — New · Editing' : 'New Custom Program'}
+            onClick={() => protectBuilderChanges(handleCreateNewCustom)}
+            className={`w-full flex items-center justify-center gap-2 px-3 py-3 rounded-none text-xs font-black uppercase tracking-wider transition border cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+              draftSource === 'new'
+                ? 'bg-indigo-950/50 border-indigo-500 text-indigo-300'
+                : 'bg-indigo-600/20 hover:bg-indigo-600/30 border-indigo-500/50 text-indigo-300'
+            }`}
+          >
+            {draftSource === 'new' ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+            {draftSource === 'new' ? 'New · Editing' : '+ New Custom Program'}
+          </button>
+          <div className="flex flex-wrap gap-2">
           {savedPrograms.filter(p => !p.id.startsWith('prog-tpl-')).map((prog) => {
             const isActive = currentProgramId === prog.id;
             const isEditing = editingProgramId === prog.id;
@@ -910,7 +928,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
               <button
                 key={`saved-${prog.id}`}
                 onClick={() => protectBuilderChanges(() => handleSelectSavedProgram(prog))}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-none text-xs font-bold transition border cursor-pointer ${
+                aria-pressed={isEditing}
+                className={`max-w-full flex items-center gap-1.5 px-3 py-2 rounded-none text-xs font-bold transition border cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
                   isActive
                     ? 'bg-slate-950 border-emerald-500 text-emerald-400 font-extrabold shadow-[0_0_8px_rgba(16,185,129,0.15)]'
                     : isEditing
@@ -918,22 +937,23 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                     : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-200 hover:text-white'
                 }`}
               >
-                {isActive ? <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : isEditing ? <Pencil className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> : <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
-                {prog.name}
-                <span className="text-[9px] uppercase tracking-wide opacity-75">
-                  {isActive ? 'Active' : isEditing ? 'Saved · Editing' : 'Saved'}
+                {isActive && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
+                {isEditing ? <Pencil className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-emerald-300' : 'text-indigo-400'}`} /> : !isActive ? <User className="w-3.5 h-3.5 text-slate-500 shrink-0" /> : null}
+                <span className="min-w-0 text-left break-words">{prog.name}</span>
+                <span className="text-[9px] uppercase tracking-wide opacity-75 shrink-0">
+                  {isActive ? (isEditing ? 'Active · Editing' : 'Active') : isEditing ? 'Saved · Editing' : 'Saved'}
                 </span>
               </button>
             );
           })}
-        </div>
+          </div>
+        </section>
 
-        {currentProgramId && (
-          <div className="border-t border-slate-800/60 pt-3.5 mt-2 flex flex-col xs:flex-row items-start xs:items-center justify-between gap-3 font-sans">
+        <section aria-labelledby="current-program-heading" className="border-t border-slate-800/60 pt-3.5 mt-2 font-sans">
+          <h4 id="current-program-heading" className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Current Program</h4>
+          {currentProgramId ? (
+          <div className="mt-1 flex flex-col xs:flex-row items-start xs:items-center justify-between gap-3">
             <div className="flex flex-col text-left">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
-                Active Program
-              </span>
               <span className={`text-xs font-extrabold mt-0.5 flex items-center gap-1.5 ${isAmber ? 'text-[#B56D3E]' : 'text-emerald-400'}`}>
                 <span className={`inline-block w-2 h-2 rounded-full ${isAmber ? 'bg-[#B56D3E]' : 'bg-emerald-500'} animate-pulse`} />
                 {enrolledProgramName || 'Active Program'}
@@ -951,7 +971,10 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
               Unenrol from Current Program
             </button>
           </div>
-        )}
+          ) : (
+            <p className="mt-1 text-xs text-slate-500">No current program. Save and enrol a program to begin Week 1.</p>
+          )}
+        </section>
       </div>
 
       {/* Form Settings */}

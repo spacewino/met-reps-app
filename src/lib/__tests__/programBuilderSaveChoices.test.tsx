@@ -72,7 +72,7 @@ describe('Program Builder save choices and unsaved-change protection', () => {
     ['back navigation', () => fireEvent.click(screen.getAllByRole('button')[0])],
     ['template selection', () => fireEvent.click(screen.getByRole('button', { name: /Upper\/Lower Foundations/i }))],
     ['saved-program selection', () => fireEvent.click(screen.getByRole('button', { name: /Saved Saved/i }))],
-    ['New Custom', () => fireEvent.click(screen.getByRole('button', { name: 'New Custom' }))],
+    ['New Custom', () => fireEvent.click(screen.getByRole('button', { name: /New Custom Program/i }))],
   ])('protects dirty edits before %s', (_label, navigate) => {
     storage.saveProgram(validProgram('saved', 'Saved'));
     const onClose = vi.fn();
