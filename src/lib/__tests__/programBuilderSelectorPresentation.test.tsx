@@ -18,7 +18,7 @@ const chooseSave = (label: string) => {
 };
 
 describe('Program Builder selector presentation', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => { localStorage.clear(); localStorage.setItem('programList', '[]'); localStorage.removeItem('currentProgramId'); });
   afterEach(cleanup);
 
   it('separates templates from saved programs and gives New Custom a full-width saved-section action', () => {
@@ -31,6 +31,36 @@ describe('Program Builder selector presentation', () => {
     expect(saved.getByRole('button', { name: /Saved Plan Saved/i })).toBeTruthy();
     expect(saved.queryByRole('button', { name: /Milhouse Mass Split/i })).toBeNull();
     expect(saved.getByRole('button', { name: /New Custom Program/i }).className).toContain('w-full');
+  });
+
+  it('uses one larger shared style for all subsection headings beneath My Programs', () => {
+    render(<ProgramBuilder onClose={() => {}} onSave={() => {}} />);
+    const headings = ['Templates', 'My Saved Programs', 'Current Program'].map(name => screen.getByRole('heading', { name }));
+    expect(new Set(headings.map(heading => heading.className)).size).toBe(1);
+    expect(headings[0].className).toContain('text-[15px]');
+    expect(screen.getByRole('heading', { name: 'My Programs' }).className).toContain('text-lg');
+  });
+
+  it('renders saved programs before one accessible full-width New Custom action with a 44px target', () => {
+    storage.saveProgram(savedProgram('saved', 'Saved Plan'));
+    storage.setCurrentProgramId('saved');
+    render(<ProgramBuilder onClose={() => {}} onSave={() => {}} />);
+    const section = sectionFor('My Saved Programs');
+    const saved = within(section).getByRole('button', { name: /Saved Plan Active/i });
+    const action = within(section).getByRole('button', { name: 'New Custom Program' });
+    expect(saved.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(action.className).toContain('w-full');
+    expect(action.className).toContain('min-h-11');
+    expect(action.querySelectorAll('.lucide-plus')).toHaveLength(1);
+    expect(action.textContent).toBe('New Custom Program');
+    expect(action.getAttribute('aria-label')).toBe('New Custom Program');
+  });
+
+  it('places New Custom immediately after the empty saved-program message', () => {
+    render(<ProgramBuilder onClose={() => {}} onSave={() => {}} />);
+    const section = sectionFor('My Saved Programs');
+    const empty = within(section).getByText('No saved programs yet.');
+    expect(empty.parentElement?.nextElementSibling).toBe(within(section).getByRole('button', { name: 'New Custom Program' }));
   });
 
   it('marks a selected template as pressed and selected while keeping the editor new and unsaved', () => {

@@ -47,6 +47,8 @@ const WEEKDAYS = [
   { value: 6, label: 'Sunday', short: 'Sun' },
 ];
 
+const PROGRAM_SELECTOR_HEADING_CLASS = 'text-[15px] leading-5 font-black font-sans text-slate-300 uppercase tracking-widest';
+
 type InfoModalKey =
   | 'periodisation_targets'
   | 'metreps_coach'
@@ -875,7 +877,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
           <Clipboard className="w-[18px] h-[18px]" /> My Programs
         </h3>
         <section aria-labelledby="program-templates-heading" className="space-y-2">
-          <h4 id="program-templates-heading" className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Templates</h4>
+          <h4 id="program-templates-heading" className={PROGRAM_SELECTOR_HEADING_CLASS}>Templates</h4>
           <p className="text-[11px] text-slate-400 leading-relaxed">Start a new program using a pre-built template.</p>
           <div className="flex flex-wrap gap-2">
           {PREBUILT_TEMPLATES.map((tpl) => {
@@ -904,22 +906,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
         </section>
 
         <section aria-labelledby="saved-programs-heading" className="space-y-2 border-t border-slate-800/70 pt-3">
-          <h4 id="saved-programs-heading" className="text-[10px] font-black text-slate-300 uppercase tracking-widest">My Saved Programs</h4>
+          <h4 id="saved-programs-heading" className={PROGRAM_SELECTOR_HEADING_CLASS}>My Saved Programs</h4>
           <p className="text-[11px] text-slate-400 leading-relaxed">Create a new program or continue editing one you have saved.</p>
-          <button
-            type="button"
-            aria-pressed={draftSource === 'new'}
-            aria-label={draftSource === 'new' ? 'New Custom Program — New · Editing' : 'New Custom Program'}
-            onClick={() => protectBuilderChanges(handleCreateNewCustom)}
-            className={`w-full flex items-center justify-center gap-2 px-3 py-3 rounded-none text-xs font-black uppercase tracking-wider transition border cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-              draftSource === 'new'
-                ? 'bg-indigo-950/50 border-indigo-500 text-indigo-300'
-                : 'bg-indigo-600/20 hover:bg-indigo-600/30 border-indigo-500/50 text-indigo-300'
-            }`}
-          >
-            {draftSource === 'new' ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-            {draftSource === 'new' ? 'New · Editing' : '+ New Custom Program'}
-          </button>
           <div className="flex flex-wrap gap-2">
           {savedPrograms.filter(p => !p.id.startsWith('prog-tpl-')).map((prog) => {
             const isActive = currentProgramId === prog.id;
@@ -946,11 +934,28 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
               </button>
             );
           })}
+          {savedPrograms.filter(p => !p.id.startsWith('prog-tpl-')).length === 0 && (
+            <p className="w-full text-[11px] text-slate-500">No saved programs yet.</p>
+          )}
           </div>
+          <button
+            type="button"
+            aria-pressed={draftSource === 'new'}
+            aria-label="New Custom Program"
+            onClick={() => protectBuilderChanges(handleCreateNewCustom)}
+            className={`w-full min-h-11 flex items-center justify-center gap-2 px-3 py-2.5 rounded-none text-xs font-black uppercase tracking-wider transition border cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+              draftSource === 'new'
+                ? 'bg-indigo-950/50 border-indigo-500 text-indigo-300'
+                : 'bg-indigo-600/20 hover:bg-indigo-600/30 border-indigo-500/50 text-indigo-300'
+            }`}
+          >
+            {draftSource === 'new' ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+            {draftSource === 'new' ? 'New · Editing' : 'New Custom Program'}
+          </button>
         </section>
 
         <section aria-labelledby="current-program-heading" className="border-t border-slate-800/60 pt-3.5 mt-2 font-sans">
-          <h4 id="current-program-heading" className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Current Program</h4>
+          <h4 id="current-program-heading" className={PROGRAM_SELECTOR_HEADING_CLASS}>Current Program</h4>
           {currentProgramId ? (
           <div className="mt-1 flex flex-col xs:flex-row items-start xs:items-center justify-between gap-3">
             <div className="flex flex-col text-left">
