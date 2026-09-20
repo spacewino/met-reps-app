@@ -27,6 +27,7 @@
   
   --color-cyan-400: var(--theme-accent-cyan, #22d3ee);
   --color-emerald-400: var(--theme-success, #34d399);
+  --color-on-destructive: #ffffff;
 }
 
 /* Custom scrollbar hiding */
@@ -85,4 +86,3 @@ input[type="time"]::-webkit-date-and-time-value {
   color: transparent;
   cursor: pointer;
 }
-
