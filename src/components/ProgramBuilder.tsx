@@ -22,6 +22,21 @@ interface ProgramBuilderProps {
   themeId?: string;
 }
 
+interface BuilderSnapshot {
+  id: string | null;
+  name: string;
+  daysPerWeek: number;
+  durationWeeks: number;
+  objective: 'Off' | 'Hypertrophy' | 'Strength';
+  algorithmId: 'hypertrophy_linear' | 'hypertrophy_step' | 'strength_undulating' | 'strength_linear' | 'none';
+  targetProgressionMode: TargetProgressionMode;
+  exercisesByDay: Record<number, ExerciseEntry[]>;
+  assignedWeekdays: Record<number, number | null>;
+  createdAt?: string;
+  updatedAt?: string;
+  enrolledAt?: string;
+}
+
 const WEEKDAYS = [
   { value: 0, label: 'Monday', short: 'Mon' },
   { value: 1, label: 'Tuesday', short: 'Tue' },
@@ -118,7 +133,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
   const [currentProgramId, setCurrentProgramId] = useState<string | null>(() => activeProg?.id || null);
   const [editingProgramId, setEditingProgramId] = useState<string | null>(() => activeProg?.id || null);
 
-  const [snapshot, setSnapshot] = useState(() => {
+  const [snapshot, setSnapshot] = useState<BuilderSnapshot>(() => {
     if (!activeProg) {
       return {
         id: null,
@@ -302,11 +317,26 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
 
     // Update snapshot with saved values to clear the dirty state
     const dur = savedProgram.programDuration;
-    const isUndulating = updatedProgram.objective === 'Strength' && (updatedProgram.algorithmId === 'strength_undulating' || !updatedProgram.algorithmId);
+    const isUndulating = savedProgram.objective === 'Strength' && (savedProgram.algorithmId === 'strength_undulating' || !savedProgram.algorithmId);
     const durNum = dur && typeof dur === 'number' && (isUndulating ? [4, 8, 12] : [4, 6, 8, 12]).includes(dur) ? dur : 8;
-    const saveObj = updatedProgram.objective || 'Hypertrophy';
-    const saveAlgo = updatedProgram.algorithmId || (saveObj === 'Strength' ? 'strength_undulating' : 'hypertrophy_linear');
-    const saveProgressionMode = resolveProgramProgressionMode(updatedProgram);
+    const saveObj = savedProgram.objective || 'Hypertrophy';
+    const saveAlgo = savedProgram.algorithmId || (saveObj === 'Strength' ? 'strength_undulating' : 'hypertrophy_linear');
+    const saveProgressionMode = resolveProgramProgressionMode(savedProgram);
+    const savedExercises = JSON.parse(JSON.stringify(savedProgram.exercisesByDay));
+    const savedWeekdays = savedProgram.assignedWeekdays
+      ? JSON.parse(JSON.stringify(savedProgram.assignedWeekdays))
+      : getDefaultWeekdays(savedProgram.daysPerWeek);
+
+    // Rehydrate the editor from the storage result. Storage normalization and
+    // new-program cleanup must be reflected in both the live form and baseline.
+    setName(savedProgram.name);
+    setDaysPerWeek(savedProgram.daysPerWeek);
+    setDurationWeeks(durNum);
+    setObjective(saveObj);
+    setAlgorithmId(saveAlgo);
+    setTargetProgressionMode(saveProgressionMode);
+    setExercisesByDay(savedExercises);
+    setAssignedWeekdays(savedWeekdays);
     setSnapshot({
       id: savedProgram.id,
       name: savedProgram.name,
@@ -315,8 +345,11 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       objective: saveObj,
       algorithmId: saveAlgo,
       targetProgressionMode: saveProgressionMode,
-      exercisesByDay: JSON.parse(JSON.stringify(savedProgram.exercisesByDay)),
-      assignedWeekdays: savedProgram.assignedWeekdays ? JSON.parse(JSON.stringify(savedProgram.assignedWeekdays)) : getDefaultWeekdays(savedProgram.daysPerWeek)
+      exercisesByDay: savedExercises,
+      assignedWeekdays: savedWeekdays,
+      createdAt: savedProgram.createdAt,
+      updatedAt: savedProgram.updatedAt,
+      enrolledAt: savedProgram.enrolledAt,
     });
 
     // Clear matching draft only when explicitly confirmed via draft conflict modal
@@ -848,38 +881,47 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
             <Plus className="w-3.5 h-3.5" /> New Custom
           </button>
           {PREBUILT_TEMPLATES.map((tpl) => {
-            const isCurrent = editingProgramId === tpl.id;
+            const isActive = currentProgramId === tpl.id;
+            const isEditing = editingProgramId === tpl.id;
             return (
               <button
                 key={`prebuilt-${tpl.id}`}
                 onClick={() => protectBuilderChanges(() => handleSelectPrebuiltTemplate(tpl))}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-none text-xs font-bold transition border cursor-pointer ${
-                  isCurrent
+                  isActive
                     ? 'bg-slate-950 border-emerald-500 text-emerald-400 font-extrabold shadow-[0_0_8px_rgba(16,185,129,0.15)]'
+                    : isEditing
+                    ? 'bg-indigo-950/40 border-indigo-500/70 text-indigo-300'
                     : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-200 hover:text-white'
                 }`}
               >
-                {isCurrent ? <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <span className="text-slate-500 font-bold text-xs">+</span>}
+                {isActive ? <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : isEditing ? <Pencil className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> : <span className="text-slate-500 font-bold text-xs">+</span>}
                 {tpl.name}
+                <span className="text-[9px] uppercase tracking-wide opacity-75">
+                  {isActive ? 'Active' : isEditing ? 'Template · Editing' : 'Template'}
+                </span>
               </button>
             );
           })}
           {savedPrograms.filter(p => !p.id.startsWith('prog-tpl-')).map((prog) => {
-            const isCurrent = editingProgramId === prog.id;
+            const isActive = currentProgramId === prog.id;
+            const isEditing = editingProgramId === prog.id;
             return (
               <button
                 key={`saved-${prog.id}`}
                 onClick={() => protectBuilderChanges(() => handleSelectSavedProgram(prog))}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-none text-xs font-bold transition border cursor-pointer ${
-                  isCurrent
+                  isActive
                     ? 'bg-slate-950 border-emerald-500 text-emerald-400 font-extrabold shadow-[0_0_8px_rgba(16,185,129,0.15)]'
+                    : isEditing
+                    ? 'bg-indigo-950/40 border-indigo-500/70 text-indigo-300'
                     : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-200 hover:text-white'
                 }`}
               >
-                {isCurrent ? <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
+                {isActive ? <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : isEditing ? <Pencil className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> : <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
                 {prog.name}
                 <span className="text-[9px] uppercase tracking-wide opacity-75">
-                  {prog.id === currentProgramId ? 'Active' : 'Saved'}
+                  {isActive ? 'Active' : isEditing ? 'Saved · Editing' : 'Saved'}
                 </span>
               </button>
             );
@@ -906,7 +948,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
               }`}
             >
               <CalendarX className="w-4 h-4" />
-              Unenrol from selected program
+              Unenrol from Current Program
             </button>
           </div>
         )}
@@ -1640,8 +1682,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
 
       <ConfirmationModal
         visible={showUnenrollConfirm}
-        title="Unenrol from Program?"
-        message={`Are you sure you want to unenrol from '${enrolledProgramName || 'your active program'}'? This will remove future scheduled program workouts from your calendar, but all of your completed logs, historical workout entries, and weights are 100% safe and intact.`}
+        title="UNENROL FROM CURRENT PROGRAM?"
+        message={`${enrolledProgramName || 'Your current program'} will remain saved, but it will no longer be your current program. Historical workout logs will remain unchanged.`}
         confirmLabel="Yes, Unenrol"
         cancelLabel="No, Stay Enrolled"
         confirmVariant="danger"
