@@ -4,11 +4,12 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Dumbbell, Feather, Settings, ChevronLeft, ChevronRight, CheckCircle2, Play, Calendar as CalendarIcon, Info, Pencil, Repeat, Check, Plus, Minus, X } from 'lucide-react';
-import { Program, WorkoutLog } from '../types';
+import { Settings, ChevronLeft, ChevronRight, CheckCircle2, Play, Calendar as CalendarIcon, Info, Pencil, Repeat, Check, Plus, Minus } from 'lucide-react';
+import { Program, WorkoutLog, CalendarDayNoteMap } from '../types';
 import { storage } from '../lib/storage';
 import { getLocalDateString, getTodayLocalDateString, parseLocalDate } from '../lib/dateUtils';
 import { MetRepsLogo } from './MetRepsLogo';
+import { CalendarDayNoteModal, NOTE_TYPE_DETAILS } from './CalendarDayNoteModal';
 
 interface HomeViewProps {
   currentProgram: Program | null;
@@ -29,6 +30,8 @@ export function HomeView({
   const isAmber = themeId === 'amber';
   const isTodaySelected = selectedDate === getTodayLocalDateString();
   const [displayedMonth, setDisplayedMonth] = useState(new Date());
+  const [calendarNotes, setCalendarNotes] = useState<CalendarDayNoteMap>(() => storage.getCalendarDayNotes());
+  const [noteEditorOpen, setNoteEditorOpen] = useState(false);
 
   // Read active workout draft from localStorage for card in-progress highlighting
   const activeDraftData = useMemo(() => {
@@ -263,6 +266,7 @@ export function HomeView({
             const isSelected = dateStr === selectedDate;
             const isToday = day.toDateString() === new Date().toDateString();
             const isCurrentMonth = day.getMonth() === displayedMonth.getMonth();
+            const calendarNote = calendarNotes[dateStr];
 
             const planned = plannedByDate?.[dateStr];
             const completedCount = completedByDate.get(dateStr) || 0;
@@ -274,6 +278,7 @@ export function HomeView({
               <button
                 key={index}
                 onClick={() => setSelectedDate(dateStr)}
+                aria-label={`${day.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}${calendarNote ? `, ${NOTE_TYPE_DETAILS[calendarNote.type].label} note` : ''}`}
                 className={`p-2 rounded-none flex flex-col items-center justify-between transition min-h-[52px] border relative ${
                   isSelected
                     ? `bg-indigo-600 ${isAmber ? 'text-[#FBFAF8]' : 'text-white'} border-indigo-500`
@@ -284,6 +289,7 @@ export function HomeView({
                     : 'bg-slate-950/40 hover:bg-slate-800/30 text-slate-300 border-transparent'
                 } ${!isCurrentMonth ? 'opacity-30' : ''}`}
               >
+                {calendarNote && (() => { const NoteIcon = NOTE_TYPE_DETAILS[calendarNote.type].Icon; return <NoteIcon aria-hidden="true" data-testid={`calendar-note-icon-${dateStr}`} className={`absolute top-1 right-1 w-[10px] h-[10px] ${isSelected ? 'text-white' : 'text-slate-400'}`} />; })()}
                 <span className="text-sm font-bold">{day.getDate()}</span>
                 
                 {/* Dots / Squares indicator */}
@@ -352,8 +358,17 @@ export function HomeView({
       <div className="w-full bg-slate-900 border-y border-x-0 border-slate-800 p-4 shadow-sm rounded-none">
         <h3 className="font-extrabold text-sm text-white border-b border-slate-850 pb-2.5 mb-3 flex items-center gap-1.5">
           <CalendarIcon className="w-4.5 h-4.5 text-indigo-400" />
-          Agenda: {new Date(selectedDate).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+          Agenda: {parseLocalDate(selectedDate).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
         </h3>
+
+        {calendarNotes[selectedDate] && (() => {
+          const note = calendarNotes[selectedDate]; const NoteIcon = NOTE_TYPE_DETAILS[note.type].Icon;
+          return <div data-testid="agenda-calendar-note" className="mb-4 bg-slate-950/60 border border-slate-700 p-3 flex gap-3 items-start">
+            <NoteIcon className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" aria-hidden="true" />
+            <p className="text-sm text-slate-200 whitespace-pre-wrap break-words flex-1">{note.text}</p>
+            <button onClick={() => setNoteEditorOpen(true)} className="text-[10px] uppercase font-bold text-indigo-400 hover:text-indigo-300">Edit</button>
+          </div>;
+        })()}
 
         {/* Completed Logs list for this date, if any */}
         {logsForSelected.length > 0 && (
@@ -571,14 +586,14 @@ export function HomeView({
           )
         )}
 
-        {/* Log One-Off Workout Today Option - Only visible on today's agenda */}
+        {/* Agenda actions */}
+        <div className={`mt-4 border-t border-slate-850 pt-4 grid ${isTodaySelected ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
         {isTodaySelected && (() => {
           const isOngoingOneOffDraft = activeDraftData && activeDraftData.isOneOff === true;
           return (
-            <div className="mt-4 border-t border-slate-850 pt-4">
               <button
                 onClick={() => handleStartWorkout({ isOneOff: true })}
-                className={`w-full font-extrabold text-xs py-2.5 px-3 rounded-none transition flex items-center justify-center gap-1.5 border shadow cursor-pointer ${
+                className={`w-full font-extrabold text-xs py-2.5 px-2 rounded-none transition flex items-center justify-center gap-1 border shadow cursor-pointer ${
                   isOngoingOneOffDraft
                     ? isAmber
                       ? 'bg-[#F5EBE0] text-[#9B1C1C] border-[#E05A47] hover:bg-[#E05A47]/20 font-black'
@@ -587,12 +602,16 @@ export function HomeView({
                 }`}
               >
                 <Plus className="w-4 h-4" />
-                {isOngoingOneOffDraft ? 'Resume in-progress one-off workout' : 'Log one-off workout today'}
+                {isOngoingOneOffDraft ? 'Resume one-off workout' : '+ One-off workout'}
               </button>
-            </div>
           );
         })()}
+          <button onClick={() => setNoteEditorOpen(true)} className="w-full font-extrabold text-xs py-2.5 px-3 flex items-center justify-center gap-1 border border-slate-800 bg-slate-950 text-indigo-400 hover:text-indigo-300">
+            <Plus className="w-4 h-4" /> {calendarNotes[selectedDate] ? 'Edit Note' : 'Add Note'}
+          </button>
+        </div>
       </div>
+      <CalendarDayNoteModal visible={noteEditorOpen} date={selectedDate} note={calendarNotes[selectedDate] || null} onClose={() => setNoteEditorOpen(false)} onSave={(type, text) => { storage.saveCalendarDayNote(selectedDate, type, text); setCalendarNotes(storage.getCalendarDayNotes()); setNoteEditorOpen(false); }} onDelete={() => { storage.deleteCalendarDayNote(selectedDate); setCalendarNotes(storage.getCalendarDayNotes()); setNoteEditorOpen(false); }} />
     </div>
   );
 }
