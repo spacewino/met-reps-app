@@ -274,6 +274,8 @@ export type Program = {
   daysPerWeek: number;
   programDuration: number | '∞';
   createdAt: string; // ISO string
+  updatedAt?: string; // ISO string; absent in legacy programs
+  enrolledAt?: string; // ISO string; set when this program run begins
   exercisesByDay: Record<number, ExerciseEntry[]>; // Day Index (1-based) -> list of exercises
   assignedWeekdays?: Record<number, number | null>; // Day Index -> Weekday index (0=Mon, 1=Tue... 6=Sun)
   objective?: 'Off' | 'Hypertrophy' | 'Strength';

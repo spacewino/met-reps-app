@@ -9,7 +9,7 @@ import { motion } from 'motion/react';
 import { Program, ExerciseEntry, WeightUnit, TargetProgressionMode } from '../types';
 import { storage, PREBUILT_TEMPLATES } from '../lib/storage';
 import { resolveProgramProgressionMode } from '../lib/programProgressionMode';
-import { getActiveWorkoutDraft, doesDraftMatchProgram, clearActiveWorkoutDraft } from '../lib/navigationGuard';
+import { getActiveWorkoutDraft, doesDraftMatchProgram, discardActiveWorkoutSession, ActiveWorkoutIdentity } from '../lib/navigationGuard';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { ConfirmationModal } from './ConfirmationModal';
 import { ProgramDraftConflictModal } from './ProgramDraftConflictModal';
@@ -22,6 +22,21 @@ interface ProgramBuilderProps {
   themeId?: string;
 }
 
+interface BuilderSnapshot {
+  id: string | null;
+  name: string;
+  daysPerWeek: number;
+  durationWeeks: number;
+  objective: 'Off' | 'Hypertrophy' | 'Strength';
+  algorithmId: 'hypertrophy_linear' | 'hypertrophy_step' | 'strength_undulating' | 'strength_linear' | 'none';
+  targetProgressionMode: TargetProgressionMode;
+  exercisesByDay: Record<number, ExerciseEntry[]>;
+  assignedWeekdays: Record<number, number | null>;
+  createdAt?: string;
+  updatedAt?: string;
+  enrolledAt?: string;
+}
+
 const WEEKDAYS = [
   { value: 0, label: 'Monday', short: 'Mon' },
   { value: 1, label: 'Tuesday', short: 'Tue' },
@@ -31,6 +46,8 @@ const WEEKDAYS = [
   { value: 5, label: 'Saturday', short: 'Sat' },
   { value: 6, label: 'Sunday', short: 'Sun' },
 ];
+
+const PROGRAM_SELECTOR_HEADING_CLASS = 'text-[15px] leading-5 font-black font-sans text-slate-300 uppercase tracking-widest';
 
 type InfoModalKey =
   | 'periodisation_targets'
@@ -117,8 +134,9 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
   const activeProg = useState(() => storage.getCurrentProgram())[0];
   const [currentProgramId, setCurrentProgramId] = useState<string | null>(() => activeProg?.id || null);
   const [editingProgramId, setEditingProgramId] = useState<string | null>(() => activeProg?.id || null);
+  const [draftSource, setDraftSource] = useState<'new' | string | null>(() => activeProg ? null : 'new');
 
-  const [snapshot, setSnapshot] = useState(() => {
+  const [snapshot, setSnapshot] = useState<BuilderSnapshot>(() => {
     if (!activeProg) {
       return {
         id: null,
@@ -212,6 +230,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
   // Active workout draft conflict state
   const [showDraftConflictModal, setShowDraftConflictModal] = useState(false);
   const [pendingDraftConflictProgram, setPendingDraftConflictProgram] = useState<Program | null>(null);
+  const [pendingDraftIdentity, setPendingDraftIdentity] = useState<ActiveWorkoutIdentity | null>(null);
+  const [pendingDraftProgramName, setPendingDraftProgramName] = useState('your current program');
 
   // Progression & Periodisation Information Dialog State
   const [activeInfoModal, setActiveInfoModal] = useState<InfoModalKey | null>(null);
@@ -257,76 +277,132 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
   const [pendingSwitchProgram, setPendingSwitchProgram] = useState<any | null>(null);
   const [showCommencedModal, setShowCommencedModal] = useState(false);
   const [commencedProgramName, setCommencedProgramName] = useState('');
+  const [showSaveChoices, setShowSaveChoices] = useState(false);
+  const [pendingEnrolment, setPendingEnrolment] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  const [pendingBuilderNavigation, setPendingBuilderNavigation] = useState<(() => void) | null>(null);
 
-  const attemptSaveProgram = (updatedProgram: Program) => {
+  useEffect(() => {
+    if (!showSaveChoices) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowSaveChoices(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [showSaveChoices]);
+
+  const attemptSaveProgram = (updatedProgram: Program, enrol = false) => {
     const activeDraftInfo = getActiveWorkoutDraft();
-    if (activeDraftInfo && doesDraftMatchProgram(activeDraftInfo.rawDraft, updatedProgram.id)) {
+    if (activeDraftInfo && (
+      doesDraftMatchProgram(activeDraftInfo.rawDraft, updatedProgram.id)
+      || (enrol && currentProgramId !== updatedProgram.id)
+    )) {
       setPendingDraftConflictProgram(updatedProgram);
+      setPendingDraftIdentity(activeDraftInfo.identity);
+      setPendingDraftProgramName(
+        typeof activeDraftInfo.rawDraft.programName === 'string'
+          ? activeDraftInfo.rawDraft.programName
+          : enrolledProgramName || 'your current program'
+      );
+      setPendingEnrolment(enrol);
       setShowDraftConflictModal(true);
       return;
     }
-    performDirectSaveProgram(updatedProgram, false);
+    performDirectSaveProgram(updatedProgram, false, enrol);
   };
 
-  const performDirectSaveProgram = (updatedProgram: Program, clearMatchingDraft: boolean = false) => {
-    // If there is another saved program with the same name (but different ID), delete it first to avoid duplicate names and clear its references
+  const performDirectSaveProgram = (updatedProgram: Program, clearMatchingDraft = false, enrol = false) => {
+    let savedProgram: Program;
+    const preAttemptProgram = storage.getPrograms().find(program => program.id === updatedProgram.id);
+    const restorePreAttemptEnrolment = (program: Program) => {
+      const restored = { ...program };
+      if (preAttemptProgram?.enrolledAt !== undefined) restored.enrolledAt = preAttemptProgram.enrolledAt;
+      else delete restored.enrolledAt;
+      storage.saveProgram(restored);
+      return restored;
+    };
     try {
-      const matchingNameProgram = storage.getPrograms().find(
-        p => p.name.trim().toLowerCase() === updatedProgram.name.trim().toLowerCase() && p.id !== updatedProgram.id
-      );
-      if (matchingNameProgram) {
-        storage.deleteProgram(matchingNameProgram.id);
-      }
-    } catch (e) {
-      console.error('Failed to clean up matching name program:', e);
-    }
-
-    try {
-      storage.saveProgram(updatedProgram);
+      savedProgram = clearMatchingDraft && enrol
+        ? storage.saveProgramDesign({ ...updatedProgram, enrolledAt: new Date().toISOString() })
+        : enrol ? storage.enrolProgram(updatedProgram) : storage.saveProgramDesign(updatedProgram);
     } catch (err) {
       console.error('Failed to save program:', err);
-      setAlertMsg('Failed to save program. Please try again.');
+      setAlertMsg(err instanceof Error ? err.message : 'Failed to save program. Please try again.');
       return;
     }
 
-    storage.setCurrentProgramId(updatedProgram.id);
-    setCurrentProgramId(updatedProgram.id);
-    setEditingProgramId(updatedProgram.id);
-    setOriginalName(updatedProgram.name);
+    if (clearMatchingDraft) {
+      if (!pendingDraftIdentity || !discardActiveWorkoutSession(pendingDraftIdentity)) {
+        savedProgram = restorePreAttemptEnrolment(savedProgram);
+        setSavedPrograms(storage.getPrograms());
+        setAlertMsg(`Failed to discard the active workout. ${savedProgram.name} was saved for later, but ${enrolledProgramName || 'the original program'} remains current.`);
+        return;
+      }
+    }
+    if (enrol) {
+      try {
+        storage.setCurrentProgramId(savedProgram.id);
+      } catch (error) {
+        savedProgram = restorePreAttemptEnrolment(savedProgram);
+        setSavedPrograms(storage.getPrograms());
+        console.error('Failed to activate enrolled program:', error);
+        setAlertMsg(`The workout was discarded, but ${savedProgram.name} could not be made current. It remains saved for later; please try enrolling again.`);
+        return;
+      }
+      setCurrentProgramId(savedProgram.id);
+    }
+    setEditingProgramId(savedProgram.id);
+    setDraftSource(null);
+    setOriginalName(savedProgram.name);
     setSavedPrograms(storage.getPrograms());
 
     // Update snapshot with saved values to clear the dirty state
-    const dur = updatedProgram.programDuration;
-    const isUndulating = updatedProgram.objective === 'Strength' && (updatedProgram.algorithmId === 'strength_undulating' || !updatedProgram.algorithmId);
+    const dur = savedProgram.programDuration;
+    const isUndulating = savedProgram.objective === 'Strength' && (savedProgram.algorithmId === 'strength_undulating' || !savedProgram.algorithmId);
     const durNum = dur && typeof dur === 'number' && (isUndulating ? [4, 8, 12] : [4, 6, 8, 12]).includes(dur) ? dur : 8;
-    const saveObj = updatedProgram.objective || 'Hypertrophy';
-    const saveAlgo = updatedProgram.algorithmId || (saveObj === 'Strength' ? 'strength_undulating' : 'hypertrophy_linear');
-    const saveProgressionMode = resolveProgramProgressionMode(updatedProgram);
+    const saveObj = savedProgram.objective || 'Hypertrophy';
+    const saveAlgo = savedProgram.algorithmId || (saveObj === 'Strength' ? 'strength_undulating' : 'hypertrophy_linear');
+    const saveProgressionMode = resolveProgramProgressionMode(savedProgram);
+    const savedExercises = JSON.parse(JSON.stringify(savedProgram.exercisesByDay));
+    const savedWeekdays = savedProgram.assignedWeekdays
+      ? JSON.parse(JSON.stringify(savedProgram.assignedWeekdays))
+      : getDefaultWeekdays(savedProgram.daysPerWeek);
+
+    // Rehydrate the editor from the storage result. Storage normalization and
+    // new-program cleanup must be reflected in both the live form and baseline.
+    setName(savedProgram.name);
+    setDaysPerWeek(savedProgram.daysPerWeek);
+    setDurationWeeks(durNum);
+    setObjective(saveObj);
+    setAlgorithmId(saveAlgo);
+    setTargetProgressionMode(saveProgressionMode);
+    setExercisesByDay(savedExercises);
+    setAssignedWeekdays(savedWeekdays);
     setSnapshot({
-      id: updatedProgram.id,
-      name: updatedProgram.name,
-      daysPerWeek: updatedProgram.daysPerWeek,
+      id: savedProgram.id,
+      name: savedProgram.name,
+      daysPerWeek: savedProgram.daysPerWeek,
       durationWeeks: durNum,
       objective: saveObj,
       algorithmId: saveAlgo,
       targetProgressionMode: saveProgressionMode,
-      exercisesByDay: JSON.parse(JSON.stringify(updatedProgram.exercisesByDay)),
-      assignedWeekdays: updatedProgram.assignedWeekdays ? JSON.parse(JSON.stringify(updatedProgram.assignedWeekdays)) : getDefaultWeekdays(updatedProgram.daysPerWeek)
+      exercisesByDay: savedExercises,
+      assignedWeekdays: savedWeekdays,
+      createdAt: savedProgram.createdAt,
+      updatedAt: savedProgram.updatedAt,
+      enrolledAt: savedProgram.enrolledAt,
     });
-
-    // Clear matching draft only when explicitly confirmed via draft conflict modal
-    if (clearMatchingDraft) {
-      const activeDraftInfo = getActiveWorkoutDraft();
-      if (activeDraftInfo && doesDraftMatchProgram(activeDraftInfo.rawDraft, updatedProgram.id)) {
-        clearActiveWorkoutDraft();
-      }
-    }
 
     if (onDirtyChange) {
       onDirtyChange(false);
     }
-    setCommencedProgramName(updatedProgram.name);
-    setShowCommencedModal(true);
+    setIsDirty(false);
+    if (enrol) {
+      setCommencedProgramName(savedProgram.name);
+      setShowCommencedModal(true);
+    } else {
+      setAlertMsg(editingProgramId ? 'Changes saved' : 'Program saved for later');
+    }
   };
 
   const openSelectorFor = (dayIdx: number, exIdx: number | null) => {
@@ -438,6 +514,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     if (onDirtyChange) {
       onDirtyChange(dirty);
     }
+    setIsDirty(dirty);
   }, [
     name,
     daysPerWeek,
@@ -451,15 +528,21 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     onDirtyChange
   ]);
 
+  const protectBuilderChanges = (action: () => void) => {
+    if (!isDirty) action();
+    else setPendingBuilderNavigation(() => action);
+  };
+
   // Apply static template program (preserves current creation-form objective and algorithm)
   const handleSelectPrebuiltTemplate = (tpl: any) => {
     const tplDuration = tpl.programDuration === '∞' ? 8 : Number(tpl.programDuration);
     const tplWeekdays = tpl.assignedWeekdays ? JSON.parse(JSON.stringify(tpl.assignedWeekdays)) : getDefaultWeekdays(tpl.daysPerWeek);
     const tplProgressionMode = resolveProgramProgressionMode(tpl);
 
-    setEditingProgramId(tpl.id);
+    setEditingProgramId(null);
+    setDraftSource(tpl.id);
     setName(tpl.name);
-    setOriginalName(tpl.name);
+    setOriginalName('');
     setDaysPerWeek(tpl.daysPerWeek);
     setDurationWeeks(tplDuration);
     setExercisesByDay(JSON.parse(JSON.stringify(tpl.exercisesByDay)));
@@ -470,7 +553,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
 
     // Update snapshot
     setSnapshot({
-      id: tpl.id,
+      id: null,
       name: tpl.name,
       daysPerWeek: tpl.daysPerWeek,
       durationWeeks: tplDuration,
@@ -491,6 +574,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     const progProgressionMode = resolveProgramProgressionMode(prog);
 
     setEditingProgramId(prog.id);
+    setDraftSource(null);
     setName(prog.name);
     setOriginalName(prog.name);
     setDaysPerWeek(prog.daysPerWeek);
@@ -522,6 +606,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     storage.setCurrentProgramId(swapTarget.id);
     setCurrentProgramId(swapTarget.id);
     setEditingProgramId(swapTarget.id);
+    setDraftSource(null);
     
     setName(swapTarget.name);
     setOriginalName(swapTarget.name);
@@ -560,7 +645,6 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
   const handleConfirmUnenroll = () => {
     storage.setCurrentProgramId(null);
     setCurrentProgramId(null);
-    setEditingProgramId(null);
     setShowUnenrollConfirm(false);
     onSave();
   };
@@ -597,14 +681,17 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
 
   const handleConfirmSwitch = () => {
     if (!pendingSwitchProgram) return;
-
-    // Unenroll current active program
-    storage.setCurrentProgramId(null);
-    setCurrentProgramId(null);
-
     const progToSave = pendingSwitchProgram;
     setPendingSwitchProgram(null);
-    saveOrConfirm(progToSave);
+    attemptSaveProgram(progToSave, true);
+  };
+
+  const requestEnrolment = (program: Program) => {
+    if (currentProgramId && currentProgramId !== program.id) {
+      setPendingSwitchProgram(program);
+    } else {
+      attemptSaveProgram(program, true);
+    }
   };
 
   const enrolledProgramName = React.useMemo(() => {
@@ -618,6 +705,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
 
   const handleCreateNewCustom = () => {
     setEditingProgramId(null);
+    setDraftSource('new');
     setName('My Custom Strength Program');
     setOriginalName('');
     setDaysPerWeek(3);
@@ -731,8 +819,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       }
     }
 
-    const hasNameChanged = originalName !== '' && name.trim().toLowerCase() !== originalName.trim().toLowerCase();
-    const isNewProgram = !editingProgramId || hasNameChanged;
+    const isNewProgram = !editingProgramId || editingProgramId.startsWith('prog-tpl-');
     const targetId = isNewProgram ? `prog-${Date.now()}` : (editingProgramId as string);
 
     // Clean up isMainMovement flags if it's a new program to start fresh without prior selections leaking
@@ -753,8 +840,9 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
     const savedProgressionMode: TargetProgressionMode = objective === 'Off' ? 'performance_led' : targetProgressionMode;
 
     const updatedProgram: Program = {
+      ...(existingProg || {}),
       id: targetId,
-      name: name,
+      name: name.trim(),
       daysPerWeek: daysPerWeek,
       programDuration: durationWeeks,
       createdAt: (!isNewProgram && existingProg?.createdAt) ? existingProg.createdAt : new Date().toISOString(),
@@ -767,14 +855,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       ...(existingProg?.cycleIndex !== undefined && !isNewProgram ? { cycleIndex: existingProg.cycleIndex } : {}),
       ...(existingProg?.algorithmPhaseOffset !== undefined && !isNewProgram ? { algorithmPhaseOffset: existingProg.algorithmPhaseOffset } : {}),
     };
-
-    // If enrolled in an active program, and this program is NOT that active program
-    if (currentProgramId !== null && targetId !== currentProgramId) {
-      setPendingSwitchProgram(updatedProgram);
-      return;
-    }
-
-    saveOrConfirm(updatedProgram);
+    setPendingSaveProgram(updatedProgram);
+    setShowSaveChoices(true);
   };
 
   return (
@@ -783,17 +865,17 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
       <div className="sticky top-[-16px] -mt-4 pt-3 pb-2.5 bg-slate-950 z-30 flex items-center justify-between border-b border-slate-850 px-4 shadow-md">
         <div className="flex items-center gap-2">
           <button
-            onClick={onClose}
+            onClick={() => protectBuilderChanges(onClose)}
             className="p-2 bg-slate-900 hover:bg-slate-800 rounded-none text-slate-400 hover:text-white border border-slate-800 transition"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
             <h2 className="font-extrabold text-sm text-white uppercase tracking-wide">
-              Create Program
+              {editingProgramId ? 'Edit Program' : 'Create Program'}
             </h2>
             <p className="text-[10px] text-indigo-400 font-mono uppercase tracking-widest">
-              Weekly Program Setup
+              {editingProgramId ? (editingProgramId === currentProgramId ? 'Active' : 'Saved') : 'New unsaved program'}
             </p>
           </div>
         </div>
@@ -823,52 +905,89 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
         <h3 className="text-lg font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2">
           <Clipboard className="w-[18px] h-[18px]" /> My Programs
         </h3>
-        <p className="text-xs text-slate-400 leading-relaxed font-sans">
-          Select a <span className="font-bold text-slate-200">template</span> or one of your <span className="font-bold text-slate-200">saved custom programs</span> to quickly load its settings and exercises:
-        </p>
-        <div className="flex flex-wrap gap-2 pt-1">
+        <section aria-labelledby="program-templates-heading" className="space-y-2">
+          <h4 id="program-templates-heading" className={PROGRAM_SELECTOR_HEADING_CLASS}>Templates</h4>
+          <p className="text-[11px] text-slate-400 leading-relaxed">Start a new program using a pre-built template.</p>
+          <div className="flex flex-wrap gap-2">
           {PREBUILT_TEMPLATES.map((tpl) => {
-            const isCurrent = editingProgramId === tpl.id;
+            const isSelected = draftSource === tpl.id;
             return (
               <button
                 key={`prebuilt-${tpl.id}`}
-                onClick={() => handleSelectPrebuiltTemplate(tpl)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-none text-xs font-bold transition border cursor-pointer ${
-                  isCurrent
-                    ? 'bg-slate-950 border-emerald-500 text-emerald-400 font-extrabold shadow-[0_0_8px_rgba(16,185,129,0.15)]'
+                type="button"
+                aria-pressed={isSelected}
+                onClick={() => protectBuilderChanges(() => handleSelectPrebuiltTemplate(tpl))}
+                className={`max-w-full flex items-center gap-1.5 px-3 py-2 rounded-none text-xs font-bold transition border cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                  isSelected
+                    ? 'bg-indigo-950/40 border-indigo-500/70 text-indigo-300'
                     : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-200 hover:text-white'
                 }`}
               >
-                {isCurrent ? <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <span className="text-slate-500 font-bold text-xs">+</span>}
-                {tpl.name}
+                {isSelected ? <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> : <Clipboard className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
+                <span className="min-w-0 text-left break-words">{tpl.name}</span>
+                <span className="text-[9px] uppercase tracking-wide opacity-75 shrink-0">
+                  {isSelected ? 'Template · Selected' : 'Template'}
+                </span>
               </button>
             );
           })}
+          </div>
+        </section>
+
+        <section aria-labelledby="saved-programs-heading" className="space-y-2 border-t border-slate-800/70 pt-3">
+          <h4 id="saved-programs-heading" className={PROGRAM_SELECTOR_HEADING_CLASS}>My Saved Programs</h4>
+          <p className="text-[11px] text-slate-400 leading-relaxed">Create a new program or continue editing one you have saved.</p>
+          <div className="flex flex-wrap gap-2">
           {savedPrograms.filter(p => !p.id.startsWith('prog-tpl-')).map((prog) => {
-            const isCurrent = editingProgramId === prog.id;
+            const isActive = currentProgramId === prog.id;
+            const isEditing = editingProgramId === prog.id;
             return (
               <button
                 key={`saved-${prog.id}`}
-                onClick={() => handleSelectSavedProgram(prog)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-none text-xs font-bold transition border cursor-pointer ${
-                  isCurrent
+                onClick={() => protectBuilderChanges(() => handleSelectSavedProgram(prog))}
+                aria-pressed={isEditing}
+                className={`max-w-full flex items-center gap-1.5 px-3 py-2 rounded-none text-xs font-bold transition border cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                  isActive
                     ? 'bg-slate-950 border-emerald-500 text-emerald-400 font-extrabold shadow-[0_0_8px_rgba(16,185,129,0.15)]'
+                    : isEditing
+                    ? 'bg-indigo-950/40 border-indigo-500/70 text-indigo-300'
                     : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-200 hover:text-white'
                 }`}
               >
-                {isCurrent ? <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
-                {prog.name}
+                {isActive && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
+                {isEditing ? <Pencil className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-emerald-300' : 'text-indigo-400'}`} /> : !isActive ? <User className="w-3.5 h-3.5 text-slate-500 shrink-0" /> : null}
+                <span className="min-w-0 text-left break-words">{prog.name}</span>
+                <span className="text-[9px] uppercase tracking-wide opacity-75 shrink-0">
+                  {isActive ? (isEditing ? 'Active · Editing' : 'Active') : isEditing ? 'Saved · Editing' : 'Saved'}
+                </span>
               </button>
             );
           })}
-        </div>
+          {savedPrograms.filter(p => !p.id.startsWith('prog-tpl-')).length === 0 && (
+            <p className="w-full text-[11px] text-slate-500">No saved programs yet.</p>
+          )}
+          </div>
+          <button
+            type="button"
+            aria-pressed={draftSource === 'new'}
+            aria-label="New Custom Program"
+            onClick={() => protectBuilderChanges(handleCreateNewCustom)}
+            className={`w-full min-h-11 flex items-center justify-center gap-2 px-3 py-2.5 rounded-none text-xs font-black uppercase tracking-wider transition border cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+              draftSource === 'new'
+                ? 'bg-indigo-950/50 border-indigo-500 text-indigo-300'
+                : 'bg-indigo-600/20 hover:bg-indigo-600/30 border-indigo-500/50 text-indigo-300'
+            }`}
+          >
+            {draftSource === 'new' ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+            {draftSource === 'new' ? 'New · Editing' : 'New Custom Program'}
+          </button>
+        </section>
 
-        {currentProgramId && (
-          <div className="border-t border-slate-800/60 pt-3.5 mt-2 flex flex-col xs:flex-row items-start xs:items-center justify-between gap-3 font-sans">
+        <section aria-labelledby="current-program-heading" className="border-t border-slate-800/60 pt-3.5 mt-2 font-sans">
+          <h4 id="current-program-heading" className={PROGRAM_SELECTOR_HEADING_CLASS}>Current Program</h4>
+          {currentProgramId ? (
+          <div className="mt-1 flex flex-col xs:flex-row items-start xs:items-center justify-between gap-3">
             <div className="flex flex-col text-left">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
-                Active Program
-              </span>
               <span className={`text-xs font-extrabold mt-0.5 flex items-center gap-1.5 ${isAmber ? 'text-[#B56D3E]' : 'text-emerald-400'}`}>
                 <span className={`inline-block w-2 h-2 rounded-full ${isAmber ? 'bg-[#B56D3E]' : 'bg-emerald-500'} animate-pulse`} />
                 {enrolledProgramName || 'Active Program'}
@@ -883,16 +1002,19 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
               }`}
             >
               <CalendarX className="w-4 h-4" />
-              Unenrol from selected program
+              Unenrol from Current Program
             </button>
           </div>
-        )}
+          ) : (
+            <p className="mt-1 text-xs text-slate-500">No current program. Save and enrol a program to begin Week 1.</p>
+          )}
+        </section>
       </div>
 
       {/* Form Settings */}
       <div className="w-full bg-slate-900 border-y border-x-0 border-slate-800 p-4 space-y-4 shadow-sm rounded-none mt-2">
         <h3 className="text-lg font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2">
-          <Pencil className="w-[18px] h-[18px]" /> Create/Modify Program
+          <Pencil className="w-[18px] h-[18px]" /> {editingProgramId ? 'Edit Program' : 'Create Program'}
         </h3>
 
         <div className="space-y-1.5">
@@ -1541,9 +1663,43 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
         confirmLabel={selectorTarget?.exIdx !== null ? 'Replace Exercise' : 'Add to Workout'}
       />
 
+      {showSaveChoices && pendingSaveProgram && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/80 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="save-program-title" onMouseDown={(e) => { if (e.target === e.currentTarget) setShowSaveChoices(false); }}>
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-700 p-5 shadow-2xl">
+            <h2 id="save-program-title" className="text-base font-black text-white">Save program</h2>
+            <p className="text-xs text-slate-400 mt-1 mb-4">Choose whether to keep this design for later or enrol now.</p>
+            <div className="space-y-2">
+              <button autoFocus className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm p-3" onClick={() => { const p = pendingSaveProgram; setShowSaveChoices(false); setPendingSaveProgram(null); attemptSaveProgram(p, false); }}>
+                {editingProgramId ? 'Save Changes' : 'Save for Later'}
+              </button>
+              {(!editingProgramId || editingProgramId !== currentProgramId) && (
+                <button className="w-full bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-sm p-3" onClick={() => { const p = pendingSaveProgram; setShowSaveChoices(false); setPendingSaveProgram(null); requestEnrolment(p); }}>
+                  {editingProgramId ? 'Save Changes & Enrol' : 'Save & Enrol'}
+                </button>
+              )}
+              <button className="w-full border border-slate-700 text-slate-200 font-bold text-sm p-3" onClick={() => setShowSaveChoices(false)}>Keep Editing</button>
+              <button className="w-full text-rose-400 font-bold text-sm p-2" onClick={() => { setShowSaveChoices(false); setPendingSaveProgram(null); onClose(); }}>
+                {editingProgramId ? 'Discard Changes' : 'Discard Draft'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmationModal
+        visible={pendingBuilderNavigation !== null}
+        title="Discard unsaved changes?"
+        message="You have unsaved Program Builder changes. Keep editing, or discard them and continue."
+        confirmLabel="Discard Changes"
+        cancelLabel="Keep Editing"
+        confirmVariant="danger"
+        onConfirm={() => { const action = pendingBuilderNavigation; setPendingBuilderNavigation(null); action?.(); }}
+        onCancel={() => setPendingBuilderNavigation(null)}
+      />
+
       <ConfirmationModal
         visible={alertMsg !== null}
-        title="Program Setup Error"
+        title={alertMsg?.includes('saved') ? 'Program saved' : 'Program Setup Error'}
         message={alertMsg || ''}
         confirmLabel="OK"
         onConfirm={() => setAlertMsg(null)}
@@ -1583,8 +1739,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
 
       <ConfirmationModal
         visible={showUnenrollConfirm}
-        title="Unenrol from Program?"
-        message={`Are you sure you want to unenrol from '${enrolledProgramName || 'your active program'}'? This will remove future scheduled program workouts from your calendar, but all of your completed logs, historical workout entries, and weights are 100% safe and intact.`}
+        title="UNENROL FROM CURRENT PROGRAM?"
+        message={`${enrolledProgramName || 'Your current program'} will remain saved, but it will no longer be your current program. Historical workout logs will remain unchanged.`}
         confirmLabel="Yes, Unenrol"
         cancelLabel="No, Stay Enrolled"
         confirmVariant="danger"
@@ -1605,7 +1761,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
 
       <ConfirmationModal
         visible={showCommencedModal}
-        title="Program Commenced!"
+        title="Program saved and enrolled"
         message={`"${commencedProgramName}" is now active! We've successfully scheduled your workouts on your training calendar.`}
         confirmLabel="Let's Train!"
         showCancel={false}
@@ -1626,15 +1782,19 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
         onKeepWorkout={() => {
           setShowDraftConflictModal(false);
           setPendingDraftConflictProgram(null);
+          setPendingDraftIdentity(null);
         }}
         onDiscardAndSave={() => {
           const prog = pendingDraftConflictProgram;
           setShowDraftConflictModal(false);
           setPendingDraftConflictProgram(null);
           if (prog) {
-            performDirectSaveProgram(prog, true);
+            performDirectSaveProgram(prog, true, pendingEnrolment);
+            setPendingEnrolment(false);
           }
         }}
+        sourceProgramName={pendingDraftProgramName}
+        targetProgramName={pendingDraftConflictProgram?.name}
       />
 
       {/* Information Dialog */}

@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Dumbbell, Plus, Minus, Trash2, Check, ArrowLeft, Clock, Timer, Flame, Smile, Droplet, Coffee, Award, ChevronDown, ChevronUp, BookOpen, Pencil, History, Info, MoreVertical, Link, Lock, Unlock, ClipboardCheck, Gamepad2, Compass, Activity, X, AlertTriangle } from 'lucide-react';
 import { Program, WorkoutLog, ExerciseEntry, SetEntry, WeightUnit, DailyRecoveryMetrics, HydrationLevel, mapHydrationToLiters, mapLitersToHydration, BodyweightSnapshot, RestInterval, RestTimerStartContext } from '../types';
 import { storage, PREBUILT_TEMPLATES } from '../lib/storage';
-import { saveActiveWorkoutDraft, clearActiveWorkoutDraft } from '../lib/navigationGuard';
+import { saveActiveWorkoutDraft, clearActiveWorkoutDraft, discardActiveWorkoutSession, getActiveWorkoutDraft } from '../lib/navigationGuard';
 import { getTodayLocalDateString, formatLocalDateDisplay, formatLocalTimeDisplay } from '../lib/dateUtils';
 import {
   createSessionExerciseRegistry,
@@ -2508,9 +2508,13 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   };
 
   const handleDiscardDraft = () => {
+    const activeDraft = getActiveWorkoutDraft();
+    if (!activeDraft?.identity || !discardActiveWorkoutSession(activeDraft.identity)) {
+      setAlertMsg('Failed to discard workout. Your workout remains safely recoverable.');
+      return;
+    }
     draftFlushSuppressedRef.current = true;
     latestDraftPayloadRef.current = null;
-    clearActiveWorkoutDraft();
     setHasExistingDraft(false);
     setIsDraftLoaded(false);
     isDraftLoadedRef.current = false;

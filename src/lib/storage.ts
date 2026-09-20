@@ -4,7 +4,7 @@
  */
 
 import { Program, WorkoutLog, PlannedSession, AppSettings, WeightUnit, CalendarDayNote, CalendarDayNoteMap, CalendarNoteType } from '../types';
-import { getLocalDateString, calculateSessionDate } from './dateUtils';
+import { getLocalDateString, calculateSessionDate, getEffectiveEnrolmentDate } from './dateUtils';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   highlightCurrentSet: true,
@@ -823,6 +823,34 @@ export const storage = {
     localStorage.setItem(KEYS.PROGRAM_LIST, JSON.stringify(list));
   },
 
+  saveProgramDesign: (program: Program): Program => {
+    const list = storage.getPrograms();
+    const normalizedName = program.name.trim().toLocaleLowerCase();
+    if (list.some(p => p.id !== program.id && p.name.trim().toLocaleLowerCase() === normalizedName)) {
+      throw new Error('A program with this name already exists. Choose a different name.');
+    }
+    const existing = list.find(p => p.id === program.id);
+    const now = new Date().toISOString();
+    const saved: Program = {
+      ...(existing || {}),
+      ...program,
+      name: program.name.trim(),
+      createdAt: existing?.createdAt || program.createdAt || now,
+      updatedAt: now,
+      ...(existing?.enrolledAt && !program.enrolledAt ? { enrolledAt: existing.enrolledAt } : {}),
+    };
+    storage.saveProgram(saved);
+    return saved;
+  },
+
+  enrolProgram: (program: Program): Program => {
+    // Persist successfully before moving the pointer. A storage exception can
+    // therefore never leave the user pointing at a missing/partial program.
+    const enrolled = storage.saveProgramDesign({ ...program, enrolledAt: new Date().toISOString() });
+    storage.setCurrentProgramId(enrolled.id);
+    return enrolled;
+  },
+
   deleteProgram: (id: string) => {
     const list = storage.getPrograms();
     const updated = list.filter(p => p.id !== id);
@@ -996,7 +1024,9 @@ export const storage = {
         if (!exercises) continue;
 
         // Calculate actual date for this planned session
-        const sessionDate = calculateSessionDate(program.createdAt, program.assignedWeekdays, w, dayIdx);
+        const runStart = getEffectiveEnrolmentDate(program, storage.getCurrentProgramId() === program.id);
+        if (!runStart) continue;
+        const sessionDate = calculateSessionDate(runStart, program.assignedWeekdays, w, dayIdx);
         const dateStr = getLocalDateString(sessionDate);
 
         // Check if there is already a completed log for this program/week/day on any date after the program was started/re-started
@@ -1006,7 +1036,7 @@ export const storage = {
             if (String(l.week) !== String(w)) return false;
             if (String(l.day) !== String(dayIdx)) return false;
             
-            const progTime = new Date(program.createdAt).getTime();
+            const progTime = new Date(runStart).getTime();
             const logTime = Number(l.id.replace('log-', ''));
             const actualLogTime = (!isNaN(logTime) && logTime > 1000000000000)
               ? logTime
@@ -1044,7 +1074,8 @@ export const storage = {
     if (dayIndexes.length === 0) return false;
     
     const lastDay = dayIndexes[dayIndexes.length - 1];
-    const progTime = new Date(program.createdAt).getTime();
+    const runStart = getEffectiveEnrolmentDate(program, true)!;
+    const progTime = new Date(runStart).getTime();
     
     return logs.some(
       l => {

@@ -91,7 +91,7 @@ describe('Program Builder exercise reordering', () => {
     const view = render(<ProgramBuilder onClose={() => {}} onSave={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: 'Move Row up' }));
     fireEvent.click(screen.getByRole('button', { name: /save program/i }));
-    fireEvent.click(screen.getByRole('button', { name: /yes, overwrite/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^save changes$/i }));
 
     const saved = storage.getPrograms().find(item => item.id === program.id)!;
     expect(saved.exercisesByDay[1].map(exercise => exercise.name)).toEqual(['Squat', 'Row', 'Bench Press']);

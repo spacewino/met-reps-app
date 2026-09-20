@@ -13,6 +13,8 @@ interface ProgramDraftConflictModalProps {
   onKeepWorkout: () => void;
   onDiscardAndSave: () => void;
   isProcessing?: boolean;
+  sourceProgramName?: string;
+  targetProgramName?: string;
 }
 
 export function ProgramDraftConflictModal({
@@ -21,6 +23,8 @@ export function ProgramDraftConflictModal({
   onKeepWorkout,
   onDiscardAndSave,
   isProcessing = false,
+  sourceProgramName = 'your current program',
+  targetProgramName = 'the selected program',
 }: ProgramDraftConflictModalProps) {
   const isAmber = themeId === 'amber';
 
@@ -36,7 +40,7 @@ export function ProgramDraftConflictModal({
       <div
         className={`w-full max-w-md overflow-hidden flex flex-col shadow-2xl rounded-none border transition-all duration-150 animate-in fade-in zoom-in-95 ${
           isAmber
-            ? 'bg-[#FAF5F0] border-amber-600/60 text-slate-900 shadow-amber-950/10'
+            ? 'bg-slate-900 border-indigo-500 text-slate-300 shadow-amber-950/10'
             : 'bg-slate-900 border-slate-800 text-slate-100 shadow-indigo-950/40'
         }`}
         onClick={(e) => e.stopPropagation()}
@@ -44,17 +48,17 @@ export function ProgramDraftConflictModal({
         {/* Header */}
         <div
           className={`p-4 border-b flex items-center justify-between gap-3 ${
-            isAmber ? 'bg-[#F2EAE1] border-amber-200/50' : 'bg-slate-950 border-slate-850'
+            isAmber ? 'bg-slate-950 border-slate-800' : 'bg-slate-950 border-slate-850'
           }`}
         >
           <div>
-            <h3 className="text-sm font-black uppercase tracking-wider leading-snug flex items-center gap-2">
-              <AlertTriangle className={`w-4 h-4 font-bold ${isAmber ? 'text-amber-700' : 'text-rose-400'}`} />
+            <h3 className={`text-sm font-black uppercase tracking-wider leading-snug flex items-center gap-2 ${isAmber ? 'text-slate-300' : 'text-slate-100'}`}>
+              <AlertTriangle className={`w-4 h-4 font-bold ${isAmber ? 'text-indigo-600' : 'text-rose-400'}`} />
               ACTIVE WORKOUT IN PROGRESS
             </h3>
             <p
               className={`text-[10px] font-mono uppercase tracking-widest leading-none mt-1 ${
-                isAmber ? 'text-amber-700/80' : 'text-slate-400'
+                isAmber ? 'text-slate-400' : 'text-slate-400'
               }`}
             >
               Draft Conflict Protection
@@ -63,10 +67,11 @@ export function ProgramDraftConflictModal({
           <button
             onClick={onKeepWorkout}
             disabled={isProcessing}
-            className={`p-1.5 rounded-none border transition cursor-pointer shrink-0 text-slate-300 disabled:opacity-50 ${
+            aria-label="Close active workout warning"
+            className={`p-1.5 rounded-none border transition cursor-pointer shrink-0 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
               isAmber
-                ? 'bg-[#FDFCFB] hover:bg-amber-100/50 border-amber-200'
-                : 'bg-slate-900 hover:bg-slate-800 border-slate-800'
+                ? 'bg-slate-900 hover:bg-slate-950 border-slate-800 text-slate-300'
+                : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300'
             }`}
           >
             <X className="w-4 h-4" />
@@ -75,23 +80,23 @@ export function ProgramDraftConflictModal({
 
         {/* Content */}
         <div className="p-5 space-y-4 text-xs sm:text-sm leading-relaxed">
-          <p className={`${isAmber ? 'text-slate-700' : 'text-slate-300'} font-semibold leading-relaxed`}>
-            You have an unfinished workout for this program. Saving these program changes will discard that workout draft.
+          <p className={`${isAmber ? 'text-slate-300' : 'text-slate-300'} font-semibold leading-relaxed`}>
+            You have an unfinished workout for {sourceProgramName}. Enrolling in {targetProgramName} will discard that workout draft.
           </p>
         </div>
 
         {/* Footer Actions */}
         <div
           className={`p-3 border-t flex flex-col sm:flex-row gap-2 justify-end ${
-            isAmber ? 'bg-[#F2EAE1] border-amber-200/50' : 'bg-slate-950 border-slate-850'
+            isAmber ? 'bg-slate-950 border-slate-800' : 'bg-slate-950 border-slate-850'
           }`}
         >
           <button
             onClick={onKeepWorkout}
             disabled={isProcessing}
-            className={`font-extrabold text-xs py-2 px-4 rounded-none border transition cursor-pointer disabled:opacity-50 ${
+            className={`font-extrabold text-xs py-2 px-4 rounded-none border transition cursor-pointer disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
               isAmber
-                ? 'bg-[#FDFCFB] hover:bg-amber-100/50 border-amber-200 text-slate-700'
+                ? 'bg-slate-900 hover:bg-slate-950 border-slate-800 text-slate-300'
                 : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300'
             }`}
           >
@@ -100,13 +105,13 @@ export function ProgramDraftConflictModal({
           <button
             onClick={onDiscardAndSave}
             disabled={isProcessing}
-            className={`font-extrabold text-xs py-2 px-4 rounded-none border transition cursor-pointer text-white shadow disabled:opacity-50 ${
+            className={`font-extrabold text-xs py-2 px-4 rounded-none border transition cursor-pointer text-on-destructive shadow disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
               isAmber
-                ? 'bg-rose-700 hover:bg-rose-600 border-rose-800 shadow-rose-950/20'
+                ? 'bg-rose-800 hover:bg-rose-700 border-rose-900 shadow-rose-950/20'
                 : 'bg-rose-600 hover:bg-rose-500 border-rose-700 shadow-rose-950/30'
             }`}
           >
-            DISCARD WORKOUT & SAVE PROGRAM
+            DISCARD WORKOUT & SWITCH PROGRAM
           </button>
         </div>
       </div>

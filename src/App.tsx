@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Dumbbell, Calendar, LineChart, PlusCircle, BookOpen, Settings, HelpCircle, ArrowRight, ArrowLeft, Info, Shield, HeartPulse, Check, FileJson, Plus, QrCode } from 'lucide-react';
 import { Program, WorkoutLog } from './types';
 import { storage } from './lib/storage';
-import { getLocalDateString, getTodayLocalDateString, calculateSessionDate } from './lib/dateUtils';
+import { getLocalDateString, getTodayLocalDateString, calculateSessionDate, getEffectiveEnrolmentDate } from './lib/dateUtils';
 
 // Screens
 import { HomeView } from './components/HomeView';
@@ -23,7 +23,7 @@ import { ConfirmationModal } from './components/ConfirmationModal';
 import { WorkoutConflictModal } from './components/WorkoutConflictModal';
 import { OnboardingModal } from './components/OnboardingModal';
 import { initializeOnboardingStartup } from './lib/onboarding';
-import { resolveWorkoutNavigation, getWorkoutIdentityFromParams, getActiveWorkoutDraft, ActiveWorkoutIdentity } from './lib/navigationGuard';
+import { resolveWorkoutNavigation, getWorkoutIdentityFromParams, getActiveWorkoutDraft, ActiveWorkoutIdentity, ACTIVE_WORKOUT_DISCARDED_EVENT } from './lib/navigationGuard';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<string>(() => {
@@ -149,6 +149,12 @@ export default function App() {
     resumeParams?: any;
   } | null>(null);
 
+  useEffect(() => {
+    const clearLiveActiveWorkout = () => setActiveWorkoutConflict(null);
+    window.addEventListener(ACTIVE_WORKOUT_DISCARDED_EVENT, clearLiveActiveWorkout);
+    return () => window.removeEventListener(ACTIVE_WORKOUT_DISCARDED_EVENT, clearLiveActiveWorkout);
+  }, []);
+
   // Load state on mount and on trigger
   const loadData = () => {
     setCurrentProgram(storage.getCurrentProgram());
@@ -254,7 +260,8 @@ export default function App() {
       .filter(d => d <= currentProgram.daysPerWeek)
       .sort((a, b) => a - b);
       
-    const progTime = new Date(currentProgram.createdAt).getTime();
+    const runStart = getEffectiveEnrolmentDate(currentProgram)!;
+    const progTime = new Date(runStart).getTime();
 
     // Loop up to a high limit (e.g., 1000 weeks) to support infinite progression beyond the standard duration.
     const searchWeeksLimit = Math.max(totalWeeks + 100, 1000);
@@ -275,7 +282,7 @@ export default function App() {
           }
         );
         if (!hasCompletedLog) {
-          const sessionDate = calculateSessionDate(currentProgram.createdAt, currentProgram.assignedWeekdays, w, d);
+          const sessionDate = calculateSessionDate(runStart, currentProgram.assignedWeekdays, w, d);
           const schedDateStr = getLocalDateString(sessionDate);
 
           return {
@@ -291,7 +298,7 @@ export default function App() {
     }
     
     const defaultD = dayIndexes[0] || 1;
-    const sessionDate = calculateSessionDate(currentProgram.createdAt, currentProgram.assignedWeekdays, 1, defaultD);
+    const sessionDate = calculateSessionDate(runStart, currentProgram.assignedWeekdays, 1, defaultD);
     const schedDateStr = getLocalDateString(sessionDate);
 
     return {

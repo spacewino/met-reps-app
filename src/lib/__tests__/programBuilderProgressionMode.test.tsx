@@ -83,6 +83,16 @@ function makeTestProgram(overrides?: Partial<Program>): Program {
   };
 }
 
+const saveForLater = () => {
+  fireEvent.click(screen.getByRole('button', { name: /^save program$/i }));
+  fireEvent.click(screen.getByRole('button', { name: /save for later/i }));
+};
+
+const saveActiveChanges = () => {
+  fireEvent.click(screen.getByRole('button', { name: /^save program$/i }));
+  fireEvent.click(screen.getByRole('button', { name: /^save changes$/i }));
+};
+
 describe('METREPS — D2C-4B Program Builder Progression Mode Integration Tests', () => {
   beforeEach(() => {
     mockStorage.clear();
@@ -114,8 +124,7 @@ describe('METREPS — D2C-4B Program Builder Progression Mode Integration Tests'
     const nameInput = screen.getByDisplayValue(/Milhouse Mass Split/i);
     fireEvent.change(nameInput, { target: { value: 'My New Program' } });
 
-    const saveButton = screen.getByRole('button', { name: /save program/i });
-    fireEvent.click(saveButton);
+    saveForLater();
 
     const programs = storage.getPrograms();
     const saved = programs.find(p => p.name === 'My New Program');
@@ -139,20 +148,14 @@ describe('METREPS — D2C-4B Program Builder Progression Mode Integration Tests'
     expect(coachRadio.getAttribute('aria-checked')).toBe('true');
     expect(standardRadio.getAttribute('aria-checked')).toBe('false');
 
-    const saveButton = screen.getByRole('button', { name: /save program/i });
-    fireEvent.click(saveButton);
-
-    const overwriteConfirm = screen.queryByRole('button', { name: /Yes, Overwrite/i });
-    if (overwriteConfirm) {
-      fireEvent.click(overwriteConfirm);
-    }
+    saveActiveChanges();
 
     const saved = storage.getPrograms().find(p => p.id === prog.id);
     expect(saved?.targetProgressionMode).toBe('metreps_guided');
   });
 
   it('4. reopening a coached program displays Coach selected without creating dirty state or writing storage', () => {
-    const prog = makeTestProgram({ targetProgressionMode: 'metreps_guided' });
+    const prog = makeTestProgram({ name: 'Coached to Periodisation Program', targetProgressionMode: 'metreps_guided' });
     storage.saveProgram(prog);
     storage.setCurrentProgramId(prog.id);
 
@@ -214,7 +217,7 @@ describe('METREPS — D2C-4B Program Builder Progression Mode Integration Tests'
   });
 
   it('7. selecting Periodisation Targets on a coached program and saving persists performance_led', () => {
-    const prog = makeTestProgram({ targetProgressionMode: 'metreps_guided' });
+    const prog = makeTestProgram({ name: 'Coached to Periodisation Save', targetProgressionMode: 'metreps_guided' });
     storage.saveProgram(prog);
     storage.setCurrentProgramId(prog.id);
 
@@ -224,13 +227,7 @@ describe('METREPS — D2C-4B Program Builder Progression Mode Integration Tests'
     const standardRadio = within(radiogroup).getByRole('radio', { name: /periodisation targets/i });
     fireEvent.click(standardRadio);
 
-    const saveButton = screen.getByRole('button', { name: /save program/i });
-    fireEvent.click(saveButton);
-
-    const overwriteConfirm = screen.queryByRole('button', { name: /Yes, Overwrite/i });
-    if (overwriteConfirm) {
-      fireEvent.click(overwriteConfirm);
-    }
+    saveActiveChanges();
 
     const saved = storage.getPrograms().find(p => p.id === prog.id);
     expect(saved?.targetProgressionMode).toBe('performance_led');
@@ -259,20 +256,14 @@ describe('METREPS — D2C-4B Program Builder Progression Mode Integration Tests'
   });
 
   it('9. an Off program can never save metreps_guided', () => {
-    const prog = makeTestProgram({ objective: 'Off', algorithmId: 'none' });
+    const prog = makeTestProgram({ name: 'Off Mode Save Program', objective: 'Off', algorithmId: 'none' });
     Reflect.set(prog, 'targetProgressionMode', 'metreps_guided');
     storage.saveProgram(prog);
     storage.setCurrentProgramId(prog.id);
 
     render(<ProgramBuilder onClose={() => {}} onSave={() => {}} />);
 
-    const saveButton = screen.getByRole('button', { name: /save program/i });
-    fireEvent.click(saveButton);
-
-    const overwriteConfirm = screen.queryByRole('button', { name: /Yes, Overwrite/i });
-    if (overwriteConfirm) {
-      fireEvent.click(overwriteConfirm);
-    }
+    saveActiveChanges();
 
     const saved = storage.getPrograms().find(p => p.id === prog.id);
     expect(saved?.targetProgressionMode).toBe('performance_led');
@@ -319,6 +310,8 @@ describe('METREPS — D2C-4B Program Builder Progression Mode Integration Tests'
     const backButton = screen.getAllByRole('button')[0];
     fireEvent.click(backButton);
 
+    fireEvent.click(screen.getByRole('button', { name: /discard changes/i }));
+
     expect(onClose).toHaveBeenCalled();
     expect(saveSpy).not.toHaveBeenCalled();
 
@@ -326,7 +319,7 @@ describe('METREPS — D2C-4B Program Builder Progression Mode Integration Tests'
     expect(stored?.targetProgressionMode).toBe('performance_led');
   });
 
-  it('12. renamed-program Save As/copy flow retains metreps_guided and uses the existing new-ID behaviour', () => {
+  it('12. renaming preserves the same program identity and metreps_guided metadata', () => {
     const prog = makeTestProgram({ id: 'original-prog-1', name: 'Original Program', targetProgressionMode: 'metreps_guided' });
     storage.saveProgram(prog);
     storage.setCurrentProgramId(prog.id);
@@ -336,23 +329,16 @@ describe('METREPS — D2C-4B Program Builder Progression Mode Integration Tests'
     const nameInput = screen.getByDisplayValue('Original Program');
     fireEvent.change(nameInput, { target: { value: 'Copied Program' } });
 
-    const saveButton = screen.getByRole('button', { name: /save program/i });
-    fireEvent.click(saveButton);
-
-    const switchConfirm = screen.queryByRole('button', { name: /Unenrol & Switch/i });
-    if (switchConfirm) {
-      fireEvent.click(switchConfirm);
-    }
+    saveActiveChanges();
 
     const allPrograms = storage.getPrograms();
     const copiedProgram = allPrograms.find(p => p.name === 'Copied Program');
     expect(copiedProgram).toBeDefined();
-    expect(copiedProgram?.id).not.toBe('original-prog-1');
+    expect(copiedProgram?.id).toBe('original-prog-1');
     expect(copiedProgram?.targetProgressionMode).toBe('metreps_guided');
 
-    const originalProgram = storage.getPrograms().find(p => p.id === 'original-prog-1');
-    expect(originalProgram).toBeDefined();
-    expect(originalProgram?.name).toBe('Original Program');
+    expect(allPrograms.filter(p => p.id === 'original-prog-1')).toHaveLength(1);
+    expect(storage.getCurrentProgramId()).toBe('original-prog-1');
   });
 
   it('13. prebuilt template without the field resolves to Periodisation Targets', () => {
