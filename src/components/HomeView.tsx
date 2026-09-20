@@ -593,7 +593,8 @@ export function HomeView({
           return (
               <button
                 onClick={() => handleStartWorkout({ isOneOff: true })}
-                className={`w-full font-extrabold text-xs py-2.5 px-2 rounded-none transition flex items-center justify-center gap-1 border shadow cursor-pointer ${
+                aria-label={isOngoingOneOffDraft ? 'Resume one-off workout' : 'Log one-off workout today'}
+                className={`w-full min-h-11 font-extrabold text-xs py-2.5 px-2 rounded-none transition flex items-center justify-center gap-1 border shadow cursor-pointer ${
                   isOngoingOneOffDraft
                     ? isAmber
                       ? 'bg-[#F5EBE0] text-[#9B1C1C] border-[#E05A47] hover:bg-[#E05A47]/20 font-black'
@@ -602,11 +603,11 @@ export function HomeView({
                 }`}
               >
                 <Plus className="w-4 h-4" />
-                {isOngoingOneOffDraft ? 'Resume one-off workout' : '+ One-off workout'}
+                <span className="whitespace-nowrap">{isOngoingOneOffDraft ? 'Resume one-off workout' : 'One-off workout'}</span>
               </button>
           );
         })()}
-          <button onClick={() => setNoteEditorOpen(true)} className="w-full font-extrabold text-xs py-2.5 px-3 flex items-center justify-center gap-1 border border-slate-800 bg-slate-950 text-indigo-400 hover:text-indigo-300">
+          <button onClick={() => setNoteEditorOpen(true)} className="w-full min-h-11 font-extrabold text-xs py-2.5 px-3 flex items-center justify-center gap-1 border border-slate-800 bg-slate-950 text-indigo-400 hover:text-indigo-300">
             <Plus className="w-4 h-4" /> {calendarNotes[selectedDate] ? 'Edit Note' : 'Add Note'}
           </button>
         </div>
