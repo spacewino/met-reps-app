@@ -64,6 +64,9 @@ export default function App() {
     root.style.setProperty('--theme-accent-dark', activeTheme.accentDark);
     root.style.setProperty('--theme-accent-cyan', activeTheme.accentCyan);
     root.style.setProperty('--theme-success', activeTheme.success);
+    root.style.setProperty('--theme-action', activeTheme.action);
+    root.style.setProperty('--theme-action-hover', activeTheme.actionHover);
+    root.style.setProperty('--theme-selected-surface', activeTheme.selectedSurface);
     
     // Set html background color to match so mobile elastic scrolling matches
     root.style.backgroundColor = activeTheme.bgMain;
@@ -86,6 +89,9 @@ export default function App() {
     '--theme-accent-dark': activeTheme.accentDark,
     '--theme-accent-cyan': activeTheme.accentCyan,
     '--theme-success': activeTheme.success,
+    '--theme-action': activeTheme.action,
+    '--theme-action-hover': activeTheme.actionHover,
+    '--theme-selected-surface': activeTheme.selectedSurface,
   } as React.CSSProperties;
 
   // Core synchronized state
@@ -338,7 +344,7 @@ export default function App() {
   return (
     <div 
       style={themeStyle}
-      className="h-[100dvh] md:h-auto md:min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row justify-center selection:bg-indigo-500 selection:text-white overflow-hidden md:overflow-visible"
+      className="h-[100dvh] md:h-auto md:min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row justify-center selection:bg-indigo-500 selection:text-on-accent overflow-hidden md:overflow-visible"
     >
       {/* LEFT SIDE: Explanatory Sidebar (Visible on desktop) */}
       <aside className="hidden md:flex md:w-80 lg:w-96 p-6 md:p-8 shrink-0 bg-slate-900/40 border-r border-slate-900 flex-col justify-between space-y-8">
@@ -552,8 +558,8 @@ export default function App() {
                     }}
                     className={`text-[10px] font-extrabold uppercase tracking-wider px-3.5 py-2 transition-all cursor-pointer ${
                       themeId === 'amber'
-                        ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-sm'
-                        : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20'
+                        ? 'bg-warning-action hover:bg-warning-action-hover text-on-accent shadow-sm'
+                        : 'bg-action hover:bg-action-hover text-on-accent shadow-md shadow-indigo-600/20'
                     }`}
                   >
                     Go to Program Builder

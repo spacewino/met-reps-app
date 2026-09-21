@@ -281,7 +281,7 @@ export function HomeView({
                 aria-label={`${day.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}${calendarNote ? `, ${NOTE_TYPE_DETAILS[calendarNote.type].label} note` : ''}`}
                 className={`p-2 rounded-none flex flex-col items-center justify-between transition min-h-[52px] border relative ${
                   isSelected
-                    ? `bg-indigo-600 ${isAmber ? 'text-[#FBFAF8]' : 'text-white'} border-indigo-500`
+                    ? `bg-action ${isAmber ? 'text-[#FBFAF8]' : 'text-on-accent'} border-indigo-500`
                     : isToday
                     ? isAmber
                       ? 'bg-[#252320]/80 text-[#FBFAF8] border-[#B56D3E]'
@@ -566,9 +566,9 @@ export function HomeView({
                     className={`w-full font-extrabold text-sm py-3 px-3 rounded-none transition flex items-center justify-center gap-1.5 shadow ${
                       isOngoingDraft
                         ? isAmber
-                          ? 'bg-[#E05A47] hover:bg-[#C84B39] text-white ring-1 ring-[#E05A47]'
-                          : 'bg-emerald-600 hover:bg-emerald-500 text-white ring-1 ring-emerald-400'
-                        : `bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 ${isAmber ? 'text-[#FBFAF8]' : 'text-white'}`
+                          ? 'bg-[#A33A2B] hover:bg-[#842F24] text-on-accent ring-1 ring-[#E05A47]'
+                          : 'bg-positive-action hover:bg-positive-action-hover text-on-accent ring-1 ring-emerald-400'
+                        : `bg-action hover:bg-action-hover active:bg-action-hover ${isAmber ? 'text-[#FBFAF8]' : 'text-on-accent'}`
                     }`}
                   >
                     <Play className={`w-4 h-4 fill-current ${isOngoingDraft ? 'animate-pulse' : ''}`} />
@@ -597,7 +597,7 @@ export function HomeView({
                 className={`w-full min-h-11 font-extrabold text-xs py-2.5 px-2 rounded-none transition flex items-center justify-center gap-1 border shadow cursor-pointer ${
                   isOngoingOneOffDraft
                     ? isAmber
-                      ? 'bg-[#F5EBE0] text-[#9B1C1C] border-[#E05A47] hover:bg-[#E05A47]/20 font-black'
+                      ? 'bg-[#F5EBE0] text-[#9B1C1C] border-[#E05A47] hover:bg-[#A33A2B]/20 font-black'
                       : 'bg-emerald-950/80 text-emerald-300 border-emerald-600 hover:bg-emerald-900/80 font-black'
                     : 'bg-slate-950 hover:bg-slate-850 active:bg-slate-900 text-indigo-400 hover:text-indigo-300 border-slate-800'
                 }`}

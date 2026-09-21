@@ -34,7 +34,7 @@ export function ProgramDraftConflictModal({
 
   return (
     <div
-      className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-150 font-sans text-left"
+      className="fixed inset-0 bg-overlay/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-150 font-sans text-left"
       onClick={onKeepWorkout}
     >
       <div

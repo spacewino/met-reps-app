@@ -126,7 +126,7 @@ export function OnboardingModal({ isOpen, onClose, themeId = 'slate', initialPag
 
   return (
     <div
-      className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3.5 sm:p-4 z-50 animate-in fade-in duration-200"
+      className="fixed inset-0 bg-overlay/85 backdrop-blur-sm flex items-center justify-center p-3.5 sm:p-4 z-50 animate-in fade-in duration-200"
       role="dialog"
       aria-modal="true"
       aria-labelledby="onboarding-dialog-title"
@@ -458,10 +458,10 @@ export function OnboardingModal({ isOpen, onClose, themeId = 'slate', initialPag
               <button
                 type="button"
                 onClick={handleNext}
-                className={`px-5 py-2.5 text-xs font-mono font-black text-white ${
+                className={`px-5 py-2.5 text-xs font-mono font-black text-on-accent ${
                   isDesert
-                    ? 'bg-amber-600 hover:bg-amber-500 border border-amber-500'
-                    : 'bg-indigo-600 hover:bg-indigo-500 border border-indigo-500'
+                    ? 'bg-warning-action hover:bg-warning-action-hover border border-amber-500'
+                    : 'bg-action hover:bg-action-hover border border-indigo-500'
                 } transition flex items-center gap-1.5 uppercase cursor-pointer shadow-md shadow-indigo-950/40 min-h-[44px] min-w-[44px]`}
               >
                 NEXT <ChevronRight className="w-4 h-4" />
@@ -470,7 +470,7 @@ export function OnboardingModal({ isOpen, onClose, themeId = 'slate', initialPag
               <button
                 type="button"
                 onClick={handleDismiss}
-                className="px-5 py-2.5 text-xs font-mono font-black text-white bg-emerald-600 hover:bg-emerald-500 border border-emerald-500 transition flex items-center gap-1.5 uppercase cursor-pointer shadow-md shadow-emerald-950/40 min-h-[44px] min-w-[44px]"
+                className="px-5 py-2.5 text-xs font-mono font-black text-on-accent bg-positive-action hover:bg-positive-action-hover border border-emerald-500 transition flex items-center gap-1.5 uppercase cursor-pointer shadow-md shadow-emerald-950/40 min-h-[44px] min-w-[44px]"
               >
                 <Check className="w-4 h-4" /> GET STARTED
               </button>

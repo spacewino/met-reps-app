@@ -78,7 +78,7 @@ export function AchievementsModal({
 
   return (
     <div
-      className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 animate-in fade-in duration-150"
+      className="fixed inset-0 bg-overlay/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 animate-in fade-in duration-150"
       onClick={dismiss}
     >
       <div
@@ -120,7 +120,7 @@ export function AchievementsModal({
           <button
             onClick={dismiss}
             className={`p-1.5 rounded transition-colors ${
-              isDesert ? 'hover:bg-[#E05A47]/20 text-[#252320]' : 'hover:bg-slate-800 text-slate-300'
+              isDesert ? 'hover:bg-[#A33A2B]/20 text-[#252320]' : 'hover:bg-slate-800 text-slate-300'
             }`}
           >
             <X className="w-5 h-5" />
@@ -147,10 +147,10 @@ export function AchievementsModal({
                 className={`px-2.5 py-1 text-[10px] uppercase font-black tracking-wider border transition-colors ${
                   filter === tab
                     ? isDesert
-                      ? 'bg-[#E05A47] text-white border-[#E05A47] shadow-sm'
-                      : 'bg-indigo-600 text-white border-indigo-500'
+                      ? 'bg-[#A33A2B] text-on-accent border-[#E05A47] shadow-sm'
+                      : 'bg-action text-on-accent border-indigo-500'
                     : isDesert
-                      ? 'bg-[#F5EBE0] text-[#252320] border-[#E05A47]/30 hover:bg-[#E05A47]/15'
+                      ? 'bg-[#F5EBE0] text-[#252320] border-[#E05A47]/30 hover:bg-[#A33A2B]/15'
                       : 'bg-transparent text-slate-400 border-transparent hover:border-slate-800'
                 }`}
               >
@@ -217,8 +217,8 @@ export function AchievementsModal({
                         {isSelected && (
                           <span className={`px-1.5 py-0.2 text-[8px] font-mono font-black uppercase tracking-wider border ${
                             isDesert
-                              ? 'bg-[#E05A47] text-white border-[#E05A47]'
-                              : 'bg-indigo-600 text-white border-indigo-500'
+                              ? 'bg-[#A33A2B] text-on-accent border-[#E05A47]'
+                              : 'bg-action text-on-accent border-indigo-500'
                           }`}>
                             FEATURED
                           </span>
@@ -250,10 +250,10 @@ export function AchievementsModal({
                         className={`px-2.5 py-1 text-[9px] font-mono font-black uppercase border transition ${
                           isSelected
                             ? isDesert
-                              ? 'bg-[#E05A47] text-white border-[#E05A47] shadow-sm'
-                              : 'bg-indigo-600 text-white border-indigo-500'
+                              ? 'bg-[#A33A2B] text-on-accent border-[#E05A47] shadow-sm'
+                              : 'bg-action text-on-accent border-indigo-500'
                             : isDesert
-                              ? 'bg-[#F5EBE0] hover:bg-[#E05A47]/20 border-[#E05A47]/50 text-[#801717]'
+                              ? 'bg-[#F5EBE0] hover:bg-[#A33A2B]/20 border-[#E05A47]/50 text-[#801717]'
                               : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-indigo-300'
                         }`}
                       >
@@ -281,7 +281,7 @@ export function AchievementsModal({
                     }`}>
                       <div
                         className={`h-full transition-all duration-300 ${
-                          isDesert ? 'bg-[#E05A47]' : 'bg-indigo-500'
+                          isDesert ? 'bg-[#A33A2B]' : 'bg-indigo-500'
                         }`}
                         style={{ width: `${item.progressPercent}%` }}
                       />
@@ -301,8 +301,8 @@ export function AchievementsModal({
             onClick={dismiss}
             className={`px-5 py-2 font-mono text-xs font-black uppercase tracking-wider border transition ${
               isDesert
-                ? 'bg-[#E05A47] hover:bg-[#C84B39] text-white border-[#E05A47] shadow-sm'
-                : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500'
+                ? 'bg-[#A33A2B] hover:bg-[#842F24] text-on-accent border-[#E05A47] shadow-sm'
+                : 'bg-action hover:bg-action-hover text-on-accent border-indigo-500'
             }`}
           >
             Close

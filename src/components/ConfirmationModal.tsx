@@ -47,7 +47,7 @@ export function ConfirmationModal({
 
   return (
     <div 
-      className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
+      className="fixed inset-0 bg-overlay/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
       onClick={dismissOnBackdropPress ? dismiss : undefined}
     >
       <div 
@@ -91,14 +91,14 @@ export function ConfirmationModal({
           <button
             onClick={handleConfirm}
             disabled={isProcessing}
-            className={`px-4 py-2.5 text-white font-black text-xs uppercase tracking-wider rounded-none transition flex items-center gap-1.5 shadow ${
+            className={`px-4 py-2.5 text-on-destructive font-black text-xs uppercase tracking-wider rounded-none transition flex items-center gap-1.5 shadow ${
               confirmVariant === 'danger'
                 ? 'bg-rose-600 hover:bg-rose-500 disabled:bg-rose-800'
-                : 'bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800'
+                : 'bg-action hover:bg-action-hover disabled:bg-indigo-800'
             }`}
           >
             {isProcessing ? (
-              <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <span className="w-3.5 h-3.5 border-2 border-on-accent/30 border-t-on-accent rounded-full animate-spin" />
             ) : null}
             {confirmLabel}
           </button>

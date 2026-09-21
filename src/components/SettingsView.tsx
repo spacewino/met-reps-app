@@ -11,63 +11,8 @@ import { convertWeightUnit } from '../lib/assistedLoadMath';
 import { ConfirmationModal } from './ConfirmationModal';
 import { ExerciseSelectorModal } from './ExerciseSelectorModal';
 import { useModalHistory } from '../lib/useModalHistory';
-
-export const THEME_PRESETS = [
-  {
-    id: 'slate',
-    name: 'Subnautic',
-    bgMain: '#04060a',
-    bgCard: '#11182c',
-    borderMain: '#202a45',
-    textPrimary: '#F9FAFB',
-    textSecondary: '#94a3b8',
-    textMuted: '#64748b',
-    accent: '#6366f1',
-    accentLight: '#818cf8',
-    accentDark: '#4f46e5',
-    accentCyan: '#06b6d4',
-    success: '#10b981',
-    label: 'Blue Slate',
-    swatch1: '#6366f1',
-    swatch2: '#11182c',
-  },
-  {
-    id: 'onyx',
-    name: 'Feralas',
-    bgMain: '#111827',
-    bgCard: '#1F2937',
-    borderMain: '#374151',
-    textPrimary: '#F9FAFB',
-    textSecondary: '#9CA3AF',
-    textMuted: '#6B7280',
-    accent: '#10B981',
-    accentLight: '#34D399',
-    accentDark: '#059669',
-    accentCyan: '#F59E0B',
-    success: '#10B981',
-    label: 'Forest Green',
-    swatch1: '#10B981',
-    swatch2: '#1F2937',
-  },
-  {
-    id: 'amber',
-    name: 'Crimson Desert',
-    bgMain: '#F2F0EC',
-    bgCard: '#FBFAF8',
-    borderMain: '#DDD7D0',
-    textPrimary: '#252320',
-    textSecondary: '#6F6A63',
-    textMuted: '#A49D95',
-    accent: '#B56D3E',
-    accentLight: '#D0915D',
-    accentDark: '#9B5C34',
-    accentCyan: '#C58A2B',
-    success: '#5C8A55',
-    label: 'Desert Leather',
-    swatch1: '#B56D3E',
-    swatch2: '#FBFAF8',
-  },
-];
+import { THEME_PRESETS } from '../theme';
+export { THEME_PRESETS } from '../theme';
 
 interface SettingsViewProps {
   currentProgram: Program | null;
@@ -625,7 +570,7 @@ export function SettingsView({
                 onClick={() => handleUnitChange(u)}
                 className={`flex-1 py-3 rounded-none text-xs font-black border transition uppercase tracking-wider ${
                   isActive
-                    ? `bg-indigo-600 border-indigo-500 shadow-md ${isDesert ? 'text-[#FBFAF8]' : 'text-white'}`
+                    ? `bg-action border-indigo-500 shadow-md ${isDesert ? 'text-[#FBFAF8]' : 'text-on-accent'}`
                     : 'bg-slate-950 border-slate-850 text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -676,7 +621,7 @@ export function SettingsView({
               storage.saveSettings({ highlightCurrentSet: nextVal });
             }}
             className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-              highlightCurrentSet ? 'bg-indigo-600' : 'bg-slate-950 border border-slate-800'
+              highlightCurrentSet ? 'bg-action' : 'bg-slate-950 border border-slate-800'
             }`}
           >
             <span
@@ -738,7 +683,7 @@ export function SettingsView({
         <button
           type="button"
           onClick={() => setShowDataMgmtPopup(true)}
-          className={`w-full bg-indigo-600 hover:bg-indigo-500 font-black text-xs py-3.5 px-4 rounded-none transition flex items-center justify-center gap-2 shadow uppercase tracking-widest cursor-pointer ${
+          className={`w-full bg-action hover:bg-action-hover font-black text-xs py-3.5 px-4 rounded-none transition flex items-center justify-center gap-2 shadow uppercase tracking-widest cursor-pointer ${
             isDesert ? 'text-[#FBFAF8]' : 'text-white'
           }`}
         >
@@ -748,7 +693,7 @@ export function SettingsView({
 
       {/* App Data Management Popup Overlay */}
       {showDataMgmtPopup && (
-        <div className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-overlay/85 z-50 flex items-center justify-center p-4">
           <div className="bg-slate-950 border border-slate-800 w-full max-w-md p-5 space-y-6 shadow-2xl overflow-y-auto max-h-[90vh] rounded-none">
             <div className="flex justify-between items-center border-b border-slate-850 pb-3">
               <h3 className="font-extrabold text-sm text-white uppercase tracking-wider">
@@ -852,7 +797,7 @@ export function SettingsView({
                 <button
                   type="button"
                   onClick={handleGenerateTestData}
-                  className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs py-3.5 px-3 rounded-none transition flex items-center justify-center gap-1.5 shadow uppercase tracking-wider cursor-pointer"
+                  className="w-full bg-action hover:bg-action-hover text-on-accent font-extrabold text-xs py-3.5 px-3 rounded-none transition flex items-center justify-center gap-1.5 shadow uppercase tracking-wider cursor-pointer"
                 >
                   <RefreshCw className="w-4 h-4" /> Generate 12-Week Test Data
                 </button>

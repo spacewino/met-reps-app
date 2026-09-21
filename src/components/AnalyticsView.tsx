@@ -803,10 +803,10 @@ export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRef
               onClick={handleInitiateRerun}
               className={`w-full font-black text-xs py-4 px-4 border transition uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2 shadow-lg ${
                 isDesert
-                  ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-500 shadow-amber-950/20'
+                  ? 'bg-warning-action hover:bg-warning-action-hover text-on-accent border-amber-500 shadow-amber-950/20'
                   : isFeralas
-                  ? 'bg-[#E05A47] hover:bg-[#c94b39] text-white border-[#E05A47] shadow-red-950/20'
-                  : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-indigo-950/40'
+                  ? 'bg-[#A33A2B] hover:bg-[#842F24] text-on-accent border-[#E05A47] shadow-red-950/20'
+                  : 'bg-action hover:bg-action-hover text-on-accent border-indigo-500 shadow-indigo-950/40'
               }`}
             >
               <Repeat className="w-4 h-4" />
@@ -825,7 +825,7 @@ export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRef
         {/* Rerun Program Confirmation Modal */}
         {showRerunConfirmation && selectedReportProgram && (
           <div
-            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-in fade-in duration-150 font-sans text-left"
+            className="fixed inset-0 bg-overlay/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-in fade-in duration-150 font-sans text-left"
             onClick={dismissRerunModal}
           >
             <div
@@ -970,12 +970,12 @@ export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRef
                   type="button"
                   onClick={handleExecuteRerun}
                   disabled={isRerunProcessing}
-                  className={`font-black text-xs py-2.5 px-5 rounded-none border transition cursor-pointer text-white shadow flex items-center gap-1.5 disabled:opacity-50 ${
+                  className={`font-black text-xs py-2.5 px-5 rounded-none border transition cursor-pointer text-on-accent shadow flex items-center gap-1.5 disabled:opacity-50 ${
                     isDesert
-                      ? 'bg-amber-600 hover:bg-amber-500 border-amber-500 shadow-amber-950/20'
+                      ? 'bg-warning-action hover:bg-warning-action-hover border-amber-500 shadow-amber-950/20'
                       : isFeralas
-                      ? 'bg-[#E05A47] hover:bg-[#c94b39] border-[#E05A47] shadow-red-950/20'
-                      : 'bg-indigo-600 hover:bg-indigo-500 border-indigo-500 shadow-indigo-950/40'
+                      ? 'bg-[#A33A2B] hover:bg-[#842F24] border-[#E05A47] shadow-red-950/20'
+                      : 'bg-action hover:bg-action-hover border-indigo-500 shadow-indigo-950/40'
                   }`}
                 >
                   <Repeat className="w-3.5 h-3.5" />
@@ -1490,7 +1490,7 @@ export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRef
 
       {/* Target Info Explanation Modal */}
       {showTargetInfo && (
-        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-150" onClick={() => setShowTargetInfo(false)}>
+        <div className="fixed inset-0 bg-overlay/85 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-150" onClick={() => setShowTargetInfo(false)}>
           <div className="bg-slate-900 border border-slate-800 rounded-none w-full max-w-md p-5 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
               <h3 className="font-extrabold text-xs text-white uppercase tracking-wider flex items-center gap-1.5">
@@ -1529,7 +1529,7 @@ export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRef
               <button
                 type="button"
                 onClick={() => setShowTargetInfo(false)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-wider transition rounded-none cursor-pointer"
+                className="px-4 py-2 bg-action hover:bg-action-hover text-on-accent text-xs font-black uppercase tracking-wider transition rounded-none cursor-pointer"
               >
                 Got it
               </button>

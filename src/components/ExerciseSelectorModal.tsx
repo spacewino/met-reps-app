@@ -141,7 +141,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
   const isAmber = themeId === 'amber';
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
-  
+
   // Selection state
   const [checkedExercises, setCheckedExercises] = useState<ExerciseItem[]>(() => {
     try {
@@ -170,7 +170,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
       } catch (_) {}
     }
   }, [isOpen]);
-  
+
   // Custom exercise creation state
   const [isCustomMode, setIsCustomMode] = useState(false);
   const [customName, setCustomName] = useState('');
@@ -254,7 +254,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
 
     // Add custom exercises first
     customExercises.forEach(ex => {
-      const matchesSearch = ex.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      const matchesSearch = ex.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                             ex.category.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesCategory = selectedCategory === 'All' || selectedCategory === ex.category;
 
@@ -273,13 +273,13 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
       exercises.forEach(rawEx => {
         const exName = typeof rawEx === 'string' ? rawEx : rawEx.name;
         const exKey = typeof rawEx === 'string' ? undefined : rawEx.exerciseKey;
-        const matchesSearch = exName.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        const matchesSearch = exName.toLowerCase().includes(searchQuery.toLowerCase()) ||
                               category.toLowerCase().includes(searchQuery.toLowerCase());
         const matchesCategory = selectedCategory === 'All' || selectedCategory === category;
 
         // Prevent duplication of built-ins within the same category/view
-        const alreadyAdded = results.some(r => 
-          !r.exerciseKey?.startsWith('custom_') && 
+        const alreadyAdded = results.some(r =>
+          !r.exerciseKey?.startsWith('custom_') &&
           ((r.exerciseKey && exKey) ? r.exerciseKey === exKey : r.name.toLowerCase() === exName.toLowerCase())
         );
         const isHidden = hiddenDefaults.includes(exName.toLowerCase());
@@ -409,11 +409,11 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
   };
 
   return (
-    <div 
-      className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-start justify-center p-0 sm:p-4 md:pt-8"
+    <div
+      className="fixed inset-0 bg-overlay/80 backdrop-blur-sm z-50 flex items-start justify-center p-0 sm:p-4 md:pt-8"
       onClick={dismiss}
     >
-      <div 
+      <div
         className="bg-slate-900 border border-slate-800 rounded-none w-full max-w-md md:max-w-xl overflow-hidden flex flex-col h-[90vh] md:h-[80vh] shadow-2xl shadow-indigo-950/30 animate-in slide-in-from-top-5 duration-200"
         onClick={e => e.stopPropagation()}
       >
@@ -473,7 +473,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
                     onClick={() => setSelectedCategory(cat)}
                     className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-none whitespace-nowrap transition cursor-pointer border ${
                       isSelected
-                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        ? 'bg-action text-on-accent border-indigo-500 shadow-sm'
                         : 'bg-slate-950 text-slate-400 border-slate-850 hover:text-slate-200 hover:border-slate-800'
                     }`}
                   >
@@ -674,7 +674,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
                     return;
                   }
                   const formattedName = customName.trim();
-                  
+
                   let updatedCustoms = [...customExercises];
                   let savedItem: ExerciseItem;
 
@@ -770,7 +770,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
                   setEditingExercise(null);
                   setIsCustomMode(false);
                 }}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-[#FBFAF8] font-black text-xs py-3.5 rounded-none transition cursor-pointer uppercase tracking-wider"
+                className="flex-1 bg-action hover:bg-action-hover text-[#FBFAF8] font-black text-xs py-3.5 rounded-none transition cursor-pointer uppercase tracking-wider"
               >
                 {editingExercise ? 'Save Changes' : 'Add & Select'}
               </button>
@@ -799,9 +799,9 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
                       setIsCustomMode(true);
                     }}
                     className={`px-4 py-2.5 rounded-none text-xs font-black uppercase tracking-wider transition flex items-center gap-1.5 shadow cursor-pointer text-[#FBFAF8] ${
-                      isAmber 
-                        ? 'bg-amber-600 hover:bg-amber-500 border border-amber-700 shadow-amber-950/20' 
-                        : 'bg-indigo-600 hover:bg-indigo-500 border border-indigo-700 shadow-indigo-950/40'
+                      isAmber
+                        ? 'bg-warning-action hover:bg-warning-action-hover border border-amber-700 shadow-amber-950/20'
+                        : 'bg-action hover:bg-action-hover border border-indigo-700 shadow-indigo-950/40'
                     }`}
                   >
                     <Plus className="w-4 h-4 font-black" /> Create Custom: "{searchQuery}"
@@ -910,7 +910,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
                           onClick={() => handleToggleChecked(ex)}
                           className={`p-2 rounded-none border transition cursor-pointer ${
                             isChecked
-                              ? 'bg-indigo-600 border-indigo-500 text-white'
+                              ? 'bg-action border-indigo-500 text-on-accent'
                               : 'bg-slate-950 border-slate-850 text-transparent hover:text-slate-600'
                           }`}
                         >
@@ -945,7 +945,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
               >
                 <Plus className="w-3.5 h-3.5" /> Add Custom Exercise
               </button>
-              
+
               {isManagementOnly ? (
                 <button
                   type="button"
@@ -953,7 +953,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
                     dismissWithoutCallback();
                     onClose();
                   }}
-                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-none text-xs font-black uppercase tracking-wider transition cursor-pointer shadow shadow-indigo-950/50 font-sans font-black"
+                  className="px-6 py-2.5 bg-action hover:bg-action-hover text-on-accent rounded-none text-xs font-black uppercase tracking-wider transition cursor-pointer shadow shadow-indigo-950/50 font-sans font-black"
                 >
                   Done
                 </button>
@@ -971,7 +971,7 @@ export function ExerciseSelectorModal({ isOpen, onClose, onSelect, confirmLabel,
                   }}
                   className={`px-4 py-2.5 rounded-none text-xs font-black uppercase tracking-wider transition flex items-center gap-1.5 ${
                     checkedExercises.length > 0
-                      ? 'bg-indigo-600 hover:bg-indigo-500 text-[#FBFAF8] shadow-md shadow-indigo-950/50 cursor-pointer'
+                      ? 'bg-action hover:bg-action-hover text-[#FBFAF8] shadow-md shadow-indigo-950/50 cursor-pointer'
                       : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                   }`}
                 >

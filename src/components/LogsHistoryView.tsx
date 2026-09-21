@@ -604,7 +604,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
                 onClick={() => setIsAchievementsModalOpen(true)}
                 className={`p-1 rounded transition-colors flex items-center justify-center shrink-0 ${
                   isDesertTheme
-                    ? 'text-[#9B1C1C] hover:bg-[#E05A47]/15'
+                    ? 'text-[#9B1C1C] hover:bg-[#A33A2B]/15'
                     : 'text-indigo-400 hover:text-indigo-300 hover:bg-slate-800/60'
                 }`}
                 title="View Journal Achievements & Titles"
@@ -1487,7 +1487,7 @@ export function LogsHistoryView({ workoutLogs, onRefresh, themeId, onNavigate }:
       {/* Grade / Scorecard Explanation Modal */}
       {showGradeInfo && (
         <div
-          className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 bg-overlay/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
           onClick={dismissGradeInfo}
         >
           <div

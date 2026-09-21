@@ -4473,7 +4473,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           className="fixed bottom-20 right-4 md:absolute md:bottom-20 md:right-4 z-40 bg-[#FAF5F0]/95 border-2 border-amber-600 shadow-[0_0_20px_rgba(217,119,6,0.4)] ring-1 ring-amber-600/50 px-3.5 py-2 flex items-center gap-3 select-none cursor-pointer hover:scale-105 active:scale-95 transition-all duration-200 animate-in fade-in slide-in-from-bottom-3"
           title="Rest timer active. Tap to reset & dismiss"
         >
-          <span className="w-2 h-2 rounded-full bg-amber-600 animate-ping shrink-0" />
+          <span className="w-2 h-2 rounded-full bg-warning-action animate-ping shrink-0" />
           <span className="text-[11.5px] text-amber-700 font-mono tracking-wider">
             {segmentsStr}
           </span>
@@ -4852,7 +4852,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                         ? 'bg-amber-950/15 border-l-2 border-l-transparent'
                         : isCurrentGuidedSet
                         ? (themeId === 'amber'
-                            ? 'bg-amber-600/15 border-l-2 border-l-amber-500'
+                            ? 'bg-warning-action/15 border-l-2 border-l-amber-500'
                             : 'bg-indigo-950/50 border-l-2 border-l-indigo-500')
                         : 'bg-slate-950/25 border-l-2 border-l-transparent';
                       const isDraggedSet = setDrag?.exIdx === exIdx && setDrag.setIdx === setIdx;
@@ -5309,7 +5309,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
               setSelectorTargetIdx(-1);
               setIsSelectorOpen(true);
             }}
-            className="w-full bg-indigo-500/5 hover:bg-indigo-500/10 border border-dashed border-indigo-500/20 hover:border-indigo-500/40 text-indigo-400 font-extrabold text-sm py-4 rounded-none transition flex items-center justify-center gap-1.5"
+            className="w-full bg-indigo-500/5 hover:bg-action-hover/10 border border-dashed border-indigo-500/20 hover:border-indigo-500/40 text-indigo-400 font-extrabold text-sm py-4 rounded-none transition flex items-center justify-center gap-1.5"
           >
             <Plus className="w-5 h-5" /> Add Custom Exercise
           </button>
@@ -5340,7 +5340,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
               <button
                 type="button"
                 onClick={handleAutoCalculateDuration}
-                className={`bg-indigo-600 hover:bg-indigo-500 ${themeId === 'amber' ? 'text-[#FBFAF8]' : 'text-white'} text-[10px] font-black uppercase tracking-widest h-full px-3.5 transition cursor-pointer border-l border-slate-850 shrink-0 flex items-center gap-1 group`}
+                className={`bg-action hover:bg-action-hover ${themeId === 'amber' ? 'text-[#FBFAF8]' : 'text-on-accent'} text-[10px] font-black uppercase tracking-widest h-full px-3.5 transition cursor-pointer border-l border-slate-850 shrink-0 flex items-center gap-1 group`}
                 title="Calculate duration from start time to now"
               >
                 <Clock className={`w-3 h-3 ${themeId === 'amber' ? 'text-[#FBFAF8]/80' : 'text-white/80'} group-hover:scale-110 transition-transform`} />
@@ -5465,7 +5465,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                       isSelected
                         ? themeId === 'amber'
                           ? 'bg-amber-500 border-amber-400 text-slate-950 font-black shadow-sm'
-                          : 'bg-indigo-600 border-indigo-500 text-white font-black shadow-sm shadow-indigo-600/30'
+                          : 'bg-action border-indigo-500 text-on-accent font-black shadow-sm shadow-indigo-600/30'
                         : 'bg-slate-950 border-slate-850 text-slate-400 hover:bg-slate-900 hover:text-slate-200'
                     }`}
                   >
@@ -5504,7 +5504,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                       isSelected
                         ? themeId === 'amber'
                           ? 'bg-amber-500 border-amber-400 text-slate-950 font-black shadow-sm'
-                          : 'bg-cyan-600 border-cyan-500 text-white font-black shadow-sm shadow-cyan-600/30'
+                          : 'bg-info-action border-cyan-500 text-on-accent font-black shadow-sm shadow-cyan-600/30'
                         : 'bg-slate-950 border-slate-850 text-slate-400 hover:bg-slate-900 hover:text-slate-200'
                     }`}
                   >
@@ -5551,7 +5551,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
           onClick={handleSaveSession}
           className={`w-full ${
             themeId === 'amber'
-              ? 'bg-amber-600 hover:bg-amber-500 text-[#FBFAF8] border border-amber-700 shadow-amber-950/30'
+              ? 'bg-warning-action hover:bg-warning-action-hover text-[#FBFAF8] border border-amber-700 shadow-amber-950/30'
               : 'bg-gradient-to-r from-indigo-500 to-cyan-500 hover:from-indigo-600 hover:to-cyan-600 text-[#FBFAF8]'
           } font-black text-sm py-4 px-4 rounded-none transition shadow-md active:scale-[0.98] flex items-center justify-center gap-2 uppercase tracking-wider cursor-pointer`}
         >
@@ -5636,7 +5636,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         if (!ex) return null;
         return (
           <div 
-            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in"
+            className="fixed inset-0 bg-overlay/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in"
             onClick={dismissExAction}
           >
             <div 
@@ -5718,7 +5718,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                     handleToggleSkipExercise(activeExAction);
                     dismissExAction();
                   }}
-                  className="w-full text-left bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 hover:border-amber-500/40 rounded-none p-3 text-xs font-bold text-amber-400 transition flex items-center justify-between font-mono cursor-pointer"
+                  className="w-full text-left bg-amber-500/10 hover:bg-warning-action-hover/20 border border-amber-500/20 hover:border-amber-500/40 rounded-none p-3 text-xs font-bold text-amber-400 transition flex items-center justify-between font-mono cursor-pointer"
                 >
                   <span>{ex.isSkipped ? 'Unskip Exercise' : 'Skip Exercise This Session'}</span>
                   <div className={`w-4.5 h-4.5 border border-amber-500/50 bg-slate-950 flex items-center justify-center shrink-0 rounded-none transition-colors ${ex.isSkipped ? 'border-amber-500 bg-amber-500/10' : ''}`}>
@@ -5750,7 +5750,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         if (!set) return null;
         return (
           <div 
-            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in"
+            className="fixed inset-0 bg-overlay/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in"
             onClick={dismissSetAction}
           >
             <div 
@@ -5829,8 +5829,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                         }}
                         className={`${
                           themeId === 'amber'
-                            ? 'bg-amber-600 hover:bg-amber-500 text-[#FBFAF8]'
-                            : 'bg-indigo-600 hover:bg-indigo-500 text-[#FBFAF8]'
+                            ? 'bg-warning-action hover:bg-warning-action-hover text-[#FBFAF8]'
+                            : 'bg-action hover:bg-action-hover text-[#FBFAF8]'
                         } font-extrabold text-xs px-3.5 py-1.5 rounded-none transition shrink-0 font-mono cursor-pointer`}
                       >
                         Save
@@ -5871,7 +5871,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                             title={check.allowed ? undefined : check.reason}
                             className={`w-full p-3 border rounded-none flex items-center justify-center gap-2 transition cursor-pointer ${
                               isSkipped
-                                ? 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-400 disabled:opacity-40'
+                                ? 'bg-amber-500/10 hover:bg-warning-action-hover/20 border-amber-500/30 text-amber-400 disabled:opacity-40'
                                 : 'bg-slate-950 hover:bg-slate-850 border-slate-850 text-slate-300 hover:text-amber-400 disabled:opacity-40'
                             }`}
                           >
@@ -5906,7 +5906,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                             title={canRestore ? 'Restore planned targets for this exercise' : 'No restorable live targets'}
                             className={`w-full p-3 border rounded-none flex items-center justify-center gap-1.5 transition ${
                               canRestore
-                                ? 'bg-indigo-950/40 hover:bg-indigo-900/60 border-indigo-500/40 text-indigo-300 hover:text-white cursor-pointer'
+                                ? 'bg-indigo-950/40 hover:bg-indigo-900/60 border-indigo-500/40 text-indigo-300 hover:text-on-accent cursor-pointer'
                                 : 'bg-slate-950 border-slate-850 text-slate-600 opacity-40 cursor-not-allowed'
                             }`}
                           >
@@ -6061,7 +6061,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
         return (
           <div
-            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in"
+            className="fixed inset-0 bg-overlay/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in"
             onClick={() => setCalcModalState(null)}
             role="dialog"
             aria-modal="true"
@@ -6123,7 +6123,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                     onClick={() => setCalcMode('find_weight')}
                     className={`py-1.5 text-[11px] font-mono font-black uppercase tracking-wider transition border cursor-pointer text-center ${
                       calcMode === 'find_weight'
-                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        ? 'bg-action text-on-accent border-indigo-500 shadow-sm'
                         : 'bg-transparent text-slate-400 border-transparent hover:text-slate-200'
                     }`}
                     aria-label="Mode: Find Weight"
@@ -6135,7 +6135,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                     onClick={() => setCalcMode('find_reps')}
                     className={`py-1.5 text-[11px] font-mono font-black uppercase tracking-wider transition border cursor-pointer text-center ${
                       calcMode === 'find_reps'
-                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        ? 'bg-action text-on-accent border-indigo-500 shadow-sm'
                         : 'bg-transparent text-slate-400 border-transparent hover:text-slate-200'
                     }`}
                     aria-label="Mode: Find Reps"
@@ -6204,7 +6204,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                             onClick={() => setCalcRepsInput(String(r))}
                             className={`flex-1 py-1 text-[10px] font-mono font-bold transition border rounded-none cursor-pointer ${
                               repsValidation.isValid && repsValidation.value === r
-                                ? 'bg-indigo-600 text-white border-indigo-500'
+                                ? 'bg-action text-on-accent border-indigo-500'
                                 : 'bg-slate-950 text-slate-400 border-slate-850 hover:bg-slate-850 hover:text-white'
                             }`}
                             aria-label={`Set target reps to ${r}`}
@@ -6233,7 +6233,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                             onClick={() => setCalcRpe(rpeVal)}
                             className={`py-1.5 text-xs font-mono font-bold transition border rounded-none cursor-pointer ${
                               calcRpe === rpeVal
-                                ? 'bg-indigo-600 text-white border-indigo-500'
+                                ? 'bg-action text-on-accent border-indigo-500'
                                 : 'bg-slate-950 text-slate-400 border-slate-850 hover:bg-slate-850 hover:text-white'
                             }`}
                             aria-label={`Set target RPE to ${rpeVal.toFixed(1)}`}
@@ -6313,7 +6313,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                             onClick={() => setCalcRpe(rpeVal)}
                             className={`py-1.5 text-xs font-mono font-bold transition border rounded-none cursor-pointer ${
                               calcRpe === rpeVal
-                                ? 'bg-indigo-600 text-white border-indigo-500'
+                                ? 'bg-action text-on-accent border-indigo-500'
                                 : 'bg-slate-950 text-slate-400 border-slate-850 hover:bg-slate-850 hover:text-white'
                             }`}
                             aria-label={`Set target RPE to ${rpeVal.toFixed(1)}`}
@@ -6452,7 +6452,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
         return (
           <div 
-            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center px-0 py-6 z-50 animate-fade-in"
+            className="fixed inset-0 bg-overlay/80 backdrop-blur-sm flex items-center justify-center px-0 py-6 z-50 animate-fade-in"
             onClick={dismissHistory}
           >
             <div 
@@ -6486,10 +6486,10 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                       let borderClass = weekStyle.borderClass;
 
                       if (isCurrentEditRow) {
-                        bgClass = 'bg-amber-500/10 hover:bg-amber-500/15';
+                        bgClass = 'bg-amber-500/10 hover:bg-warning-action-hover/15';
                         borderClass = 'border-l-2 border-amber-500';
                       } else if (isLatestRow) {
-                        bgClass = 'bg-cyan-500/10 hover:bg-cyan-500/15';
+                        bgClass = 'bg-cyan-500/10 hover:bg-info-action-hover/15';
                         borderClass = 'border-l-2 border-cyan-400';
                       }
 
@@ -6631,7 +6631,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         const ex = exercises[deleteExerciseIdx];
         if (!ex) return null;
         return (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="fixed inset-0 bg-overlay/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
             <div className="bg-slate-900 border border-slate-800 rounded-none w-full max-w-sm overflow-hidden shadow-2xl font-mono">
               <div className="p-4 border-b border-slate-850 bg-slate-950/40">
                 <h3 className="font-extrabold text-xs text-white uppercase tracking-wider">Remove Exercise?</h3>
@@ -6652,7 +6652,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                       handleDeleteExercise(deleteExerciseIdx);
                       setDeleteExerciseIdx(null);
                     }}
-                    className="bg-rose-600 hover:bg-rose-500 text-white rounded-none p-2.5 text-xs font-black transition text-center cursor-pointer font-mono"
+                    className="bg-rose-600 hover:bg-rose-500 text-on-destructive rounded-none p-2.5 text-xs font-black transition text-center cursor-pointer font-mono"
                   >
                     Confirm Removal
                   </button>
@@ -6677,7 +6677,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
 
       {/* Program Completed Congratulatory Modal */}
       {showCompletionModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[60] flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-300">
+        <div className="fixed inset-0 bg-overlay/80 backdrop-blur-md z-[60] flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-300">
           <div className="w-full max-w-sm bg-[var(--theme-card)] border-2 border-[var(--theme-accent)] p-6 shadow-2xl space-y-6 flex flex-col items-center">
             <div className="w-16 h-16 bg-[var(--theme-accent)]/10 border-2 border-[var(--theme-accent)] text-[var(--theme-accent)] rounded-full flex items-center justify-center animate-bounce">
               <Award className="w-8 h-8" />
@@ -6713,7 +6713,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             <div className="w-full space-y-2.5">
               <button
                 onClick={() => onSave('analytics', { programId })}
-                style={{ backgroundColor: 'var(--theme-accent)', color: 'white' }}
+                style={{ backgroundColor: 'var(--theme-accent)', color: 'var(--color-on-accent)' }}
                 className="w-full hover:opacity-90 active:opacity-80 text-white font-extrabold text-sm py-3 px-4 rounded-none transition uppercase tracking-wider cursor-pointer flex items-center justify-center gap-2 shadow-md font-sans"
               >
                 <Award className="w-4 h-4" />
@@ -6734,7 +6734,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       {/* Muscle Soreness Explanation Modal */}
       {showSorenessInfo && (
         <div
-          className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 bg-overlay/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
           onClick={dismissSorenessInfo}
         >
           <div
@@ -6809,7 +6809,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
       {/* Workout Quality Explanation Modal */}
       {showQualityInfo && (
         <div
-          className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 bg-overlay/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
           onClick={dismissQualityInfo}
         >
           <div
