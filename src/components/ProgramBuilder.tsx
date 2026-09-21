@@ -894,7 +894,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
             repeat: Infinity,
             ease: "easeInOut"
           } : {}}
-          className="bg-indigo-600 hover:bg-indigo-500 text-[#FBFAF8] font-black text-xs px-4 py-2.5 rounded-none transition flex items-center gap-1 shadow-md shadow-indigo-950/25 cursor-pointer"
+          className="bg-action hover:bg-action-hover text-[#FBFAF8] font-black text-xs px-4 py-2.5 rounded-none transition flex items-center gap-1 shadow-md shadow-indigo-950/25 cursor-pointer"
         >
           <Save className="w-4 h-4 text-[#FBFAF8]" /> Save Program
         </motion.button>
@@ -975,7 +975,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
             className={`w-full min-h-11 flex items-center justify-center gap-2 px-3 py-2.5 rounded-none text-xs font-black uppercase tracking-wider transition border cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
               draftSource === 'new'
                 ? 'bg-indigo-950/50 border-indigo-500 text-indigo-300'
-                : 'bg-indigo-600/20 hover:bg-indigo-600/30 border-indigo-500/50 text-indigo-300'
+                : 'bg-action/20 hover:bg-action/30 border-indigo-500/50 text-indigo-300'
             }`}
           >
             {draftSource === 'new' ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
@@ -1155,7 +1155,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                     }}
                     className={`py-3 px-1 text-[12px] font-black uppercase tracking-wide border cursor-pointer text-center transition-all duration-150 flex items-center justify-center ${
                       isActive
-                        ? 'bg-indigo-600 text-[#FBFAF8] border-indigo-500 shadow-md'
+                        ? 'bg-action text-[#FBFAF8] border-indigo-500 shadow-md'
                         : 'bg-transparent text-slate-400 border-transparent hover:text-slate-200'
                     }`}
                   >
@@ -1501,7 +1501,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                 onClick={() => setActiveTabDay(dayNum)}
                 className={`px-3.5 py-2 rounded-none text-xs font-black transition flex-none border text-center flex flex-col items-center min-w-[76px] ${
                   isActive
-                    ? 'bg-indigo-600 border-indigo-500 text-[#FBFAF8]'
+                    ? 'bg-action border-indigo-500 text-[#FBFAF8]'
                     : 'bg-slate-900 border-slate-850 text-slate-400 hover:text-[#FBFAF8]'
                 }`}
               >
@@ -1669,11 +1669,11 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
             <h2 id="save-program-title" className="text-base font-black text-white">Save program</h2>
             <p className="text-xs text-slate-400 mt-1 mb-4">Choose whether to keep this design for later or enrol now.</p>
             <div className="space-y-2">
-              <button autoFocus className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm p-3" onClick={() => { const p = pendingSaveProgram; setShowSaveChoices(false); setPendingSaveProgram(null); attemptSaveProgram(p, false); }}>
+              <button autoFocus className="w-full bg-action hover:bg-action-hover text-on-accent font-bold text-sm p-3" onClick={() => { const p = pendingSaveProgram; setShowSaveChoices(false); setPendingSaveProgram(null); attemptSaveProgram(p, false); }}>
                 {editingProgramId ? 'Save Changes' : 'Save for Later'}
               </button>
               {(!editingProgramId || editingProgramId !== currentProgramId) && (
-                <button className="w-full bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-sm p-3" onClick={() => { const p = pendingSaveProgram; setShowSaveChoices(false); setPendingSaveProgram(null); requestEnrolment(p); }}>
+                <button className="w-full bg-positive-action hover:bg-positive-action text-on-accent font-bold text-sm p-3" onClick={() => { const p = pendingSaveProgram; setShowSaveChoices(false); setPendingSaveProgram(null); requestEnrolment(p); }}>
                   {editingProgramId ? 'Save Changes & Enrol' : 'Save & Enrol'}
                 </button>
               )}
@@ -1804,7 +1804,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
           aria-modal="true"
           aria-labelledby="progression-info-title"
           aria-describedby="progression-info-desc"
-          className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 bg-overlay/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
           onClick={closeInfoModal}
         >
           <div

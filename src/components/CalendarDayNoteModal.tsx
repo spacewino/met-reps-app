@@ -54,14 +54,14 @@ export function CalendarDayNoteModal({ visible, date, note, onSave, onDelete, on
         </header>
         <div className="p-4 space-y-4">
           <fieldset><legend className="text-xs font-bold text-slate-300 mb-2">Note type</legend><div className="grid grid-cols-3 gap-2">
-            {(Object.keys(NOTE_TYPE_DETAILS) as CalendarNoteType[]).map(key => { const { label, Icon } = NOTE_TYPE_DETAILS[key]; return <button type="button" key={key} aria-pressed={type === key} onClick={() => setType(key)} className={`py-3 border flex flex-col items-center gap-1 text-xs font-bold ${type === key ? 'bg-indigo-600 border-indigo-400 text-white' : 'bg-slate-950 border-slate-700 text-slate-300'}`}><Icon className="w-4 h-4" />{label}</button>; })}
+            {(Object.keys(NOTE_TYPE_DETAILS) as CalendarNoteType[]).map(key => { const { label, Icon } = NOTE_TYPE_DETAILS[key]; return <button type="button" key={key} aria-pressed={type === key} onClick={() => setType(key)} className={`py-3 border flex flex-col items-center gap-1 text-xs font-bold ${type === key ? 'bg-action border-indigo-400 text-on-accent' : 'bg-slate-950 border-slate-700 text-slate-300'}`}><Icon className="w-4 h-4" />{label}</button>; })}
           </div></fieldset>
           <div><label htmlFor="calendar-note-text" className="text-xs font-bold text-slate-300">Note</label><textarea ref={textareaRef} id="calendar-note-text" maxLength={300} rows={5} value={text} onChange={e => setText(e.target.value)} className="mt-2 w-full bg-slate-950 border border-slate-700 p-3 text-sm text-white focus:border-indigo-400 outline-none resize-y" /><p className="text-right text-[11px] text-slate-400" aria-live="polite">{text.length}/300</p></div>
         </div>
         <footer className="p-4 border-t border-slate-800 flex items-center gap-2">
           {note && <button onClick={() => setConfirmDelete(true)} className="mr-auto text-rose-400 border border-rose-500/40 px-3 py-2 text-xs font-bold flex gap-1"><Trash2 className="w-4 h-4" /> Delete Note</button>}
           <button onClick={dismiss} className="border border-slate-700 px-4 py-2 text-xs font-bold text-slate-300">Cancel</button>
-          <button disabled={!text.trim()} onClick={save} className="bg-indigo-600 disabled:opacity-40 px-4 py-2 text-xs font-bold text-white">Save</button>
+          <button disabled={!text.trim()} onClick={save} className="bg-action disabled:opacity-40 px-4 py-2 text-xs font-bold text-on-accent">Save</button>
         </footer>
       </div>
     </div>

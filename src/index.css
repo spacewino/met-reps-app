@@ -27,7 +27,19 @@
   
   --color-cyan-400: var(--theme-accent-cyan, #22d3ee);
   --color-emerald-400: var(--theme-success, #34d399);
+  /* Fixed foregrounds for filled controls must not follow light-theme text. */
+  --color-on-accent: #ffffff;
   --color-on-destructive: #ffffff;
+  --color-action: var(--theme-action, #4f46e5);
+  --color-action-hover: var(--theme-action-hover, #4338ca);
+  --color-positive-action: #047857;
+  --color-positive-action-hover: #065f46;
+  --color-info-action: #0e7490;
+  --color-info-action-hover: #155e75;
+  --color-warning-action: #9a4d06;
+  --color-warning-action-hover: #7c3d05;
+  /* Backdrops dim every theme; unlike slate-950 this must not become light. */
+  --color-overlay: #020617;
 }
 
 /* Custom scrollbar hiding */

@@ -31,7 +31,7 @@ export function WorkoutConflictModal({
 
   return (
     <div
-      className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-150 font-sans text-left"
+      className="fixed inset-0 bg-overlay/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-150 font-sans text-left"
       onClick={onClose}
     >
       <div
@@ -141,10 +141,10 @@ export function WorkoutConflictModal({
           </button>
           <button
             onClick={onResumeActive}
-            className={`font-extrabold text-xs py-2 px-4 rounded-none border transition cursor-pointer text-white shadow ${
+            className={`font-extrabold text-xs py-2 px-4 rounded-none border transition cursor-pointer text-on-accent shadow ${
               isAmber
-                ? 'bg-amber-600 hover:bg-amber-500 border-amber-700 shadow-amber-900/10'
-                : 'bg-indigo-600 hover:bg-indigo-500 border-indigo-700 shadow-indigo-900/20'
+                ? 'bg-warning-action hover:bg-warning-action-hover border-amber-700 shadow-amber-900/10'
+                : 'bg-action hover:bg-action-hover border-indigo-700 shadow-indigo-900/20'
             }`}
           >
             Resume Active Session
