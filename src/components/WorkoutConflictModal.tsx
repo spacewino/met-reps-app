@@ -49,7 +49,7 @@ export function WorkoutConflictModal({
           }`}
         >
           <div>
-            <h3 className="text-sm font-black uppercase tracking-wider leading-snug flex items-center gap-2">
+            <h3 className="text-sm font-black text-slate-100 uppercase tracking-wider leading-snug flex items-center gap-2">
               <Info className={`w-4 h-4 font-bold ${isAmber ? 'text-amber-700' : 'text-indigo-400'}`} />
               Workout In Progress
             </h3>

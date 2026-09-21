@@ -1188,12 +1188,12 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
               </div>
               
               {objective === 'Hypertrophy' ? (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Periodisation Method">
                   <div
                     onClick={() => setAlgorithmId('hypertrophy_linear')}
                     className={`flex flex-col justify-between text-left p-3.5 border rounded-none transition-all cursor-pointer h-full ${
                       algorithmId === 'hypertrophy_linear'
-                        ? 'bg-indigo-950/40 border-indigo-500/80 text-indigo-200 shadow-inner'
+                        ? 'bg-selected-surface border-indigo-500 text-slate-100 shadow-inner'
                         : 'bg-slate-950 border-slate-850 text-slate-400 hover:border-slate-800'
                     }`}
                   >
@@ -1202,6 +1202,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <button
                             type="button"
+                            role="radio"
+                            aria-checked={algorithmId === 'hypertrophy_linear'}
                             onClick={() => setAlgorithmId('hypertrophy_linear')}
                             className="text-[12px] font-bold text-white tracking-wide hover:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer rounded-none text-left"
                           >
@@ -1227,7 +1229,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                     onClick={() => setAlgorithmId('hypertrophy_step')}
                     className={`flex flex-col justify-between text-left p-3.5 border rounded-none transition-all cursor-pointer h-full ${
                       algorithmId === 'hypertrophy_step'
-                        ? 'bg-indigo-950/40 border-indigo-500/80 text-indigo-200 shadow-inner'
+                        ? 'bg-selected-surface border-indigo-500 text-slate-100 shadow-inner'
                         : 'bg-slate-950 border-slate-850 text-slate-400 hover:border-slate-800'
                     }`}
                   >
@@ -1236,6 +1238,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <button
                             type="button"
+                            role="radio"
+                            aria-checked={algorithmId === 'hypertrophy_step'}
                             onClick={() => setAlgorithmId('hypertrophy_step')}
                             className="text-[12px] font-bold text-white tracking-wide hover:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer rounded-none text-left"
                           >
@@ -1258,7 +1262,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Periodisation Method">
                   <div
                     onClick={() => {
                       setAlgorithmId('strength_undulating');
@@ -1268,7 +1272,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                     }}
                     className={`flex flex-col justify-between text-left p-3.5 border rounded-none transition-all cursor-pointer h-full ${
                       algorithmId === 'strength_undulating'
-                        ? 'bg-indigo-950/40 border-indigo-500/80 text-indigo-200 shadow-inner'
+                        ? 'bg-selected-surface border-indigo-500 text-slate-100 shadow-inner'
                         : 'bg-slate-950 border-slate-850 text-slate-400 hover:border-slate-800'
                     }`}
                   >
@@ -1277,6 +1281,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <button
                             type="button"
+                            role="radio"
+                            aria-checked={algorithmId === 'strength_undulating'}
                             onClick={() => {
                               setAlgorithmId('strength_undulating');
                               if (durationWeeks === 6) {
@@ -1307,7 +1313,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                     onClick={() => setAlgorithmId('strength_linear')}
                     className={`flex flex-col justify-between text-left p-3.5 border rounded-none transition-all cursor-pointer h-full ${
                       algorithmId === 'strength_linear'
-                        ? 'bg-indigo-950/40 border-indigo-500/80 text-indigo-200 shadow-inner'
+                        ? 'bg-selected-surface border-indigo-500 text-slate-100 shadow-inner'
                         : 'bg-slate-950 border-slate-850 text-slate-400 hover:border-slate-800'
                     }`}
                   >
@@ -1316,6 +1322,8 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <button
                             type="button"
+                            role="radio"
+                            aria-checked={algorithmId === 'strength_linear'}
                             onClick={() => setAlgorithmId('strength_linear')}
                             className="text-[12px] font-bold text-white tracking-wide hover:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer rounded-none text-left"
                           >
@@ -1376,7 +1384,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                 onClick={() => setTargetProgressionMode('performance_led')}
                 className={`relative flex flex-col justify-between p-3.5 border rounded-none transition-all cursor-pointer h-full ${
                   targetProgressionMode === 'performance_led'
-                    ? 'bg-indigo-950/40 border-indigo-500/80 text-indigo-200 shadow-inner'
+                    ? 'bg-selected-surface border-indigo-500 text-slate-100 shadow-inner'
                     : 'bg-slate-950 border-slate-850 text-slate-400 hover:border-slate-800'
                 }`}
               >
@@ -1404,9 +1412,6 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                         <Info className="w-3.5 h-3.5" aria-hidden="true" />
                       </button>
                     </div>
-                    {targetProgressionMode === 'performance_led' && (
-                      <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0" aria-hidden="true" />
-                    )}
                   </div>
                   <span className="block text-[11px] font-normal mt-1.5 leading-relaxed text-slate-400">
                     Applies your periodisation method without Coach making adaptive progression decisions.
@@ -1425,7 +1430,7 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                   objective === 'Off'
                     ? 'opacity-40 border-slate-900 bg-slate-950 text-slate-500'
                     : targetProgressionMode === 'metreps_guided'
-                    ? 'bg-indigo-950/40 border-indigo-500/80 text-indigo-200 shadow-inner cursor-pointer'
+                    ? 'bg-selected-surface border-indigo-500 text-slate-100 shadow-inner cursor-pointer'
                     : 'bg-slate-950 border-slate-850 text-slate-400 hover:border-slate-800 cursor-pointer'
                 }`}
               >
@@ -1461,9 +1466,6 @@ export function ProgramBuilder({ onClose, onSave, flashSave, onDirtyChange }: Pr
                         <Info className="w-3.5 h-3.5" aria-hidden="true" />
                       </button>
                     </div>
-                    {targetProgressionMode === 'metreps_guided' && objective !== 'Off' && (
-                      <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0" aria-hidden="true" />
-                    )}
                   </div>
                   <span className="block text-[11px] font-normal mt-1.5 leading-relaxed text-slate-400">
                     Reviews completed workouts and can progress, hold or adjust future weight and repetition targets.

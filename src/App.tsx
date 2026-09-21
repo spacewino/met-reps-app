@@ -66,6 +66,7 @@ export default function App() {
     root.style.setProperty('--theme-success', activeTheme.success);
     root.style.setProperty('--theme-action', activeTheme.action);
     root.style.setProperty('--theme-action-hover', activeTheme.actionHover);
+    root.style.setProperty('--theme-selected-surface', activeTheme.selectedSurface);
     
     // Set html background color to match so mobile elastic scrolling matches
     root.style.backgroundColor = activeTheme.bgMain;
@@ -90,6 +91,7 @@ export default function App() {
     '--theme-success': activeTheme.success,
     '--theme-action': activeTheme.action,
     '--theme-action-hover': activeTheme.actionHover,
+    '--theme-selected-surface': activeTheme.selectedSurface,
   } as React.CSSProperties;
 
   // Core synchronized state

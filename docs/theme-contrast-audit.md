@@ -19,6 +19,8 @@ Tailwind's slate scale is intentionally semantic in `index.css`: slate backgroun
 - Theme-remapped `slate-950` made modal backdrops light in Crimson Desert. All application modal backdrops now use a fixed dark overlay; modal content continues to use theme surfaces.
 - Lucide and warm-up icons inherit the audited current colour. The brand logo's fixed fills/strokes are decorative artwork rather than information-bearing UI. Chart labels and tooltips use semantic foreground/surface pairs; grid lines are decorative, while plotted series use accent colours that meet the 3:1 non-text threshold.
 - Disabled controls retain their semantic foreground/background and use opacity only as a supplementary state cue. Existing labels and control shapes remain present, so disabled styling does not carry meaning by colour alone.
+- Manual Vercel previewing found that the Workout In Progress heading inherited the remapped `slate-900` card colour on its light Crimson Desert header. The heading now explicitly uses semantic primary text, which remains light on the two dark themes and dark on Crimson Desert.
+- Manual mobile previewing also found that Program Builder periodisation and target-mode cards relied too heavily on their borders. Both groups now use a theme-specific selected surface plus the existing selected border, retain radio semantics, and omit redundant visual ticks. Their title, description, and information-icon colours meet the measured text/UI contrast thresholds on all three selected surfaces.
 
 The automated audit calculates WCAG contrast from the actual theme hex values. It checks normal text at 4.5:1, meaningful boundaries/focus accents at 3:1, and fixed foregrounds on default and hover action surfaces at 4.5:1.
 
@@ -36,7 +38,7 @@ The all-at-once Vitest invocation was observed for 90 seconds without reporting 
 | 6 | `liveAdjustmentMath`–`onboarding` | 10 | 319 | Pass |
 | 7 | `programBuilderActiveWorkoutSwitch`–`programMetadata` | 10 | 106 | Pass |
 | 8 | `programReportCard`–`restTimer` | 10 | 148 | Pass |
-| 9 | `rpeMath`–`unifiedMixedModalityAnalytics` | 10 | 272 | Pass |
-| 10 | `weekToWeekProgression`–`workoutLoggerGuidedAddedExerciseIntegration` | 10 | 183 | Pass |
-| 11 | `workoutLoggerGuidedInitialIntegration`–`workoutLoggerStrengthMainMovementValidation` | 6 | 76 | Pass |
-| **Combined** |  | **106** | **2,694** | **Pass** |
+| 9 | `rpeMath`–`themeManualPreviewCorrections` | 10 | 276 | Pass |
+| 10 | `unifiedMixedModalityAnalytics`–`workoutLoggerGuidanceHeader` | 10 | 169 | Pass |
+| 11 | `workoutLoggerGuidedAddedExerciseIntegration`–`workoutLoggerStrengthMainMovementValidation` | 7 | 93 | Pass |
+| **Combined** |  | **107** | **2,701** | **Pass** |

@@ -26,6 +26,12 @@ describe('resolved theme contrast', () => {
     }
   });
 
+  it.each(THEME_PRESETS)('$name selected-card copy remains readable on its filled surface', theme => {
+    expect(contrast(theme.textPrimary, theme.selectedSurface)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(theme.textSecondary, theme.selectedSurface)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(theme.accent, theme.selectedSurface)).toBeGreaterThanOrEqual(3);
+  });
+
   it.each(THEME_PRESETS)('$name controls retain perceivable boundaries and focus colour', theme => {
     for (const surface of [theme.bgMain, theme.bgCard]) {
       expect(contrast(theme.borderMain, surface)).toBeGreaterThanOrEqual(3);

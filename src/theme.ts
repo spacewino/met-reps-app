@@ -10,6 +10,7 @@ export const THEME_PRESETS = [
     textPrimary: '#F9FAFB', textSecondary: '#94a3b8', textMuted: '#94a3b8',
     accent: '#6366f1', accentLight: '#818cf8', accentDark: '#4f46e5', accentCyan: '#22d3ee', success: '#34d399',
     action: '#4f46e5', actionHover: '#4338ca',
+    selectedSurface: '#22274A',
     label: 'Blue Slate', swatch1: '#6366f1', swatch2: '#11182c',
   },
   {
@@ -17,6 +18,7 @@ export const THEME_PRESETS = [
     textPrimary: '#F9FAFB', textSecondary: '#D1D5DB', textMuted: '#9CA3AF',
     accent: '#10B981', accentLight: '#34D399', accentDark: '#047857', accentCyan: '#FBBF24', success: '#34D399',
     action: '#047857', actionHover: '#065F46',
+    selectedSurface: '#123D32',
     label: 'Forest Green', swatch1: '#10B981', swatch2: '#1F2937',
   },
   {
@@ -24,6 +26,7 @@ export const THEME_PRESETS = [
     textPrimary: '#252320', textSecondary: '#6F6A63', textMuted: '#6F6A63',
     accent: '#9B5C34', accentLight: '#9B5C34', accentDark: '#7D4726', accentCyan: '#84570F', success: '#477041',
     action: '#7D4726', actionHover: '#69391D',
+    selectedSurface: '#F7EADD',
     label: 'Desert Leather', swatch1: '#B56D3E', swatch2: '#FBFAF8',
   },
 ] as const;
