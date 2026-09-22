@@ -29,7 +29,7 @@ export interface WeeklyTrainingSummary {
   workingSetRpe: AverageObservation;
 }
 
-export interface TrainingWeekOptions { weeks: 4 | 12; windowOffset?: number; now?: Date }
+export interface TrainingWeekOptions { weeks: 4 | 8 | 12; windowOffset?: number; now?: Date }
 
 const DAY_MS = 86_400_000;
 const validNumber = (value: unknown, min: number, max = Infinity): value is number =>

@@ -20,7 +20,7 @@ const observation = (week: WeeklyTrainingSummary, key: 'sleep' | 'calories' | 'h
   if (item.average === null) return <Empty />;
   const value = key === 'sleep' ? `${item.average.toFixed(1)} hr` :
     key === 'calories' ? `${Math.round(item.average).toLocaleString()} kcal` :
-    key === 'hydration' ? `${item.average.toFixed(1)}/4 · ${hydrationMeanLabel(item.average)}` :
+    key === 'hydration' ? hydrationMeanLabel(item.average) :
     `${item.average.toFixed(1)}/10`;
   return <>{value}{sample(item.count)}</>;
 };
@@ -30,7 +30,7 @@ const duration = (minutes: number) => {
 };
 
 export function TrainingAverages({ workoutLogs, now = new Date() }: { workoutLogs: readonly WorkoutLog[]; now?: Date }) {
-  const [weeks, setWeeks] = useState<4 | 12>(4);
+  const [weeks, setWeeks] = useState<4 | 8 | 12>(4);
   const [windowOffset, setWindowOffset] = useState(0);
   const [view, setView] = useState<View>('load');
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -47,7 +47,7 @@ export function TrainingAverages({ workoutLogs, now = new Date() }: { workoutLog
     { label: 'Completed workouts', description: 'Separate saved workout logs', value: w => w.workouts || <Empty noLogs /> },
     { label: 'Total gym time', description: 'Sum of valid positive saved durations', value: w => w.totalDurationMinutes === null ? <Empty noLogs={!w.workouts} /> : <>{duration(w.totalDurationMinutes)}{sample(w.durationCount, w.workouts)}</> },
     { label: 'Avg duration', description: 'Average of valid positive saved workout durations', value: w => w.averageDurationMinutes === null ? <Empty noLogs={!w.workouts} /> : <>{duration(w.averageDurationMinutes)}{sample(w.durationCount, w.workouts)}</> },
-    { label: 'Resistance sets', description: 'Eligible resistance working sets; Conditioning excluded', value: w => w.workouts ? w.resistanceWorkingSets : <Empty noLogs /> },
+    { label: 'Total sets', description: 'Eligible resistance working sets; Conditioning excluded', value: w => w.workouts ? w.resistanceWorkingSets : <Empty noLogs /> },
     ...muscleRows,
   ] : [
     { label: 'Avg sleep', description: 'Average sleep the night before logged workouts', value: w => observation(w, 'sleep') },
@@ -58,7 +58,7 @@ export function TrainingAverages({ workoutLogs, now = new Date() }: { workoutLog
     { label: 'Avg working-set RPE', description: 'Set-weighted average RPE for eligible resistance working sets', value: w => observation(w, 'workingSetRpe') },
   ];
 
-  const setRange = (next: 4 | 12) => { setWeeks(next); setWindowOffset(0); };
+  const setRange = (next: 4 | 8 | 12) => { setWeeks(next); setWindowOffset(0); };
   const selectTab = (next: View) => { setView(next); tabRefs.current[next === 'load' ? 0 : 1]?.focus(); };
   const onTabKey = (event: KeyboardEvent, index: number) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
@@ -70,11 +70,11 @@ export function TrainingAverages({ workoutLogs, now = new Date() }: { workoutLog
     <div className="border-b border-slate-850 pb-3 mb-3 space-y-3">
       <div>
         <h2 id="training-averages-heading" className="font-extrabold text-[18px] text-slate-300 uppercase tracking-wide">Training Averages</h2>
-        <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">Read-only weekly trends · Monday–Sunday</p>
+        <p className="max-w-full text-[11px] leading-relaxed text-slate-500 font-medium break-words">Compare weekly training load and recovery metrics. Choose 4, 8 or 12 weeks, then use the arrows to move between date blocks.</p>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div aria-label="Training averages range" className="inline-flex border border-slate-800" role="group">
-          {([4, 12] as const).map(count => <button key={count} type="button" aria-pressed={weeks === count} onClick={() => setRange(count)} className={`min-h-9 px-3 text-xs font-black focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${weeks === count ? 'bg-indigo-500 text-on-accent' : 'bg-slate-950 text-slate-400 hover:text-slate-200'}`}>{count}W</button>)}
+          {([4, 8, 12] as const).map(count => <button key={count} type="button" aria-pressed={weeks === count} onClick={() => setRange(count)} className={`min-h-9 px-3 text-xs font-black focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${weeks === count ? 'bg-indigo-500 text-on-accent' : 'bg-slate-950 text-slate-400 hover:text-slate-200'}`}>{count}W</button>)}
         </div>
         <div className="flex items-center gap-1">
           <button type="button" aria-label={`Previous ${weeks} weeks`} onClick={() => setWindowOffset(v => v + 1)} className="min-h-9 min-w-9 border border-slate-800 bg-slate-950 text-slate-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"><ChevronLeft aria-hidden="true" className="w-4 h-4 mx-auto" /></button>
@@ -82,10 +82,10 @@ export function TrainingAverages({ workoutLogs, now = new Date() }: { workoutLog
         </div>
       </div>
       <div role="tablist" aria-label="Training averages view" className="grid grid-cols-2 border border-slate-800">
-        {(['load', 'context'] as const).map((tab, index) => <button key={tab} ref={node => { tabRefs.current[index] = node; }} type="button" role="tab" aria-selected={view === tab} tabIndex={view === tab ? 0 : -1} onKeyDown={e => onTabKey(e, index)} onClick={() => selectTab(tab)} className={`min-h-10 px-2 text-xs font-extrabold focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400 ${view === tab ? 'bg-selected-surface text-indigo-400 border-b-2 border-indigo-500' : 'bg-slate-950 text-slate-400'}`}>{tab === 'load' ? 'Training Load' : 'Workout Context'}</button>)}
+        {(['load', 'context'] as const).map((tab, index) => <button key={tab} ref={node => { tabRefs.current[index] = node; }} type="button" role="tab" aria-selected={view === tab} tabIndex={view === tab ? 0 : -1} onKeyDown={e => onTabKey(e, index)} onClick={() => selectTab(tab)} className={`min-h-10 px-2 text-xs font-extrabold focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400 ${view === tab ? 'bg-selected-surface text-indigo-400 border-b-2 border-indigo-500' : 'bg-slate-950 text-slate-400'}`}>{tab === 'load' ? 'Training Load' : 'Recovery Metrics'}</button>)}
       </div>
     </div>
-    <p className="mb-2 text-[10px] text-slate-500 sm:hidden" aria-hidden="true">Scroll sideways to compare weeks →</p>
+    <p className="mb-2 text-[10px] text-slate-500 sm:hidden" aria-hidden="true">Swipe sideways to compare weeks →</p>
     <div className="training-averages-scroll overflow-x-auto border border-slate-850" tabIndex={0} aria-label={`${weeks}-week training averages comparison table`}>
       <table className="min-w-max w-full border-collapse text-left text-xs">
         <thead><tr>

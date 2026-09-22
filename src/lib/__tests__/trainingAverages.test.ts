@@ -26,6 +26,31 @@ describe('aggregateTrainingWeeks', () => {
     expect(aggregateTrainingWeeks([], { weeks: 12, windowOffset: 1, now: new Date(2026, 8, 21) })[11].weekStart).toBe('2026-06-29');
   });
 
+  it('returns the current local week plus seven preceding weeks for 8W', () => {
+    const weeks = aggregateTrainingWeeks([
+      log('2026-08-03'),
+      log('2026-09-21'),
+      log('2026-09-23'),
+    ], { weeks: 8, now: new Date(2026, 8, 22, 12) });
+    expect(weeks).toHaveLength(8);
+    expect(weeks.map(week => week.weekStart)).toEqual([
+      '2026-08-03', '2026-08-10', '2026-08-17', '2026-08-24',
+      '2026-08-31', '2026-09-07', '2026-09-14', '2026-09-21',
+    ]);
+    expect(weeks.map(week => week.workouts)).toEqual([1, 0, 0, 0, 0, 0, 0, 1]);
+    expect(weeks[7].isCurrentWeek).toBe(true);
+  });
+
+  it('moves through non-overlapping 8W blocks without gaps', () => {
+    const current = aggregateTrainingWeeks([], { weeks: 8, now: new Date(2026, 8, 22) });
+    const previous = aggregateTrainingWeeks([], { weeks: 8, windowOffset: 1, now: new Date(2026, 8, 22) });
+    const older = aggregateTrainingWeeks([], { weeks: 8, windowOffset: 2, now: new Date(2026, 8, 22) });
+    expect(current[0].weekStart).toBe('2026-08-03');
+    expect(previous[7].weekStart).toBe('2026-07-27');
+    expect(previous[0].weekStart).toBe('2026-06-08');
+    expect(older[7].weekStart).toBe('2026-06-01');
+  });
+
   it('counts saved defaults and replacements while excluding missing durations and missing observations', () => {
     const result = aggregateTrainingWeeks([
       log('2026-09-21'),
@@ -74,6 +99,8 @@ describe('aggregateTrainingWeeks', () => {
   it('does not mutate deep-frozen inputs and creates fresh output structures', () => {
     const inputs = freeze([log('2026-09-21')]);
     const first = aggregateTrainingWeeks(inputs, { weeks: 4, now: new Date(2026, 8, 21) });
+    aggregateTrainingWeeks(inputs, { weeks: 8, now: new Date(2026, 8, 21) });
+    aggregateTrainingWeeks(inputs, { weeks: 12, now: new Date(2026, 8, 21) });
     const second = aggregateTrainingWeeks(inputs, { weeks: 4, now: new Date(2026, 8, 21) });
     expect(first).toEqual(second);
     expect(first).not.toBe(second);
