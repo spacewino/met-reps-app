@@ -2,6 +2,7 @@
 import { WorkoutLog } from '../types';
 import { getLocalDateString, parseLocalDate } from './dateUtils';
 import { isParentWorkingSetEligible, normalizeDiaryMuscleGroup } from './diaryMuscleSetPeriod';
+import { getWorkoutE1RMPRCounts } from './diaryExercisePRs';
 
 export const SELECTABLE_MUSCLE_GROUPS = [
   'Delts', 'Traps', 'Biceps', 'Triceps', 'Pecs', 'Back', 'Abs', 'Quads',
@@ -20,6 +21,7 @@ export interface WeeklyTrainingSummary {
   durationCount: number;
   averageDurationMinutes: number | null;
   resistanceWorkingSets: number;
+  e1rmPRs: number;
   setsByMuscle: Record<ResistanceMuscleGroup, number>;
   sleep: AverageObservation;
   calories: AverageObservation;
@@ -55,7 +57,7 @@ function blankWeek(start: Date, currentMonday: string): WeeklyTrainingSummary {
     weekStart: getLocalDateString(start), weekEnd: getLocalDateString(addDays(start, 6)),
     isCurrentWeek: getLocalDateString(start) === currentMonday, workouts: 0,
     totalDurationMinutes: null, durationCount: 0, averageDurationMinutes: null,
-    resistanceWorkingSets: 0, setsByMuscle: sets,
+    resistanceWorkingSets: 0, e1rmPRs: 0, setsByMuscle: sets,
     sleep: empty(), calories: empty(), hydration: empty(), soreness: empty(),
     workoutQuality: empty(), workingSetRpe: empty(),
   };
@@ -84,13 +86,18 @@ export function aggregateTrainingWeeks(
   const output = Array.from({ length: weeks }, (_, i) => blankWeek(addDays(firstMonday, i * 7), getLocalDateString(currentMonday)));
   const byKey = new Map(output.map(w => [w.weekStart, w]));
   const today = getLocalDateString(now);
+  const e1rmPRsByLogIndex = new Map(
+    getWorkoutE1RMPRCounts(readonlyLogs || [], today).map(item => [item.originalIndex, item.count]),
+  );
 
-  for (const log of readonlyLogs || []) {
+  for (let logIndex = 0; logIndex < (readonlyLogs || []).length; logIndex++) {
+    const log = readonlyLogs[logIndex];
     const date = validLocalDate(log?.date);
     if (!date || getLocalDateString(date) > today) continue;
     const week = byKey.get(getLocalDateString(mondayOf(date)));
     if (!week) continue;
     week.workouts++;
+    week.e1rmPRs += e1rmPRsByLogIndex.get(logIndex) ?? 0;
     if (validNumber(log.durationMinutes, Number.MIN_VALUE)) {
       week.totalDurationMinutes = (week.totalDurationMinutes ?? 0) + log.durationMinutes;
       week.durationCount++;

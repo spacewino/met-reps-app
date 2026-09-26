@@ -48,6 +48,7 @@ export function TrainingAverages({ workoutLogs, now = new Date() }: { workoutLog
     { label: 'Total gym time', description: 'Sum of valid positive saved durations', value: w => w.totalDurationMinutes === null ? <Empty noLogs={!w.workouts} /> : <>{duration(w.totalDurationMinutes)}{sample(w.durationCount, w.workouts)}</> },
     { label: 'Avg duration', description: 'Average of valid positive saved workout durations', value: w => w.averageDurationMinutes === null ? <Empty noLogs={!w.workouts} /> : <>{duration(w.averageDurationMinutes)}{sample(w.durationCount, w.workouts)}</> },
     { label: 'Total sets', description: 'Eligible resistance working sets; Conditioning excluded', value: w => w.workouts ? w.resistanceWorkingSets : <Empty noLogs /> },
+    { label: 'e1RM PRs', description: 'Estimated one-rep-max personal records', value: w => w.workouts ? w.e1rmPRs : <Empty noLogs /> },
     ...muscleRows,
   ] : [
     { label: 'Avg sleep', description: 'Average sleep the night before logged workouts', value: w => observation(w, 'sleep') },

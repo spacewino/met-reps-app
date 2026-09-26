@@ -1,5 +1,7 @@
 import { WorkoutLog, ExerciseEntry, SetEntry, WeightUnit } from '../types';
 import { resolveSetEffectiveLoad } from './effectiveLoad';
+import { resolveExerciseKey } from './exerciseIdentity';
+import { getLocalDateString, parseLocalDate } from './dateUtils';
 
 export interface ExercisePRResult {
   isPR: boolean;
@@ -27,6 +29,82 @@ function parseStrictIdTimestamp(id: string | null | undefined): number | null {
     return Number.isFinite(n) ? n : null;
   }
   return null;
+}
+
+export interface WorkoutE1RMPRCount {
+  readonly originalIndex: number;
+  readonly count: number;
+}
+
+/** Canonical set eligibility and two-decimal Epley value used by PR history. */
+function getCanonicalSetE1RMKg(
+  log: WorkoutLog,
+  exercise: ExerciseEntry,
+  set: SetEntry,
+): number | null {
+  if (!set || set.isSkipped === true || set.isWarmup === true || set.isCompleted === false) return null;
+  if (typeof set.reps !== 'number' || !Number.isInteger(set.reps) || set.reps <= 0) return null;
+  const load = resolveSetEffectiveLoad(set.weight, exercise.modality || 'weighted', log.unit, log.bodyweightSnapshot);
+  if (load.status !== 'valid' || load.effectiveLoadKg === null || load.effectiveLoadKg <= 0) return null;
+  const rawE1RM = set.reps === 1 ? load.effectiveLoadKg : load.effectiveLoadKg * (1 + set.reps / 30);
+  return Math.round(rawE1RM * 100) / 100;
+}
+
+/**
+ * Counts workout-level e1RM PR events using the Diary PR engine's canonical
+ * effective-load, Epley, two-decimal and strict-improvement semantics.
+ *
+ * A single chronological pass includes history before any displayed analytics
+ * window. Exercise identity uses the authoritative exercise key (with the
+ * canonical legacy-name fallback). On the same local date, epoch-like log IDs
+ * order sessions; legacy IDs fall back to their stable input order, matching
+ * the existing Diary chronology.
+ */
+export function getWorkoutE1RMPRCounts(
+  allLogs: readonly WorkoutLog[],
+  throughDate: string,
+): WorkoutE1RMPRCount[] {
+  const isStrictLocalDate = (value: unknown): value is string => {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return false;
+    const raw = value.trim();
+    return getLocalDateString(parseLocalDate(raw)) === raw;
+  };
+  const items = allLogs.map((log, originalIndex) => ({
+    log, originalIndex, idTimestamp: parseStrictIdTimestamp(log?.id),
+  })).filter(item => isStrictLocalDate(item.log?.date) && item.log.date <= throughDate);
+
+  items.sort((a, b) => {
+    if (a.log.date !== b.log.date) return a.log.date < b.log.date ? -1 : 1;
+    if (a.idTimestamp !== null && b.idTimestamp !== null && a.idTimestamp !== b.idTimestamp) {
+      return a.idTimestamp - b.idTimestamp;
+    }
+    return a.originalIndex - b.originalIndex;
+  });
+
+  const historicalBest = new Map<string, number>();
+  const result: WorkoutE1RMPRCount[] = [];
+  for (const { log, originalIndex } of items) {
+    const workoutBest = new Map<string, number>();
+    for (const exercise of log.exercises || []) {
+      if (!exercise || exercise.isSkipped === true) continue;
+      const identity = resolveExerciseKey(exercise);
+      if (!identity) continue;
+      for (const set of exercise.sets || []) {
+        const roundedE1RM = getCanonicalSetE1RMKg(log, exercise, set);
+        if (roundedE1RM === null) continue;
+        if (roundedE1RM > (workoutBest.get(identity) ?? -Infinity)) workoutBest.set(identity, roundedE1RM);
+      }
+    }
+
+    let count = 0;
+    for (const [identity, best] of workoutBest) {
+      const previous = historicalBest.get(identity);
+      if (previous === undefined || best > previous + 0.001) count++;
+      if (previous === undefined || best > previous) historicalBest.set(identity, best);
+    }
+    result.push({ originalIndex, count });
+  }
+  return result;
 }
 
 /**
@@ -129,31 +207,13 @@ export function generateExercisePRMap(allLogs: WorkoutLog[]): ExercisePRMap {
       const normName = (ex.name || '').trim().toLowerCase();
       if (!normName) continue;
 
-      const modality = ex.modality || 'weighted';
       const sets = Array.isArray(ex.sets) ? ex.sets : [];
 
       for (let setIdx = 0; setIdx < sets.length; setIdx++) {
         const s = sets[setIdx];
         if (!s) continue;
-
-        // Skip non-working sets
-        if (s.isSkipped === true || s.isWarmup === true || s.isCompleted === false) {
-          continue;
-        }
-
-        const reps = s.reps;
-        if (typeof reps !== 'number' || !Number.isInteger(reps) || reps <= 0) {
-          continue;
-        }
-
-        const loadRes = resolveSetEffectiveLoad(s.weight, modality, log.unit, log.bodyweightSnapshot);
-        if (loadRes.status !== 'valid' || loadRes.effectiveLoadKg === null || loadRes.effectiveLoadKg <= 0) {
-          continue;
-        }
-
-        const effKg = loadRes.effectiveLoadKg;
-        const e1rmKg = reps === 1 ? effKg : effKg * (1 + reps / 30);
-        const roundedE1RMKg = Math.round(e1rmKg * 100) / 100;
+        const roundedE1RMKg = getCanonicalSetE1RMKg(log, ex, s);
+        if (roundedE1RMKg === null) continue;
 
         const currentBest = bestE1RMKgByExercise[normName];
 
