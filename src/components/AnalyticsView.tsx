@@ -21,6 +21,7 @@ import {
 } from '../lib/historicalAnalytics';
 import { getProgramReportCard, getReportChartData } from '../lib/programReportCard';
 import { formatAggregateDuration } from '../lib/diaryInsightPresentation';
+import { TrainingAverages } from './TrainingAverages';
 
 interface AnalyticsViewProps {
   workoutLogs: WorkoutLog[];
@@ -1166,9 +1167,9 @@ export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRef
       {/* Correlation Insight Engine */}
       <div className="w-full bg-slate-900 border-y border-x-0 border-slate-800 p-4 space-y-4 shadow-sm rounded-none">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-850 pb-2.5">
-          <h3 className="font-extrabold text-xs text-slate-400 uppercase tracking-wider">
+          <h2 className="font-extrabold text-[18px] text-slate-300 uppercase tracking-wide">
             Recovery Correlations
-          </h3>
+          </h2>
           <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-2.5 py-0.5 rounded-none border border-indigo-500/20 font-bold uppercase tracking-wider self-start sm:self-auto">
             Focused: {selectedExercise}
           </span>
@@ -1380,6 +1381,8 @@ export function AnalyticsView({ workoutLogs, initialProgramId, onNavigate, onRef
           </div>
         )}
       </div>
+
+      <TrainingAverages workoutLogs={workoutLogs} />
 
       {/* PR Spotlight with wellness factors */}
       <div className="w-full bg-slate-900 border-y border-x-0 border-slate-800 p-4 shadow-sm rounded-none">
