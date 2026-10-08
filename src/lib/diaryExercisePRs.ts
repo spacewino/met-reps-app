@@ -16,7 +16,7 @@ export type ExercisePRMap = Record<string, boolean>; // key: `${logId}_${exercis
 /**
  * Parses an ID timestamp only if it strictly matches exactly 12+ digits or 'log-' followed by 12+ digits.
  */
-function parseStrictIdTimestamp(id: string | null | undefined): number | null {
+export function parseStrictIdTimestamp(id: string | null | undefined): number | null {
   if (!id) return null;
   const digitsOnlyMatch = id.match(/^\d{12,}$/);
   if (digitsOnlyMatch) {
@@ -37,7 +37,7 @@ export interface WorkoutE1RMPRCount {
 }
 
 /** Canonical set eligibility and two-decimal Epley value used by PR history. */
-function getCanonicalSetE1RMKg(
+export function getCanonicalSetE1RMKg(
   log: WorkoutLog,
   exercise: ExerciseEntry,
   set: SetEntry,
