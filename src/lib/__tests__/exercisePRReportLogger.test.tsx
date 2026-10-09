@@ -66,8 +66,8 @@ describe('Workout Logger PR report subview', () => {
     fireEvent.change(view.container.querySelector<HTMLInputElement>('[data-set-row-index="1"] input[type="number"]')!, { target: { value: '999' } });
     fireEvent.click(trigger(2));
     open();
-    expect(screen.getByRole('heading', { name: 'Historical PR workout' })).toBeTruthy();
-    expect(screen.getAllByText('116.67 kg')).toHaveLength(2);
+    expect(screen.getByRole('heading', { name: /e1RM PR:/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Bench · e1RM PR: 116.67 kg' })).toBeTruthy();
   });
   it('traps focus and dismisses report first by Escape and then restores the original trigger', async () => {
     await setup();
@@ -85,7 +85,7 @@ describe('Workout Logger PR report subview', () => {
   it('uses device Back in subview order and ignores clicks within report content', async () => {
     await setup();
     const original = trigger(); fireEvent.click(original); open();
-    fireEvent.click(screen.getByRole('heading', { name: 'Historical PR workout' }));
+    fireEvent.click(screen.getByRole('heading', { name: /e1RM PR:/ }));
     expect(screen.getByRole('heading', { name: 'Exercise PR report' })).toBeTruthy();
     window.__ignoreNextPopCount = 0;
     fireEvent.popState(window);

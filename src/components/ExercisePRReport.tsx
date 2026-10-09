@@ -1,6 +1,7 @@
 import React from 'react';
 import type { ExerciseEntry, WeightUnit, WorkoutLog } from '../types';
 import { buildExercisePRReport, PRSession } from '../lib/exercisePRReport';
+import { WarmupIcon } from './WarmupIcon';
 import { convertWeightUnit } from '../lib/assistedLoadMath';
 
 const saved = (value: number | null | undefined) => typeof value === 'number' && Number.isFinite(value) ? String(value) : 'Unavailable';
@@ -35,31 +36,41 @@ function ComparisonGraph({ sessions, prKg, unit }: { sessions: PRSession[]; prKg
 
 export function ExercisePRReport({ exercise, workoutLogs, unit }: { exercise: ExerciseEntry; workoutLogs: readonly WorkoutLog[]; unit: WeightUnit }) {
   const { record, recent, unsupported } = React.useMemo(() => buildExercisePRReport(workoutLogs, exercise), [workoutLogs, exercise.name, exercise.exerciseKey, exercise.modality]);
-  if (unsupported) return <div className="p-4 space-y-2"><p>Saved history · {exercise.name}</p><p>This exercise modality does not support estimated 1RM.</p></div>;
+  if (unsupported) return <div className="p-4 space-y-2"><h3 className="font-bold">{exercise.name}</h3><p>This exercise modality does not support estimated 1RM.</p></div>;
   const log = record?.log;
   const occurrence = log && record?.exerciseIndex !== null ? log.exercises[record!.exerciseIndex!] : null;
-  return <div className="p-4 space-y-4 text-slate-100 break-words">
-    <p className="text-sm text-slate-400">Saved history · {exercise.name}</p>
-    <section className={panel} aria-labelledby="pr-history-title">
-      <h3 id="pr-history-title" className="font-bold">Historical PR workout</h3>
+  const headlineValue = record?.bestKg !== null && record?.bestKg !== undefined
+    ? String(Number(valueInUnit(record.bestKg, unit))) : null;
+  const workoutContext = log && (log.programId
+    ? [log.program, log.week && `Week ${log.week}`, log.day && `Day ${log.day}`].filter(Boolean).join(' · ')
+    : 'One-off workout');
+  return <div className="p-4 space-y-5 text-slate-100 break-words">
+    <section className="space-y-2 min-w-0" aria-labelledby="pr-history-title">
+      <h3 id="pr-history-title" className="font-bold leading-snug">{occurrence?.name || exercise.name}{headlineValue !== null && ` · e1RM PR: ${headlineValue} ${unit}`}</h3>
       {!record || !log || !occurrence ? <p>No qualifying saved record.</p> : <>
-        <p className="font-bold">{occurrence.name} · {log.date}</p>
-        <p>All-time e1RM: <strong>{valueInUnit(record.bestKg!, unit)} {unit}</strong></p>
-        <p className="text-sm text-slate-400">{[log.program, log.programId && `Program ID: ${log.programId}`, log.week && `Week ${log.week}`, log.day && `Day ${log.day}`, `Workout ID: ${log.id}`].filter(Boolean).join(' · ')}</p>
-        <ol className="space-y-2">{occurrence.sets.map((set, i) => <li key={i} className={`border p-2 space-y-1 ${i === record.setIndex ? 'bg-selected-surface border-indigo-400' : 'border-slate-800'}`}>
-          <div className="flex flex-wrap items-center gap-2"><strong>{set.isWarmup ? 'Warm-up' : 'Set'} {set.setNumber}</strong>{i === record.setIndex && <span className={badge}>PR</span>}</div>
-          <p className="text-sm">Weight: {saved(set.weight)} {log.unit} · Reps: {saved(set.reps)} · RPE: {saved(set.rpe)}</p>
-          <p className="text-sm">Status: {set.isSkipped ? 'Skipped' : set.isCompleted === false ? 'Incomplete' : set.isCompleted ? 'Completed' : 'Completion not recorded'}</p>
-          {set.form && <p className="text-sm">Form: {set.form}</p>}
-          {set.comment && <p className="text-sm whitespace-pre-wrap">Comment: {set.comment}</p>}
-          {(set.isDropSet || !!set.dropSubSets?.length) && <div className="border-l border-slate-800 pl-3 text-sm"><strong>Drop-set technique</strong><ol>{set.dropSubSets?.map((drop, d) => <li key={d}>Drop {d + 1}: {saved(drop.weight)} {log.unit} · {saved(drop.reps)} reps</li>)}</ol></div>}
-        </li>)}</ol>
-        {log.notes && <div><h4 className="font-bold">Workout notes</h4><p className="text-sm whitespace-pre-wrap">{log.notes}</p></div>}
+        <p className="text-xs text-slate-400">{[log.date, workoutContext].filter(Boolean).join(' · ')}</p>
+        <ol className="space-y-2 text-sm font-sans">{occurrence.sets.map((set, i) => {
+          // Presentation only: retain original indices/numbering for the PR badge.
+          if (set.isSkipped || set.isCompleted === false) return null;
+          return <li key={i} className="space-y-0.5">
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+              <span>Set {set.setNumber}: {saved(set.weight)} {log.unit} × {saved(set.reps)} @{saved(set.rpe)} RPE</span>
+              {set.isWarmup && <WarmupIcon className="w-3.5 h-3 text-amber-500 inline-block shrink-0" title={`Warm-up set ${set.setNumber}`} />}
+              {i === record.setIndex && <span className={badge}>PR</span>}
+            </div>
+            {set.comment && <p className="text-xs text-slate-400 whitespace-pre-wrap">{set.comment}</p>}
+            {!!set.dropSubSets?.length && <ol className="pl-3 text-xs text-slate-400 space-y-0.5" aria-label={`Drop subsets for set ${set.setNumber}`}>
+              {set.dropSubSets.map((drop, d) => <li key={d}>Drop {d + 1}: {saved(drop.weight)} {log.unit} × {saved(drop.reps)}</li>)}
+            </ol>}
+          </li>;
+        })}</ol>
+        {log.notes && <div className="pt-1"><h4 className="text-sm font-bold">Workout notes</h4><p className="text-xs text-slate-400 whitespace-pre-wrap">{log.notes}</p></div>}
       </>}
     </section>
-    <section className={panel} aria-labelledby="pr-order-title"><h3 id="pr-order-title" className="font-bold">Exercise order</h3><p className="text-sm text-slate-400">Saved exercise order.</p>
-      {!log ? <p>No PR workout available.</p> : <ol className="space-y-2">{log.exercises.map((entry, i) => <li key={i} className={`border p-2 ${i === record!.exerciseIndex ? 'bg-selected-surface border-indigo-400 font-bold' : 'border-slate-800'}`}>
-        <span>{i + 1}. {entry.name} · {entry.muscleGroup || 'Muscle not recorded'}</span>{entry.isSkipped && <span> · Skipped</span>}{i === record!.exerciseIndex && <span className={`${badge} ml-2`}>PR exercise</span>}
+    <section className="space-y-2 min-w-0" aria-labelledby="pr-order-title">
+      <h3 id="pr-order-title" className="font-bold">Exercise order</h3>
+      {!log ? <p>No PR workout available.</p> : <ol className="space-y-1 text-sm font-sans">{log.exercises.map((entry, i) => <li key={i} className={`px-1 py-0.5 ${i === record!.exerciseIndex ? 'bg-selected-surface text-indigo-300 font-bold' : ''}`}>
+        <span>{i + 1}. {entry.name} · {entry.muscleGroup || 'Muscle not recorded'}</span>{entry.isSkipped && <span> · Skipped</span>}{i === record!.exerciseIndex && <span className="text-xs ml-2">PR exercise</span>}
       </li>)}</ol>}
     </section>
     <section className={panel} aria-labelledby="pr-graph-title"><h3 id="pr-graph-title" className="font-bold">Last six workouts versus the PR</h3><ComparisonGraph sessions={recent} prKg={record?.bestKg ?? null} unit={unit} /></section>
