@@ -64,6 +64,7 @@ import {
   stepWeightValue,
 } from '../lib/repWeightCalculator';
 import { isEligibleStrengthMainMovement, getEligibleMainMovementCount, updateProgramDayMainMovement } from '../lib/programMetadata';
+import { ExercisePRReport } from './ExercisePRReport';
 import { useModalHistory } from '../lib/useModalHistory';
 import {
   prepareExercisesForSave,
@@ -186,9 +187,10 @@ interface WorkoutLoggerProps {
   onClose: () => void;
   onSave: (targetView?: string, params?: any) => void;
   themeId?: string;
+  workoutLogs?: readonly WorkoutLog[];
 }
 
-export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThemeId }: WorkoutLoggerProps) {
+export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThemeId, workoutLogs = [] }: WorkoutLoggerProps) {
   // Configuration
   const themeId = propThemeId || React.useMemo(() => storage.getTheme(), []);
   const editLogId = initialParams?.editLogId || null;
@@ -1408,6 +1410,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const setOptionsOuterPointerRef = useRef<{ pointerId: number; startX: number; startY: number } | null>(null);
   const suppressSetOptionsClickRef = useRef(false);
   const dropHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showPRReport, setShowPRReport] = useState(false);
+  const setActionDialogRef = useRef<HTMLDivElement | null>(null);
+  const setActionTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const reportTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const setActionWasOpenRef = useRef(false);
+  const reportWasOpenRef = useRef(false);
   const [commentDraft, setCommentDraft] = useState<string>('');
   const [calcModalState, setCalcModalState] = useState<{ exIdx: number; setIdx: number } | null>(null);
   const [calcMode, setCalcMode] = useState<'find_weight' | 'find_reps'>('find_weight');
@@ -1477,6 +1485,39 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   useModalHistory(activeSelector !== null, () => setActiveSelector(null), 'rpe-form-selector');
   useModalHistory(isHydrationDropdownOpen, () => setIsHydrationDropdownOpen(false), 'hydration-dropdown');
   const { dismiss: dismissSetAction } = useModalHistory(activeSetAction !== null, () => setActiveSetAction(null), 'set-options');
+  const { dismiss: dismissPRReport } = useModalHistory(showPRReport, () => setShowPRReport(false), 'exercise-pr-report');
+  const dismissSetSubview = showPRReport ? dismissPRReport : dismissSetAction;
+
+  useEffect(() => {
+    if (!activeSetAction) {
+      if (setActionWasOpenRef.current) setActionTriggerRef.current?.focus();
+      setActionWasOpenRef.current = false;
+      return;
+    }
+    const dialog = setActionDialogRef.current;
+    if (showPRReport || !setActionWasOpenRef.current) dialog?.querySelector<HTMLButtonElement>('button')?.focus();
+    else if (reportWasOpenRef.current) reportTriggerRef.current?.focus();
+    setActionWasOpenRef.current = true;
+    reportWasOpenRef.current = showPRReport;
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (showPRReport) dismissPRReport(); else dismissSetAction();
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), [tabindex="0"]'));
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener('keydown', keydown);
+    const focusin = (event: FocusEvent) => {
+      if (!dialog?.contains(event.target as Node)) dialog?.querySelector<HTMLButtonElement>('button')?.focus();
+    };
+    document.addEventListener('focusin', focusin);
+    return () => { document.removeEventListener('keydown', keydown); document.removeEventListener('focusin', focusin); };
+  }, [activeSetAction, showPRReport]);
+
   const { dismiss: dismissExAction } = useModalHistory(activeExAction !== null, () => setActiveExAction(null), 'exercise-actions');
   const { dismiss: dismissHistory } = useModalHistory(historyExerciseName !== null, () => setHistoryExerciseName(null), 'exercise-history');
   const { dismiss: dismissCompletion } = useModalHistory(showCompletionModal, () => setShowCompletionModal(false), 'workout-completion');
@@ -5099,11 +5140,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                                 onPointerMove={handleSetOptionsPointerMove}
                                 onPointerUp={(event) => handleSetOptionsPointerEnd(event, false)}
                                 onPointerCancel={(event) => handleSetOptionsPointerEnd(event, true)}
-                                onClick={() => {
+                                onClick={(event) => {
                                   if (suppressSetOptionsClickRef.current) {
                                     suppressSetOptionsClickRef.current = false;
                                     return;
                                   }
+                                  setActionTriggerRef.current = event.currentTarget;
                                   setActiveSetAction({ exIdx, setIdx });
                                 }}
                                 className={`p-2 hover:bg-slate-800 text-slate-400 hover:text-indigo-400 rounded-none border bg-slate-950/40 transition ${pressedSetOptions === `${exIdx}-${setIdx}` ? 'scale-95 border-indigo-400 bg-indigo-950/50' : 'border-slate-800'}`}
@@ -5751,17 +5793,21 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
         return (
           <div 
             className="fixed inset-0 bg-overlay/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in"
-            onClick={dismissSetAction}
+            onClick={event => { if (event.target === event.currentTarget) dismissSetSubview(); }}
           >
             <div 
-              className="bg-slate-900 border border-slate-800 rounded-none w-full max-w-sm overflow-hidden shadow-2xl"
+              ref={setActionDialogRef}
+              role="dialog" aria-modal="true" aria-labelledby="set-action-title"
+              className={`bg-slate-900 border border-slate-800 rounded-none w-full ${showPRReport ? 'max-w-lg' : 'max-w-sm'} max-h-[90dvh] overflow-y-auto shadow-2xl [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-indigo-400 [&_input:focus-visible]:outline-2 [&_input:focus-visible]:outline-indigo-400`}
               onClick={e => e.stopPropagation()}
             >
-              <div className="p-4 border-b border-slate-850 bg-slate-950/40 flex justify-between items-center">
-                <h3 className="font-extrabold text-xs text-white uppercase tracking-wider font-mono">Set {set.setNumber} Options</h3>
-                <button onClick={dismissSetAction} className="text-slate-400 hover:text-white text-xs font-bold font-mono">CLOSE</button>
+              <div className="sticky top-0 z-10 p-4 border-b border-slate-850 bg-slate-900 flex justify-between items-center">
+                <h2 id="set-action-title" className="font-extrabold text-xs text-white uppercase tracking-wider font-mono">{showPRReport ? 'Exercise PR report' : `Set ${set.setNumber} Options`}</h2>
+                <button aria-label={showPRReport ? 'Close PR report' : 'Close set options'} onClick={dismissSetSubview} className="text-slate-400 hover:text-white text-xs font-bold font-mono">CLOSE</button>
               </div>
-              <div className="p-4 space-y-3">
+              {showPRReport ? <>
+                <ExercisePRReport exercise={ex} workoutLogs={workoutLogs} unit={unit} />
+              </> : <div className="p-4 space-y-3">
                 {/* Move Up / Move Down buttons at the very top */}
                 <div className="grid grid-cols-2 gap-2 pb-1">
                   <button
@@ -5787,6 +5833,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                     <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-slate-100">MOVE DOWN</span>
                   </button>
                 </div>
+
+                <button ref={reportTriggerRef} type="button" onClick={() => setShowPRReport(true)} className="w-full p-3 bg-selected-surface border border-indigo-400 text-slate-100 font-bold text-sm">View PR report</button>
 
                 {/* Comment Inline Input */}
                 {!set.isSkipped && (
@@ -6003,7 +6051,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                     <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
                   </button>
                 </div>
-              </div>
+              </div>}
             </div>
           </div>
         );

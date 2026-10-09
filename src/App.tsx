@@ -467,6 +467,7 @@ export default function App() {
 
             {currentView === 'logger' && (
               <WorkoutLogger
+                workoutLogs={workoutLogs}
                 initialParams={viewParams}
                 themeId={themeId}
                 onClose={() => {
