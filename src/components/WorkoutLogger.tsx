@@ -65,6 +65,7 @@ import {
 } from '../lib/repWeightCalculator';
 import { isEligibleStrengthMainMovement, getEligibleMainMovementCount, updateProgramDayMainMovement } from '../lib/programMetadata';
 import { ExercisePRReport } from './ExercisePRReport';
+import { PlateCalculator } from './PlateCalculator';
 import { useModalHistory } from '../lib/useModalHistory';
 import {
   prepareExercisesForSave,
@@ -1410,12 +1411,15 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const setOptionsOuterPointerRef = useRef<{ pointerId: number; startX: number; startY: number } | null>(null);
   const suppressSetOptionsClickRef = useRef(false);
   const dropHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [showPRReport, setShowPRReport] = useState(false);
+  const [setSubview, setSetSubview] = useState<'pr-report' | 'plate-calc' | null>(null);
+  const showPRReport = setSubview === 'pr-report';
+  const showPlateCalc = setSubview === 'plate-calc';
   const setActionDialogRef = useRef<HTMLDivElement | null>(null);
   const setActionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const reportTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const plateCalcTriggerRef = useRef<HTMLButtonElement | null>(null);
   const setActionWasOpenRef = useRef(false);
-  const reportWasOpenRef = useRef(false);
+  const previousSetSubviewRef = useRef<typeof setSubview>(null);
   const [commentDraft, setCommentDraft] = useState<string>('');
   const [calcModalState, setCalcModalState] = useState<{ exIdx: number; setIdx: number } | null>(null);
   const [calcMode, setCalcMode] = useState<'find_weight' | 'find_reps'>('find_weight');
@@ -1485,24 +1489,28 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   useModalHistory(activeSelector !== null, () => setActiveSelector(null), 'rpe-form-selector');
   useModalHistory(isHydrationDropdownOpen, () => setIsHydrationDropdownOpen(false), 'hydration-dropdown');
   const { dismiss: dismissSetAction } = useModalHistory(activeSetAction !== null, () => setActiveSetAction(null), 'set-options');
-  const { dismiss: dismissPRReport } = useModalHistory(showPRReport, () => setShowPRReport(false), 'exercise-pr-report');
-  const dismissSetSubview = showPRReport ? dismissPRReport : dismissSetAction;
+  const { dismiss: dismissPRReport } = useModalHistory(showPRReport, () => setSetSubview(null), 'exercise-pr-report');
+  const { dismiss: dismissPlateCalc } = useModalHistory(showPlateCalc, () => setSetSubview(null), 'plate-calculator');
+  const dismissSetSubview = showPRReport ? dismissPRReport : showPlateCalc ? dismissPlateCalc : dismissSetAction;
 
   useEffect(() => {
     if (!activeSetAction) {
       if (setActionWasOpenRef.current) setActionTriggerRef.current?.focus();
       setActionWasOpenRef.current = false;
+      previousSetSubviewRef.current = null;
+      setSetSubview(null);
       return;
     }
     const dialog = setActionDialogRef.current;
-    if (showPRReport || !setActionWasOpenRef.current) dialog?.querySelector<HTMLButtonElement>('button')?.focus();
-    else if (reportWasOpenRef.current) reportTriggerRef.current?.focus();
+    if (setSubview || !setActionWasOpenRef.current) dialog?.querySelector<HTMLButtonElement>('button')?.focus();
+    else if (previousSetSubviewRef.current === 'pr-report') reportTriggerRef.current?.focus();
+    else if (previousSetSubviewRef.current === 'plate-calc') plateCalcTriggerRef.current?.focus();
     setActionWasOpenRef.current = true;
-    reportWasOpenRef.current = showPRReport;
+    previousSetSubviewRef.current = setSubview;
     const keydown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        if (showPRReport) dismissPRReport(); else dismissSetAction();
+        dismissSetSubview();
       }
       if (event.key !== 'Tab' || !dialog) return;
       const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), [tabindex="0"]'));
@@ -1516,7 +1524,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     };
     document.addEventListener('focusin', focusin);
     return () => { document.removeEventListener('keydown', keydown); document.removeEventListener('focusin', focusin); };
-  }, [activeSetAction, showPRReport]);
+  }, [activeSetAction, setSubview]);
 
   const { dismiss: dismissExAction } = useModalHistory(activeExAction !== null, () => setActiveExAction(null), 'exercise-actions');
   const { dismiss: dismissHistory } = useModalHistory(historyExerciseName !== null, () => setHistoryExerciseName(null), 'exercise-history');
@@ -5802,12 +5810,12 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
               onClick={e => e.stopPropagation()}
             >
               <div className="sticky top-0 z-10 p-4 border-b border-slate-850 bg-slate-900 flex justify-between items-center">
-                <h2 id="set-action-title" className="font-extrabold text-xs text-white uppercase tracking-wider font-mono">{showPRReport ? 'Exercise PR report' : `Set ${set.setNumber} Options`}</h2>
-                <button aria-label={showPRReport ? 'Close PR report' : 'Close set options'} onClick={dismissSetSubview} className="text-slate-400 hover:text-white text-xs font-bold font-mono">CLOSE</button>
+                <h2 id="set-action-title" className="font-extrabold text-xs text-white uppercase tracking-wider font-mono">{showPRReport ? 'Exercise PR report' : showPlateCalc ? 'Plate calc' : `Set ${set.setNumber} Options`}</h2>
+                <button aria-label={showPRReport ? 'Close PR report' : showPlateCalc ? 'Close plate calc' : 'Close set options'} onClick={dismissSetSubview} className="text-slate-400 hover:text-white text-xs font-bold font-mono">CLOSE</button>
               </div>
               {showPRReport ? <>
                 <ExercisePRReport exercise={ex} workoutLogs={workoutLogs} unit={unit} />
-              </> : <div className="p-4 space-y-3">
+              </> : showPlateCalc ? <PlateCalculator initialWeight={!ex.modality || ex.modality === 'weighted' || ex.modality === 'distance_loaded' ? set.weight : null} unit={unit} /> : <div className="p-4 space-y-3">
                 {/* Move Up / Move Down buttons at the very top */}
                 <div className="grid grid-cols-2 gap-2 pb-1">
                   <button
@@ -5976,11 +5984,11 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                         Equiv Set Calc
                       </span>
                     </button>
-                    <button type="button" disabled title="Coming soon" className="w-full p-3 bg-slate-950 border border-slate-850 text-slate-400 opacity-40 cursor-not-allowed font-mono text-xs sm:text-sm font-black uppercase tracking-wide">Plate calc</button>
+                    <button ref={plateCalcTriggerRef} type="button" onClick={() => setSetSubview('plate-calc')} className="w-full p-3 bg-slate-950 hover:bg-slate-850 border border-slate-850 text-slate-100 transition font-mono text-xs sm:text-sm font-black uppercase tracking-wide">Plate calc</button>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <button type="button" disabled title="Coming soon" className="w-full p-3 bg-slate-950 border border-slate-850 text-slate-400 opacity-40 cursor-not-allowed font-mono text-xs sm:text-sm font-black uppercase tracking-wide">Prog Goal</button>
-                    <button ref={reportTriggerRef} type="button" onClick={() => setShowPRReport(true)} className="w-full p-3 bg-selected-surface border border-indigo-400 text-slate-100 transition font-mono text-xs sm:text-sm font-black uppercase tracking-wide">PR Report</button>
+                    <button ref={reportTriggerRef} type="button" onClick={() => setSetSubview('pr-report')} className="w-full p-3 bg-selected-surface border border-indigo-400 text-slate-100 transition font-mono text-xs sm:text-sm font-black uppercase tracking-wide">PR Report</button>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     {/* Skip Set / Unskip Set Button */}

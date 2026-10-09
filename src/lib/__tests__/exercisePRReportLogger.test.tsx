@@ -47,7 +47,7 @@ describe('Workout Logger PR report subview', () => {
     const actionLabels = within(dialog).getAllByRole('button')
       .map(button => button.textContent?.trim()).filter(label => label !== 'CLOSE' && label !== 'Save' && label !== '');
     expect(actionLabels).toEqual(rowPairs.flat());
-    expect((within(dialog).getByRole('button', { name: 'Plate calc' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(dialog).getByRole('button', { name: 'Plate calc' }) as HTMLButtonElement).disabled).toBe(false);
     expect((within(dialog).getByRole('button', { name: 'Prog Goal' }) as HTMLButtonElement).disabled).toBe(true);
     const input = screen.getByPlaceholderText('e.g., Last rep was slow, good squeeze') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'Uncommitted text' } });
