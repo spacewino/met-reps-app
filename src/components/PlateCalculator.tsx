@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import type { WeightUnit } from '../types';
 import { convertWeightUnit } from '../lib/assistedLoadMath';
 import { BAR_WEIGHTS_KG, calculatePlateLoad, type BarWeightKg } from '../lib/plateCalculator';
@@ -9,6 +9,7 @@ const plateColors: Record<number, string> = {
 };
 
 export function PlateCalculator({ initialWeight, unit }: { initialWeight: number | null | undefined; unit: WeightUnit }) {
+  const visualId = useId();
   const [target, setTarget] = useState(() => typeof initialWeight === 'number' && Number.isFinite(initialWeight) ? String(initialWeight) : '');
   const [barKg, setBarKg] = useState<BarWeightKg>(20);
   const targetValue = target.trim() === '' ? NaN : Number(target);
@@ -46,12 +47,24 @@ export function PlateCalculator({ initialWeight, unit }: { initialWeight: number
           <span className="text-xs font-mono text-slate-400">{formatWeight(result.perSideKg)} kg per side</span>
         </div>
         {result.plates.length === 0 ? <p className="text-sm text-slate-400">Bar only — no plates needed.</p> : <>
-          <div role="img" aria-label={`Plates on each side: ${summary}`} className="flex items-end justify-center gap-2 py-2 border-b border-slate-800">
-            {result.plates.map(plate => <div key={plate.weightKg} aria-hidden="true" className="flex flex-col items-center gap-1 min-w-0 flex-1 max-w-14">
-              <span className="text-xs font-mono font-bold">{plate.weightKg}<span className="text-[10px] text-slate-400"> kg</span></span>
-              <div className="w-7 border-2 border-white/30" style={{ height: 30 + Math.sqrt(plate.weightKg / 20) * 54, backgroundColor: plateColors[plate.weightKg] }} />
-              <span className="text-xs font-mono font-bold">× {plate.count}</span>
-            </div>)}
+          <div role="img" aria-label={`Plates on each side: ${summary}`} className="overflow-x-auto py-2 border-b border-slate-800">
+            <div className="flex items-end justify-center gap-2 w-max min-w-full">
+              {result.plates.map(plate => {
+                const height = 30 + Math.sqrt(plate.weightKg / 20) * 54;
+                const patternId = `${visualId}-plate-${plate.weightKg}`;
+                // Repeat a labelled plate without creating an unbounded array of
+                // elements when someone enters an unusually large target.
+                return <svg key={plate.weightKg} aria-hidden="true" width={plate.count * 48} height="110" className="shrink-0 font-mono text-slate-100">
+                  <defs>
+                    <pattern id={patternId} width="48" height="110" patternUnits="userSpaceOnUse">
+                      <text x="24" y={100 - height} textAnchor="middle" fill="currentColor" fontSize="12" fontWeight="700">{plate.weightKg}<tspan fontSize="10"> kg</tspan></text>
+                      <rect x="10" y={108 - height} width="28" height={height} fill={plateColors[plate.weightKg]} stroke="rgba(255,255,255,0.3)" strokeWidth="2" />
+                    </pattern>
+                  </defs>
+                  <rect width="100%" height="110" fill={`url(#${patternId})`} />
+                </svg>;
+              })}
+            </div>
           </div>
           <ul className="space-y-1 text-sm font-mono" aria-label="Plate counts per side">
             {result.plates.map(plate => <li key={plate.weightKg} className="flex justify-between gap-2"><span>{plate.weightKg} kg</span><strong>× {plate.count}</strong></li>)}
@@ -68,6 +81,5 @@ export function PlateCalculator({ initialWeight, unit }: { initialWeight: number
         {targetValue < convertWeightUnit(barKg, 'kg', unit) && <p className="text-xs text-slate-400">The bar alone is heavier than the target. Choose a lighter bar if available.</p>}
       </div>
     </>}
-    <p className="text-xs leading-relaxed text-slate-400">Assumes enough of each plate size. Edits here only change the calculation.</p>
   </div>;
 }
