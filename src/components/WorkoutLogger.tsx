@@ -66,6 +66,8 @@ import {
 import { isEligibleStrengthMainMovement, getEligibleMainMovementCount, updateProgramDayMainMovement } from '../lib/programMetadata';
 import { ExercisePRReport } from './ExercisePRReport';
 import { PlateCalculator } from './PlateCalculator';
+import { ExerciseProgressionGoal } from './ExerciseProgressionGoal';
+import { progressionGoalUnavailableReason } from '../lib/exerciseProgressionGoal';
 import { useModalHistory } from '../lib/useModalHistory';
 import {
   prepareExercisesForSave,
@@ -1411,13 +1413,15 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const setOptionsOuterPointerRef = useRef<{ pointerId: number; startX: number; startY: number } | null>(null);
   const suppressSetOptionsClickRef = useRef(false);
   const dropHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [setSubview, setSetSubview] = useState<'pr-report' | 'plate-calc' | null>(null);
+  const [setSubview, setSetSubview] = useState<'pr-report' | 'plate-calc' | 'prog-goal' | null>(null);
   const showPRReport = setSubview === 'pr-report';
   const showPlateCalc = setSubview === 'plate-calc';
+  const showProgGoal = setSubview === 'prog-goal';
   const setActionDialogRef = useRef<HTMLDivElement | null>(null);
   const setActionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const reportTriggerRef = useRef<HTMLButtonElement | null>(null);
   const plateCalcTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const progGoalTriggerRef = useRef<HTMLButtonElement | null>(null);
   const setActionWasOpenRef = useRef(false);
   const previousSetSubviewRef = useRef<typeof setSubview>(null);
   const [commentDraft, setCommentDraft] = useState<string>('');
@@ -1491,7 +1495,8 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
   const { dismiss: dismissSetAction } = useModalHistory(activeSetAction !== null, () => setActiveSetAction(null), 'set-options');
   const { dismiss: dismissPRReport } = useModalHistory(showPRReport, () => setSetSubview(null), 'exercise-pr-report');
   const { dismiss: dismissPlateCalc } = useModalHistory(showPlateCalc, () => setSetSubview(null), 'plate-calculator');
-  const dismissSetSubview = showPRReport ? dismissPRReport : showPlateCalc ? dismissPlateCalc : dismissSetAction;
+  const { dismiss: dismissProgGoal } = useModalHistory(showProgGoal, () => setSetSubview(null), 'exercise-progression-goal');
+  const dismissSetSubview = showPRReport ? dismissPRReport : showPlateCalc ? dismissPlateCalc : showProgGoal ? dismissProgGoal : dismissSetAction;
 
   useEffect(() => {
     if (!activeSetAction) {
@@ -1505,6 +1510,7 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
     if (setSubview || !setActionWasOpenRef.current) dialog?.querySelector<HTMLButtonElement>('button')?.focus();
     else if (previousSetSubviewRef.current === 'pr-report') reportTriggerRef.current?.focus();
     else if (previousSetSubviewRef.current === 'plate-calc') plateCalcTriggerRef.current?.focus();
+    else if (previousSetSubviewRef.current === 'prog-goal') progGoalTriggerRef.current?.focus();
     setActionWasOpenRef.current = true;
     previousSetSubviewRef.current = setSubview;
     const keydown = (event: KeyboardEvent) => {
@@ -5806,16 +5812,20 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
             <div 
               ref={setActionDialogRef}
               role="dialog" aria-modal="true" aria-labelledby="set-action-title"
-              className={`bg-slate-900 border border-slate-800 rounded-none w-full ${showPRReport ? 'max-w-lg' : 'max-w-sm'} max-h-[90dvh] overflow-y-auto shadow-2xl [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-indigo-400 [&_input:focus-visible]:outline-2 [&_input:focus-visible]:outline-indigo-400`}
+              className={`bg-slate-900 border border-slate-800 rounded-none w-full ${showPRReport || showProgGoal ? 'max-w-lg' : 'max-w-sm'} max-h-[90dvh] overflow-y-auto shadow-2xl [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-indigo-400 [&_input:focus-visible]:outline-2 [&_input:focus-visible]:outline-indigo-400`}
               onClick={e => e.stopPropagation()}
             >
               <div className="sticky top-0 z-10 p-4 border-b border-slate-850 bg-slate-900 flex justify-between items-center">
-                <h2 id="set-action-title" className="font-extrabold text-xs text-white uppercase tracking-wider font-mono">{showPRReport ? 'Exercise PR report' : showPlateCalc ? 'Plate calc' : `Set ${set.setNumber} Options`}</h2>
-                <button aria-label={showPRReport ? 'Close PR report' : showPlateCalc ? 'Close plate calc' : 'Close set options'} onClick={dismissSetSubview} className="text-slate-400 hover:text-white text-xs font-bold font-mono">CLOSE</button>
+                <h2 id="set-action-title" className="font-extrabold text-xs text-white uppercase tracking-wider font-mono">{showPRReport ? 'Exercise PR report' : showPlateCalc ? 'Plate calc' : showProgGoal ? 'Progression goal' : `Set ${set.setNumber} Options`}</h2>
+                <button aria-label={showPRReport ? 'Close PR report' : showPlateCalc ? 'Close plate calc' : showProgGoal ? 'Close progression goal' : 'Close set options'} onClick={dismissSetSubview} className="text-slate-400 hover:text-white text-xs font-bold font-mono">CLOSE</button>
               </div>
               {showPRReport ? <>
                 <ExercisePRReport exercise={ex} workoutLogs={workoutLogs} unit={unit} />
-              </> : showPlateCalc ? <PlateCalculator initialWeight={!ex.modality || ex.modality === 'weighted' || ex.modality === 'distance_loaded' ? set.weight : null} unit={unit} /> : <div className="p-4 space-y-3">
+              </> : showPlateCalc ? <PlateCalculator initialWeight={!ex.modality || ex.modality === 'weighted' || ex.modality === 'distance_loaded' ? set.weight : null} unit={unit} /> : showProgGoal ? <ExerciseProgressionGoal
+                program={activeProg} exercises={exercises} exerciseIndex={exIdx} objective={objective}
+                week={Number(weekNum)} day={Number(dayNum)} date={dateStr} unit={unit}
+                bodyweightSnapshot={bodyweightSnapshot ?? null} workoutLogs={workoutLogs} chronology={targetChronology}
+              /> : <div className="p-4 space-y-3">
                 {/* Move Up / Move Down buttons at the very top */}
                 <div className="grid grid-cols-2 gap-2 pb-1">
                   <button
@@ -5987,7 +5997,9 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                     <button ref={plateCalcTriggerRef} type="button" onClick={() => setSetSubview('plate-calc')} className="w-full p-3 bg-slate-950 hover:bg-slate-850 border border-slate-850 text-slate-100 transition font-mono text-xs sm:text-sm font-black uppercase tracking-wide">Plate calc</button>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <button type="button" disabled title="Coming soon" className="w-full p-3 bg-slate-950 border border-slate-850 text-slate-400 opacity-40 cursor-not-allowed font-mono text-xs sm:text-sm font-black uppercase tracking-wide">Prog Goal</button>
+                    <button ref={progGoalTriggerRef} type="button" disabled={!!progressionGoalUnavailableReason(objective, ex, !!programId)}
+                      title={progressionGoalUnavailableReason(objective, ex, !!programId) ?? 'View the remaining program pathway'} onClick={() => setSetSubview('prog-goal')}
+                      className="w-full p-3 bg-slate-950 hover:bg-slate-850 border border-slate-850 text-slate-100 disabled:text-slate-400 disabled:opacity-40 disabled:cursor-not-allowed transition font-mono text-xs sm:text-sm font-black uppercase tracking-wide">Prog Goal</button>
                     <button ref={reportTriggerRef} type="button" onClick={() => setSetSubview('pr-report')} className="w-full p-3 bg-selected-surface border border-indigo-400 text-slate-100 transition font-mono text-xs sm:text-sm font-black uppercase tracking-wide">PR Report</button>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
