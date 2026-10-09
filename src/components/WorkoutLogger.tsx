@@ -5834,8 +5834,6 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                   </button>
                 </div>
 
-                <button ref={reportTriggerRef} type="button" onClick={() => setShowPRReport(true)} className="w-full p-3 bg-selected-surface border border-indigo-400 text-slate-100 font-bold text-sm">View PR report</button>
-
                 {/* Comment Inline Input */}
                 {!set.isSkipped && (
                   <div className="space-y-1.5">
@@ -5888,98 +5886,35 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                 )}
 
                 <div className="border-t border-slate-850 my-2 pt-2 space-y-2">
-                  {/* Skip Set and Restore Planned Targets Grid */}
-                  <div className="space-y-1">
-                    <div className="grid grid-cols-2 gap-2">
-                      {/* Skip Set / Unskip Set Button */}
-                      {(() => {
-                        if (set.isWarmup) {
-                          return (
-                            <button
-                              type="button"
-                              disabled
-                              className="bg-slate-950 disabled:opacity-40 border border-slate-850 rounded-none p-3 text-slate-500 font-mono text-xs sm:text-sm font-black uppercase tracking-wide cursor-not-allowed w-full text-center"
-                            >
-                              SKIP SET
-                            </button>
-                          );
-                        }
-                        const isSkipped = !!set.isSkipped;
-                        const check = isSkipped ? canUnskipSet(ex.sets, setIdx) : canSkipSet(ex.sets, setIdx);
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (check.allowed) {
-                                handleToggleSkipSet(exIdx, setIdx);
-                                dismissSetAction();
-                              }
-                            }}
-                            disabled={!check.allowed}
-                            title={check.allowed ? undefined : check.reason}
-                            className={`w-full p-3 border rounded-none flex items-center justify-center gap-2 transition cursor-pointer ${
-                              isSkipped
-                                ? 'bg-amber-500/10 hover:bg-warning-action-hover/20 border-amber-500/30 text-amber-400 disabled:opacity-40'
-                                : 'bg-slate-950 hover:bg-slate-850 border-slate-850 text-slate-300 hover:text-amber-400 disabled:opacity-40'
-                            }`}
-                          >
-                            <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide">
-                              {isSkipped ? 'UNSKIP SET' : 'SKIP SET'}
-                            </span>
-                          </button>
-                        );
-                      })()}
-
-                      {/* Restore Planned Targets Button */}
-                      {(() => {
-                        const canRestore = canRestorePlannedTargets({
-                          exercise: ex,
-                          exIdx,
-                          prescribedTargetSnapshots,
-                          currentLiveAdjustedSets: liveAdjustedSets,
-                          userTouchedSets,
-                          focusedSetKey,
-                          activeSelectorRowKey: activeSelector ? `${activeSelector.exIdx}-${activeSelector.setIdx}` : null,
-                        });
-                        return (
-                          <button
-                            type="button"
-                            disabled={!canRestore}
-                            onClick={() => {
-                              if (canRestore) {
-                                handleRestorePlannedTargets(exIdx);
-                                dismissSetAction();
-                              }
-                            }}
-                            title={canRestore ? 'Restore planned targets for this exercise' : 'No restorable live targets'}
-                            className={`w-full p-3 border rounded-none flex items-center justify-center gap-1.5 transition ${
-                              canRestore
-                                ? 'bg-indigo-950/40 hover:bg-indigo-900/60 border-indigo-500/40 text-indigo-300 hover:text-on-accent cursor-pointer'
-                                : 'bg-slate-950 border-slate-850 text-slate-600 opacity-40 cursor-not-allowed'
-                            }`}
-                          >
-                            <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-center leading-tight">
-                              Restore Planned Targets
-                            </span>
-                          </button>
-                        );
-                      })()}
-                    </div>
-
-                    {!set.isWarmup && (() => {
-                      const isSkipped = !!set.isSkipped;
-                      const check = isSkipped ? canUnskipSet(ex.sets, setIdx) : canSkipSet(ex.sets, setIdx);
-                      if (!check.allowed && check.reason) {
-                        return (
-                          <p className="text-[10px] text-amber-500/80 font-mono text-center px-1">
-                            {check.reason}
-                          </p>
-                        );
-                      }
-                      return null;
-                    })()}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={set.isSkipped}
+                      onClick={() => {
+                        handleToggleWarmup(exIdx, setIdx);
+                        dismissSetAction();
+                      }}
+                      className="bg-slate-950 hover:bg-slate-850 disabled:opacity-30 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-center gap-2 cursor-pointer w-full text-center"
+                    >
+                      <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-slate-100">Warmup Set</span>
+                      <div className={`w-4.5 h-4.5 border border-slate-700 bg-slate-950 flex items-center justify-center shrink-0 rounded-none transition-colors ${set.isWarmup ? 'border-amber-500 bg-amber-500/10' : ''}`}>
+                        {set.isWarmup && <Check className="w-3 h-3 text-amber-400 shrink-0 stroke-[3]" />}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={set.isSkipped}
+                      onClick={() => {
+                        handleAutoWarmup(exIdx, setIdx);
+                        dismissSetAction();
+                      }}
+                      className="bg-slate-950 hover:bg-slate-850 disabled:opacity-30 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-center cursor-pointer w-full text-center"
+                    >
+                      <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-slate-100">
+                        Auto Warmup
+                      </span>
+                    </button>
                   </div>
-
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
@@ -5995,23 +5930,41 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                         {set.isDropSet && <Check className={`w-3 h-3 ${themeId === 'amber' ? 'text-fuchsia-600' : 'text-fuchsia-400'} shrink-0 stroke-[3]`} />}
                       </div>
                     </button>
-
-                    <button
-                      type="button"
-                      disabled={set.isSkipped}
-                      onClick={() => {
-                        handleToggleWarmup(exIdx, setIdx);
-                        dismissSetAction();
-                      }}
-                      className="bg-slate-950 hover:bg-slate-850 disabled:opacity-30 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-center gap-2 cursor-pointer w-full text-center"
-                    >
-                      <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-slate-100">Warmup Set</span>
-                      <div className={`w-4.5 h-4.5 border border-slate-700 bg-slate-950 flex items-center justify-center shrink-0 rounded-none transition-colors ${set.isWarmup ? 'border-amber-500 bg-amber-500/10' : ''}`}>
-                        {set.isWarmup && <Check className="w-3 h-3 text-amber-400 shrink-0 stroke-[3]" />}
-                      </div>
-                    </button>
+                    {/* Restore Planned Targets Button */}
+                    {(() => {
+                      const canRestore = canRestorePlannedTargets({
+                        exercise: ex,
+                        exIdx,
+                        prescribedTargetSnapshots,
+                        currentLiveAdjustedSets: liveAdjustedSets,
+                        userTouchedSets,
+                        focusedSetKey,
+                        activeSelectorRowKey: activeSelector ? `${activeSelector.exIdx}-${activeSelector.setIdx}` : null,
+                      });
+                      return (
+                        <button
+                          type="button"
+                          disabled={!canRestore}
+                          onClick={() => {
+                            if (canRestore) {
+                              handleRestorePlannedTargets(exIdx);
+                              dismissSetAction();
+                            }
+                          }}
+                          title={canRestore ? 'Restore planned targets for this exercise' : 'No restorable live targets'}
+                          className={`w-full p-3 border rounded-none flex items-center justify-center gap-1.5 transition ${
+                            canRestore
+                              ? 'bg-indigo-950/40 hover:bg-indigo-900/60 border-indigo-500/40 text-indigo-300 hover:text-on-accent cursor-pointer'
+                              : 'bg-slate-950 border-slate-850 text-slate-600 opacity-40 cursor-not-allowed'
+                          }`}
+                        >
+                          <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-center leading-tight">
+                            Undo targets
+                          </span>
+                        </button>
+                      );
+                    })()}
                   </div>
-
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
@@ -6019,37 +5972,79 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                       onClick={() => handleOpenCalc(exIdx, setIdx)}
                       className="bg-slate-950 hover:bg-slate-850 disabled:opacity-30 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-center cursor-pointer w-full text-center"
                     >
-                      <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-slate-100 whitespace-nowrap">
+                      <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-slate-100">
                         Equiv Set Calc
                       </span>
                     </button>
-
+                    <button type="button" disabled title="Coming soon" className="w-full p-3 bg-slate-950 border border-slate-850 text-slate-400 opacity-40 cursor-not-allowed font-mono text-xs sm:text-sm font-black uppercase tracking-wide">Plate calc</button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" disabled title="Coming soon" className="w-full p-3 bg-slate-950 border border-slate-850 text-slate-400 opacity-40 cursor-not-allowed font-mono text-xs sm:text-sm font-black uppercase tracking-wide">Prog Goal</button>
+                    <button ref={reportTriggerRef} type="button" onClick={() => setShowPRReport(true)} className="w-full p-3 bg-selected-surface border border-indigo-400 text-slate-100 transition font-mono text-xs sm:text-sm font-black uppercase tracking-wide">PR Report</button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* Skip Set / Unskip Set Button */}
+                    {(() => {
+                      if (set.isWarmup) {
+                        return (
+                          <button
+                            type="button"
+                            disabled
+                            className="bg-slate-950 disabled:opacity-40 border border-slate-850 rounded-none p-3 text-slate-500 font-mono text-xs sm:text-sm font-black uppercase tracking-wide cursor-not-allowed w-full text-center"
+                          >
+                            SKIP SET
+                          </button>
+                        );
+                      }
+                      const isSkipped = !!set.isSkipped;
+                      const check = isSkipped ? canUnskipSet(ex.sets, setIdx) : canSkipSet(ex.sets, setIdx);
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (check.allowed) {
+                              handleToggleSkipSet(exIdx, setIdx);
+                              dismissSetAction();
+                            }
+                          }}
+                          disabled={!check.allowed}
+                          title={check.allowed ? undefined : check.reason}
+                          className={`w-full p-3 border rounded-none flex items-center justify-center gap-2 transition cursor-pointer ${
+                            isSkipped
+                              ? 'bg-amber-500/10 hover:bg-warning-action-hover/20 border-amber-500/30 text-amber-400 disabled:opacity-40'
+                              : 'bg-slate-950 hover:bg-slate-850 border-slate-850 text-slate-300 hover:text-amber-400 disabled:opacity-40'
+                          }`}
+                        >
+                          <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide">
+                            {isSkipped ? 'UNSKIP SET' : 'SKIP SET'}
+                          </span>
+                        </button>
+                      );
+                    })()}
                     <button
                       type="button"
-                      disabled={set.isSkipped}
                       onClick={() => {
-                        handleAutoWarmup(exIdx, setIdx);
+                        handleDeleteSet(exIdx, setIdx);
                         dismissSetAction();
                       }}
-                      className="bg-slate-950 hover:bg-slate-850 disabled:opacity-30 border border-slate-850 rounded-none p-3 text-slate-300 transition flex items-center justify-center cursor-pointer w-full text-center"
+                      className="w-full text-center bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/40 rounded-none p-3 text-rose-400 transition flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide text-slate-100 whitespace-nowrap">
-                        Auto Warmup
-                      </span>
+                      <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide">DELETE SET</span>
+                      <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
                     </button>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleDeleteSet(exIdx, setIdx);
-                      dismissSetAction();
-                    }}
-                    className="w-full text-center bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/40 rounded-none p-3 text-rose-400 transition flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <span className="text-xs sm:text-sm font-black uppercase font-mono tracking-wide">DELETE SET</span>
-                    <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
-                  </button>
+                  {!set.isWarmup && (() => {
+                    const isSkipped = !!set.isSkipped;
+                    const check = isSkipped ? canUnskipSet(ex.sets, setIdx) : canSkipSet(ex.sets, setIdx);
+                    if (!check.allowed && check.reason) {
+                      return (
+                        <p className="text-[10px] text-amber-500/80 font-mono text-center px-1">
+                          {check.reason}
+                        </p>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
               </div>}
             </div>

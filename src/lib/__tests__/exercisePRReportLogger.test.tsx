@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkoutLogger } from '../../components/WorkoutLogger';
 import { storage } from '../storage';
@@ -22,7 +22,7 @@ async function setup(themeId = 'slate') {
   return { ...view, onClose, onSave };
 }
 const trigger = (index = 0) => screen.getAllByLabelText('Set options; press and hold to reorder')[index];
-const open = () => fireEvent.click(screen.getByRole('button', { name: 'View PR report' }));
+const open = () => fireEvent.click(screen.getByRole('button', { name: 'PR Report' }));
 
 describe('Workout Logger PR report subview', () => {
   it.each(['slate', 'onyx', 'amber'])('preserves live draft and uncommitted comment, without report-caused writes or Logger replacement in %s', async theme => {
@@ -32,6 +32,23 @@ describe('Workout Logger PR report subview', () => {
     fireEvent.change(rowInputs[1], { target: { value: '6' } });
     fireEvent.change(view.container.querySelector('textarea')!, { target: { value: 'Unsaved overall note' } });
     fireEvent.click(trigger());
+    const dialog = screen.getByRole('dialog');
+    const rowPairs = [
+      ['MOVE UP', 'MOVE DOWN'], ['Warmup Set', 'Auto Warmup'],
+      ['Drop Set', 'Undo targets'], ['Equiv Set Calc', 'Plate calc'],
+      ['Prog Goal', 'PR Report'], ['SKIP SET', 'DELETE SET'],
+    ];
+    for (const [left, right] of rowPairs) {
+      const leftButton = within(dialog).getByRole('button', { name: left });
+      const rightButton = within(dialog).getByRole('button', { name: right });
+      expect(leftButton.parentElement).toBe(rightButton.parentElement);
+      expect(leftButton.nextElementSibling).toBe(rightButton);
+    }
+    const actionLabels = within(dialog).getAllByRole('button')
+      .map(button => button.textContent?.trim()).filter(label => label !== 'CLOSE' && label !== 'Save' && label !== '');
+    expect(actionLabels).toEqual(rowPairs.flat());
+    expect((within(dialog).getByRole('button', { name: 'Plate calc' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(dialog).getByRole('button', { name: 'Prog Goal' }) as HTMLButtonElement).disabled).toBe(true);
     const input = screen.getByPlaceholderText('e.g., Last rep was slow, good squeeze') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'Uncommitted text' } });
     const before = JSON.stringify(getActiveWorkoutDraft()?.rawDraft);
@@ -50,7 +67,7 @@ describe('Workout Logger PR report subview', () => {
     expect(getLogs).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Close PR report' }));
     expect((screen.getByPlaceholderText('e.g., Last rep was slow, good squeeze') as HTMLInputElement).value).toBe('Uncommitted text');
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'View PR report' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'PR Report' }));
     expect(JSON.stringify(getActiveWorkoutDraft()?.rawDraft)).toBe(before);
     expect(getActiveWorkoutDraft()?.rawDraft.exercises[0].sets[1]).toMatchObject({ weight: 125, reps: 6, rpe: 8, form: 'strict' });
     expect(getActiveWorkoutDraft()?.rawDraft.notes).toBe('Unsaved overall note');
@@ -90,7 +107,7 @@ describe('Workout Logger PR report subview', () => {
     window.__ignoreNextPopCount = 0;
     fireEvent.popState(window);
     expect(screen.getByRole('heading', { name: 'Set 1 Options' })).toBeTruthy();
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'View PR report' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'PR Report' }));
     fireEvent.popState(window);
     expect(screen.queryByRole('dialog')).toBeNull(); expect(document.activeElement).toBe(original);
   });
