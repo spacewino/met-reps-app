@@ -48,7 +48,7 @@ describe('Workout Logger PR report subview', () => {
     expect(writes).not.toHaveBeenCalled();
     expect(remove).not.toHaveBeenCalled();
     expect(getLogs).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Back to set options' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close PR report' }));
     expect((screen.getByPlaceholderText('e.g., Last rep was slow, good squeeze') as HTMLInputElement).value).toBe('Uncommitted text');
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'View PR report' }));
     expect(JSON.stringify(getActiveWorkoutDraft()?.rawDraft)).toBe(before);
@@ -72,10 +72,10 @@ describe('Workout Logger PR report subview', () => {
   it('traps focus and dismisses report first by Escape and then restores the original trigger', async () => {
     await setup();
     const original = trigger(); fireEvent.click(original); open();
-    const back = screen.getByRole('button', { name: 'Back to set options' });
     const close = screen.getByRole('button', { name: 'Close PR report' });
-    back.focus(); fireEvent.keyDown(document, { key: 'Tab' }); expect(document.activeElement).toBe(close);
-    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true }); expect(document.activeElement).toBe(back);
+    expect(screen.queryByRole('button', { name: 'Back to set options' })).toBeNull();
+    close.focus(); fireEvent.keyDown(document, { key: 'Tab' }); expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true }); expect(document.activeElement).toBe(close);
     original.focus(); expect(document.activeElement).toBe(close);
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.getByRole('heading', { name: 'Set 1 Options' })).toBeTruthy();
@@ -114,7 +114,7 @@ describe('Workout Logger PR report subview', () => {
     expect(localStorage.getItem('restStartTime')).toBe(start);
     expect(localStorage.getItem('restStartContext')).toBe(context);
     expect(screen.getAllByText('00:01').length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: 'Back to set options' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close PR report' }));
     expect(localStorage.getItem('restStartTime')).toBe(start);
   });
   it('keeps normal draft lifecycle flushing active while report is open', async () => {

@@ -5806,7 +5806,6 @@ export function WorkoutLogger({ initialParams, onClose, onSave, themeId: propThe
                 <button aria-label={showPRReport ? 'Close PR report' : 'Close set options'} onClick={dismissSetSubview} className="text-slate-400 hover:text-white text-xs font-bold font-mono">CLOSE</button>
               </div>
               {showPRReport ? <>
-                <button type="button" onClick={dismissPRReport} className="w-full p-3 border-b border-slate-800 text-indigo-300 font-bold text-sm">Back to set options</button>
                 <ExercisePRReport exercise={ex} workoutLogs={workoutLogs} unit={unit} />
               </> : <div className="p-4 space-y-3">
                 {/* Move Up / Move Down buttons at the very top */}
